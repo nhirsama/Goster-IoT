@@ -1,0 +1,11 @@
+[target.thumbv7m-none-eabi]
+# 确保芯片型号改为 stm32f103c6
+#runner = "probe-rs run --chip stm32f103c6 --connect-under-reset"
+runner = "probe-rs run --chip stm32f103c8"
+[build]
+target = "thumbv7m-none-eabi"
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+rustflags = [
+    "-C", "link-arg=-Tlink.x",
+]
