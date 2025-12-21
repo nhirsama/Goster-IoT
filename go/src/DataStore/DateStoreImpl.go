@@ -14,8 +14,13 @@ import (
 
 // LocalStore 实现了 inter.DataStore 接口
 type LocalStore struct {
-	basePath string
-	locks    sync.Map // 用于存储每个 uuid 的 *sync.RWMutex，实现分段锁
+	basePath   string
+	indexPath  string            // 全局索引文件路径：basePath/tokens.json
+	locks      sync.Map          // 用于存储每个 uuid 的 *sync.RWMutex，实现分段锁
+	tokenIndex sync.RWMutex      // 用于保护全局 Token 索引文件的读写锁
+	tokenMu    sync.RWMutex      // 保护 tokenMap 的并发安全
+	tokenMap   map[string]string // 内存中的 Token -> UUID 映射表
+
 }
 
 // NewLocalStore 初始化存储根目录
@@ -23,7 +28,60 @@ func NewLocalStore(basePath string) (*LocalStore, error) {
 	if err := os.MkdirAll(basePath, 0755); err != nil {
 		return nil, err
 	}
-	return &LocalStore{basePath: basePath}, nil
+
+	s := &LocalStore{
+		basePath:  basePath,
+		indexPath: filepath.Join(basePath, "tokens.json"),
+		tokenMap:  make(map[string]string),
+	}
+
+	// 执行初始化检索与同步
+	if err := s.reconcileTokens(); err != nil {
+		return nil, fmt.Errorf("token reconciliation failed: %v", err)
+	}
+
+	return s, nil
+}
+
+// reconcileTokens 核心逻辑：确保索引文件与物理目录一致
+func (s *LocalStore) reconcileTokens() error {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+
+	// 1. 尝试加载现有的索引文件
+	if data, err := os.ReadFile(s.indexPath); err == nil {
+		json.Unmarshal(data, &s.tokenMap)
+	}
+
+	// 2. 扫描物理目录进行校验（以物理目录为准）
+	entries, _ := os.ReadDir(s.basePath)
+	changed := false
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		uuid := entry.Name()
+
+		// 读取每个设备的 config.json 验证 Token
+		var meta inter.DeviceMetadata
+		confPath := filepath.Join(s.basePath, uuid, "config.json")
+		if data, err := os.ReadFile(confPath); err == nil {
+			if err := json.Unmarshal(data, &meta); err == nil && meta.Token != "" {
+				// 如果索引缺失或不匹配，则补偿
+				if s.tokenMap[meta.Token] != uuid {
+					s.tokenMap[meta.Token] = uuid
+					changed = true
+				}
+			}
+		}
+	}
+
+	// 3. 如果发现不一致，回写索引文件保持同步
+	if changed {
+		s.saveTokenIndexLocked()
+	}
+	return nil
 }
 
 // getLock 获取或创建特定 UUID 的读写锁
@@ -38,7 +96,17 @@ func (s *LocalStore) InitDevice(uuid string, meta inter.DeviceMetadata) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return s.SaveConfig(uuid, meta) // 初始元数据作为基础配置保存
+
+	// 保存私有配置
+	if err := s.SaveConfig(uuid, meta); err != nil {
+		return err
+	}
+
+	// 同步到全局 Token 索引
+	if meta.Token != "" {
+		return s.UpdateToken(uuid, meta.Token)
+	}
+	return nil
 }
 
 // DestroyDevice 物理删除该 uuid 对应的整个目录
@@ -208,4 +276,52 @@ func convertFloat32(f float32) uint32 {
 
 func decodeFloat32(u uint32) float32 {
 	return 0.0 // 占位说明，实际应用应使用 math.Float32frombits
+}
+
+// GetDeviceByToken 实现 inter.DataStore 接口
+func (s *LocalStore) GetDeviceByToken(token string) (string, error) {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+
+	uuid, ok := s.tokenMap[token]
+	if !ok {
+		return "", fmt.Errorf("token not found")
+	}
+	return uuid, nil
+}
+
+// UpdateToken 更新指定设备的 Token 并同步全局索引
+func (s *LocalStore) UpdateToken(uuid string, newToken string) error {
+	// 1. 更新设备私有 config.json
+	var meta inter.DeviceMetadata
+	if err := s.LoadConfig(uuid, &meta); err != nil {
+		return err
+	}
+
+	oldToken := meta.Token
+	meta.Token = newToken
+	if err := s.SaveConfig(uuid, meta); err != nil {
+		return err
+	}
+
+	// 2. 同步更新内存和全局索引
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+
+	if oldToken != "" {
+		delete(s.tokenMap, oldToken)
+	}
+	s.tokenMap[newToken] = uuid
+
+	return s.saveTokenIndexLocked()
+}
+
+// 辅助方法：将内存 Map 持久化到 tokens.json
+func (s *LocalStore) saveTokenIndexLocked() error {
+	jsonData, _ := json.MarshalIndent(s.tokenMap, "", "  ")
+	tmpPath := s.indexPath + ".tmp"
+	if err := os.WriteFile(tmpPath, jsonData, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, s.indexPath)
 }

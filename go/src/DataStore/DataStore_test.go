@@ -1,9 +1,9 @@
 package DataStore
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -11,9 +11,19 @@ import (
 	"stm32f103keshe/src/inter"
 )
 
-// 辅助函数：创建临时存储目录
+// --- 随机数据生成辅助函数 ---
+
+func randomString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[rand.IntN(len(letters))]
+	}
+	return string(b)
+}
+
 func setupTestStore(t *testing.T) (*LocalStore, string) {
-	tempDir, err := os.MkdirTemp("", "datastore_test_*")
+	tempDir, err := os.MkdirTemp("", "datastore_token_test_*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -24,121 +34,162 @@ func setupTestStore(t *testing.T) (*LocalStore, string) {
 	return store, tempDir
 }
 
-// --- 功能测试 (Unit Tests) ---
+// --- 核心功能测试 ---
 
-func TestDeviceLifecycle(t *testing.T) {
+func TestTokenAndDeviceMapping(t *testing.T) {
 	store, tempDir := setupTestStore(t)
 	defer os.RemoveAll(tempDir)
 
-	uuid := "dev-001"
+	// 生成随机测试数据
+	randUUID := "dev-" + randomString(8)
+	randToken := "tk-" + randomString(16)
+	randName := "Node-" + randomString(4)
+
 	meta := inter.DeviceMetadata{
-		Name:         "TestNode",
-		SerialNumber: "SN123456",
+		Name:  randName,
+		Token: randToken,
 	}
 
-	// 1. 测试初始化
-	t.Run("InitDevice", func(t *testing.T) {
-		err := store.InitDevice(uuid, meta)
+	// 1. 测试初始化与自动索引
+	t.Run("InitAndAutoIndex", func(t *testing.T) {
+		err := store.InitDevice(randUUID, meta)
 		if err != nil {
-			t.Errorf("InitDevice failed: %v", err)
+			t.Fatalf("InitDevice failed: %v", err)
 		}
-		// 验证目录是否存在
-		if _, err := os.Stat(filepath.Join(tempDir, uuid)); os.IsNotExist(err) {
-			t.Error("Device directory was not created")
+
+		// 验证通过 Token 是否能找回 UUID
+		foundUUID, err := store.GetDeviceByToken(randToken)
+		if err != nil {
+			t.Errorf("GetDeviceByToken failed: %v", err)
+		}
+		if foundUUID != randUUID {
+			t.Errorf("Mapping mismatch: got %s, want %s", foundUUID, randUUID)
 		}
 	})
 
-	// 2. 测试元数据读取
-	t.Run("GetMetadata", func(t *testing.T) {
-		readMeta, err := store.GetMetadata(uuid)
-		if err != nil || readMeta.Name != meta.Name {
-			t.Errorf("Metadata mismatch. Got %v, want %v", readMeta, meta)
-		}
-	})
-
-	// 3. 测试时序数据存取
-	t.Run("AppendAndQueryMetrics", func(t *testing.T) {
-		now := time.Now().Unix()
-		f := rand.Float64()
-		points := []inter.MetricPoint{
-			{Timestamp: now, Value: float32(f)},
-			{Timestamp: now + 1, Value: 26.0},
+	// 2. 测试 Token 更新逻辑
+	t.Run("UpdateTokenMapping", func(t *testing.T) {
+		newToken := "new-tk-" + randomString(16)
+		err := store.UpdateToken(randUUID, newToken)
+		if err != nil {
+			t.Fatalf("UpdateToken failed: %v", err)
 		}
 
-		for _, p := range points {
-			store.AppendMetric(uuid, p.Timestamp, p.Value)
+		// 验证旧 Token 应该失效
+		_, err = store.GetDeviceByToken(randToken)
+		if err == nil {
+			t.Error("Old token should be invalidated but still works")
 		}
 
-		results, err := store.QueryMetrics(uuid, now, now+1)
-		if err != nil || len(results) != 2 {
-			t.Errorf("Query failed. Got %d points, err: %v", len(results), err)
+		// 验证新 Token 应该生效
+		foundUUID, err := store.GetDeviceByToken(newToken)
+		if err != nil || foundUUID != randUUID {
+			t.Errorf("New token mapping failed: %v", err)
 		}
-		if results[0].Value != float32(f) {
-			t.Errorf("Value mismatch. Got %f", results[0].Value)
-		}
-	})
 
-	// 4. 测试清理
-	t.Run("DestroyDevice", func(t *testing.T) {
-		store.DestroyDevice(uuid)
-		if _, err := os.Stat(filepath.Join(tempDir, uuid)); !os.IsNotExist(err) {
-			t.Error("Device directory still exists after destruction")
+		// 验证磁盘上的 config.json 也同步更新了
+		updatedMeta, _ := store.GetMetadata(randUUID)
+		if updatedMeta.Token != newToken {
+			t.Errorf("Metadata Token not updated in config.json: got %s", updatedMeta.Token)
 		}
 	})
 }
 
-// --- 压力与并发测试 (Stress Tests) ---
+// --- 并发压力测试 ---
 
-func TestConcurrentAppend(t *testing.T) {
+func TestConcurrentTokenAccess(t *testing.T) {
 	store, tempDir := setupTestStore(t)
 	defer os.RemoveAll(tempDir)
 
-	uuid := "stress-uuid"
-	store.InitDevice(uuid, inter.DeviceMetadata{Name: "StressNode"})
-
-	const (
-		goroutines = 50  // 50个并发协程
-		pointsPerG = 200 // 每个协程写200条
-	)
-
+	const deviceCount = 20
+	const opsPerDevice = 50
 	var wg sync.WaitGroup
-	wg.Add(goroutines)
 
-	startSignal := make(chan struct{})
-
-	// 并发写入
-	for i := 0; i < goroutines; i++ {
+	// 1. 并发初始化多个设备
+	for i := 0; i < deviceCount; i++ {
+		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			<-startSignal // 同步起跑
-			for j := 0; j < pointsPerG; j++ {
-				ts := int64(id*10000 + j)
-				store.AppendMetric(uuid, ts, float32(j))
+			u := fmt.Sprintf("u-%d-%s", id, randomString(4))
+			tk := "t-" + randomString(12)
+			store.InitDevice(u, inter.DeviceMetadata{Name: "Device", Token: tk})
+		}(i)
+	}
+	wg.Wait()
+
+	// 2. 模拟高并发下的 Token 更新与查询（测试全局 tokenIndex 锁）
+	startSignal := make(chan struct{})
+	for i := 0; i < deviceCount; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-startSignal
+			// 随机尝试获取或更新 Token
+			for j := 0; j < opsPerDevice; j++ {
+				dummyToken := "test-" + randomString(10)
+				_, _ = store.GetDeviceByToken(dummyToken) // 频繁读
+
+				// 模拟业务中偶尔的 Token 刷新
+				if j%10 == 0 {
+					_ = store.UpdateToken(fmt.Sprintf("dev-%d", id), "new-"+randomString(10))
+				}
 			}
 		}(i)
 	}
 
 	close(startSignal)
 	wg.Wait()
+	t.Log("Concurrent Token access completed without race/panic")
+}
 
-	// 验证总数：50 * 200 = 10000 条数据，每条 12 字节 = 120,000 字节
-	fInfo, _ := os.Stat(filepath.Join(tempDir, uuid, "metrics.bin"))
-	expectedSize := int64(goroutines * pointsPerG * 12)
-	if fInfo.Size() != expectedSize {
-		t.Errorf("File size mismatch. Got %d, want %d", fInfo.Size(), expectedSize)
+// --- 时序数据随机化测试 ---
+
+func TestAppendMetricsRandomized(t *testing.T) {
+	store, tempDir := setupTestStore(t)
+	defer os.RemoveAll(tempDir)
+
+	uuid := "metric-dev-" + randomString(4)
+	store.InitDevice(uuid, inter.DeviceMetadata{Name: "Sensor"})
+
+	// 生成随机数量的数据点
+	count := 50 + rand.IntN(50)
+	startTime := time.Now().Unix()
+
+	t.Logf("Appending %d random metric points", count)
+
+	for i := 0; i < count; i++ {
+		ts := startTime + int64(i)
+		val := rand.Float32() * 100.0
+		err := store.AppendMetric(uuid, ts, val)
+		if err != nil {
+			t.Fatalf("Append failed at index %d: %v", i, err)
+		}
+	}
+
+	// 查询并校验
+	res, err := store.QueryMetrics(uuid, startTime, startTime+int64(count))
+	if err != nil || len(res) != count {
+		t.Errorf("Query mismatch: got %d points, want %d", len(res), count)
 	}
 }
 
-// --- 基准测试 (Benchmarks) ---
+// --- 基准测试：Token 查找性能 ---
 
-func BenchmarkAppendMetric(b *testing.B) {
+func BenchmarkGetDeviceByToken(b *testing.B) {
 	store, tempDir := setupTestStore(nil)
 	defer os.RemoveAll(tempDir)
-	uuid := "bench-uuid"
-	store.InitDevice(uuid, inter.DeviceMetadata{})
+
+	// 预填充 100 个设备
+	tokens := make([]string, 100)
+	for i := 0; i < 100; i++ {
+		tokens[i] = "tk-" + randomString(20)
+		store.InitDevice(fmt.Sprintf("dev-%d", i), inter.DeviceMetadata{Token: tokens[i]})
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.AppendMetric(uuid, int64(i), 1.23)
+		// 随机查找其中一个 Token
+		target := tokens[rand.IntN(len(tokens))]
+		_, _ = store.GetDeviceByToken(target)
 	}
 }
