@@ -180,7 +180,7 @@ func BenchmarkGetDeviceByToken(b *testing.B) {
 	defer os.RemoveAll(tempDir)
 
 	// 预填充 100 个设备
-	tokens := make([]string, 100)
+	tokens := make([]string, 1000)
 	for i := 0; i < 100; i++ {
 		tokens[i] = "tk-" + randomString(20)
 		store.InitDevice(fmt.Sprintf("dev-%d", i), inter.DeviceMetadata{Token: tokens[i]})

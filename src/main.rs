@@ -1,10 +1,12 @@
 #![no_std]
 #![no_main]
 
+mod device_meta;
+mod logo;
 mod ntc_sensor;
 
 use cortex_m_rt::entry;
-
+use panic_halt as _;
 use stm32f1xx_hal::{
     adc,
     i2c::{BlockingI2c, Mode}, // 只需要 Mode，不需要 DutyCycle 了
@@ -28,8 +30,14 @@ use core::fmt::Write;
 // 必须导入 Write Trait
 use heapless::String;
 
+use cortex_m as _;
+use rtt_target;
+use rtt_target::rprintln;
+
 #[entry]
 fn main() -> ! {
+    rtt_target::rtt_init_print!();
+    let cp = cortex_m::Peripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
     let mut flash = dp.FLASH.constrain();
     let rcc = dp.RCC.constrain();
@@ -46,7 +54,6 @@ fn main() -> ! {
     let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
     let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
 
-    // --- 修改开始 ---
     let i2c = BlockingI2c::i2c1(
         dp.I2C1,
         (scl, sda),
@@ -78,6 +85,7 @@ fn main() -> ! {
 
     display.flush().unwrap();
 
+    let mut delay = cp.SYST.delay(&clocks);
     let pb0_analog = gpiob.pb0.into_analog(&mut gpiob.crl);
 
     // 3. 初始化 ADC1（如果你之前已经初始化过了，直接用即可）
@@ -87,9 +95,13 @@ fn main() -> ! {
     // 此时 Rust 编译器会自动推导出：
     // ADC_INST = pac::ADC1
     // PIN = stm32f1xx_hal::gpio::gpiob::PB0<Analog>
+    display.draw(&logo::IMAGE_DATA).unwrap();
+    display.flush().unwrap();
+    delay.delay_ms(5000_u16);
+
     let mut sensor = ntc_sensor::NtcSensor::new(adc1, pb0_analog);
+    let mut s: String<16> = String::new();
     loop {
-        let mut s: String<16> = String::new();
         let f32 = sensor.read_temp();
         write!(s, "Temp: {:.2} C", f32).unwrap();
         display.clear(BinaryColor::Off).unwrap();
@@ -97,5 +109,6 @@ fn main() -> ! {
             .draw(&mut display)
             .unwrap();
         display.flush().unwrap();
+        delay.delay_ms(500_u16);
     }
 }
