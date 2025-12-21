@@ -1,6 +1,6 @@
+use embedded_hal::adc::{Channel, OneShot};
 use micromath::F32Ext;
 use stm32f1xx_hal::adc;
-use embedded_hal::adc::{Channel, OneShot};
 
 pub struct NtcSensor<AdcInst, PIN> {
     adc: adc::Adc<AdcInst>,

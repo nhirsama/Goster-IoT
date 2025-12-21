@@ -13,12 +13,12 @@ use stm32f1xx_hal::{
 };
 
 use ssd1306::{
-    prelude::*, rotation::DisplayRotation, size::DisplaySize128x64, I2CDisplayInterface, Ssd1306,
+    I2CDisplayInterface, Ssd1306, prelude::*, rotation::DisplayRotation, size::DisplaySize128x64,
 };
 
 use embedded_graphics::{
     geometry::Point,
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
     pixelcolor::BinaryColor,
     prelude::*,
     text::{Baseline, Text},
@@ -77,7 +77,6 @@ fn main() -> ! {
         .build();
 
     display.flush().unwrap();
-
 
     let pb0_analog = gpiob.pb0.into_analog(&mut gpiob.crl);
 
