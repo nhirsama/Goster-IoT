@@ -3,6 +3,24 @@
 version = 4
 
 [[package]]
+name = "Goster-IoT"
+version = "0.1.0"
+dependencies = [
+ "cortex-m 0.7.7",
+ "cortex-m-rt",
+ "critical-section",
+ "embedded-graphics",
+ "embedded-hal",
+ "heapless",
+ "micromath 0.5.1",
+ "panic-halt",
+ "rtt-target",
+ "ssd1306",
+ "stm32-device-signature",
+ "stm32f1xx-hal",
+]
+
+[[package]]
 name = "aligned"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -438,24 +456,6 @@ dependencies = [
  "cortex-m 0.7.7",
  "cortex-m-rt",
  "vcell",
-]
-
-[[package]]
-name = "stm32f103keshe"
-version = "0.1.0"
-dependencies = [
- "cortex-m 0.7.7",
- "cortex-m-rt",
- "critical-section",
- "embedded-graphics",
- "embedded-hal",
- "heapless",
- "micromath 0.5.1",
- "panic-halt",
- "rtt-target",
- "ssd1306",
- "stm32-device-signature",
- "stm32f1xx-hal",
 ]
 
 [[package]]

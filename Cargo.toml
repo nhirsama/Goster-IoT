@@ -1,11 +1,11 @@
 [package]
-name = "stm32f103keshe"
+name = "Goster-IoT"
 version = "0.1.0"
 edition = "2024"
 
 
 [[bin]]
-name = "stm32f103keshe"
+name = "Goster-IoT"
 test = false
 bench = false
 
