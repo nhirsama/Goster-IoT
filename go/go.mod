@@ -1,3 +1,3 @@
-module stm32f103keshe
+module github.com/nhirsama/Goster-IoT
 
 go 1.24

@@ -8,13 +8,14 @@ version = "0.1.0"
 dependencies = [
  "cortex-m 0.7.7",
  "cortex-m-rt",
- "critical-section",
  "embedded-graphics",
  "embedded-hal",
+ "embedded-storage-async",
  "heapless",
  "micromath 0.5.1",
- "panic-halt",
- "rtt-target",
+ "panic-rtt-target",
+ "rtt-target 0.6.2",
+ "sequential-storage",
  "ssd1306",
  "stm32-device-signature",
  "stm32f1xx-hal",
@@ -226,6 +227,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-storage"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a21dea9854beb860f3062d10228ce9b976da520a73474aed3171ec276bc0c032"
+
+[[package]]
+name = "embedded-storage-async"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1763775e2323b7d5f0aa6090657f5e21cfa02ede71f5dc40eead06d64dcd15cc"
+dependencies = [
+ "embedded-storage",
+]
+
+[[package]]
 name = "float-cmp"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -343,10 +359,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "panic-halt"
-version = "0.2.0"
+name = "panic-rtt-target"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de96540e0ebde571dc55c73d60ef407c653844e6f9a1e2fdbd40c07b9252d812"
+checksum = "608d1d809dd8960d5e8364981279c7ab280a13d98b99eae049885a7ab2b1cbfe"
+dependencies = [
+ "critical-section",
+ "rtt-target 0.5.0",
+]
 
 [[package]]
 name = "portable-atomic"
@@ -370,6 +390,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rtt-target"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10b34c9e6832388e45f3c01f1bb60a016384a0a4ad80cdd7d34913bed25037f0"
+dependencies = [
+ "critical-section",
+ "ufmt-write",
 ]
 
 [[package]]
@@ -406,6 +436,15 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
+
+[[package]]
+name = "sequential-storage"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "634c2d26969edcb6b2c24c35cce4849c42199cd3ad32c69f6e5e02365ab60e76"
+dependencies = [
+ "embedded-storage-async",
+]
 
 [[package]]
 name = "ssd1306"

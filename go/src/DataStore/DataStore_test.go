@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"stm32f103keshe/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
 // --- 随机数据生成辅助函数 ---

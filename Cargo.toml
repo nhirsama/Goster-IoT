@@ -14,7 +14,8 @@ bench = false
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.5"
-panic-halt = "0.2.0"
+#panic-halt = "0.2.0"
+panic-rtt-target = "0.1.0"
 ssd1306 = "0.8.4"
 embedded-graphics = "0.8.1"
 stm32f1xx-hal = { version = "0.10.0", features = ["rt", "stm32f103", "medium"] }
@@ -23,7 +24,8 @@ micromath = "0.5.1"
 embedded-hal = "0.2.7"
 stm32-device-signature = { version = "0.3.3", features = ["stm32f1"] }
 rtt-target = "0.6.2"
-critical-section = { version = "1.1" }
+embedded-storage-async = "0.4.1"
+sequential-storage = { version = "7.0", default-features = false }
 
 # 针对 dev (debug) 模式的优化
 [profile.dev]
@@ -37,3 +39,6 @@ opt-level = "s"
 lto = true
 codegen-units = 1    # 进一步提高优化质量
 panic = "abort"
+
+#[dev-dependencies]
+#tokio = { version = "1", features = ["full"] } # 仅用于 PC 端跑测试
