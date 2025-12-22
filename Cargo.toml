@@ -39,6 +39,3 @@ opt-level = "s"
 lto = true
 codegen-units = 1    # 进一步提高优化质量
 panic = "abort"
-
-#[dev-dependencies]
-#tokio = { version = "1", features = ["full"] } # 仅用于 PC 端跑测试
