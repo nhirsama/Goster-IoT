@@ -28,7 +28,7 @@ func (i IdentityManager) GenerateUUID(meta inter.DeviceMetadata) (uuid string) {
 
 	finalHash := sha256.Sum256(combined)
 
-	uuid = string(finalHash[:])
+	uuid = hex.EncodeToString(finalHash[:])
 	return uuid
 }
 func (i IdentityManager) generateToken(uuid string) (token string) {
