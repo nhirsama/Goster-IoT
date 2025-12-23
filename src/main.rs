@@ -4,9 +4,9 @@ mod device_meta;
 mod logo;
 mod ntc_sensor;
 mod w25q64;
+mod storage;
 
 use cortex_m_rt::entry;
-// #[cfg(not(test))]
 use panic_rtt_target as _;
 use stm32f1xx_hal::{
     adc,
