@@ -270,15 +270,6 @@ func (s *LocalStore) WriteLog(uuid string, level string, message string) error {
 	return err
 }
 
-// 辅助函数：处理 float32 的二进制转换
-func convertFloat32(f float32) uint32 {
-	return binary.LittleEndian.Uint32(make([]byte, 4)) // 占位说明，实际应用应使用 math.Float32bits
-}
-
-func decodeFloat32(u uint32) float32 {
-	return 0.0 // 占位说明，实际应用应使用 math.Float32frombits
-}
-
 // GetDeviceByToken 实现 inter.DataStore 接口
 func (s *LocalStore) GetDeviceByToken(token string) (string, error) {
 	s.tokenMu.RLock()

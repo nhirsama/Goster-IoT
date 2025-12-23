@@ -14,16 +14,15 @@ type IdentityManager interface {
 	// [身份生成]
 
 	// GenerateUUID 根据设备唯一的硬件标识符（如芯片 uid）生成系统唯一的 UUID。
-	// 该过程应是确定性的，即相同的 hwID 在相同的盐值下始终生成相同的 UUID。
-	GenerateUUID(hwID string) string
+	// 该过程应是确定性的，即相同的 DeviceMetadata.SerialNumber 和 DeviceMetadata.MACAddress 始终生成相同的 UUID。
+	GenerateUUID(meta DeviceMetadata) (uuid string)
 
 	// [身份注册与签发]
 
 	// RegisterDevice 注册一个新设备到系统中。
 	// hwID: 硬件原始 ID；name: 设备别名。
 	// 返回生成的 UUID 和访问令牌 Token。
-	RegisterDevice(hwID string, name string) (uuid string, token string, err error)
-
+	RegisterDevice(uuid string, meta DeviceMetadata) (token string, err error)
 	// [凭证校验]
 
 	// Authenticate 验证传入 Token 的合法性。

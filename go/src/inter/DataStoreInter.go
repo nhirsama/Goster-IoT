@@ -9,6 +9,7 @@ type DeviceMetadata struct {
 	SWVersion     string    `json:"sw_version"`     // 固件/软件版本
 	ConfigVersion string    `json:"config_version"` // 配置文件版本
 	SerialNumber  string    `json:"sn"`             // 序列号
+	MACAddress    string    `json:"mac"`            // Mac 地址
 	CreatedAt     time.Time `json:"created_at"`     // 首次注册时间
 	Token         string    `json:"token"`          // 设备 Token
 }
