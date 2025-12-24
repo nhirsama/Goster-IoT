@@ -3,10 +3,10 @@
 mod device_meta;
 mod logo;
 mod ntc_sensor;
-mod w25q46_drive;
 mod w25q64;
+mod storage;
+
 use cortex_m_rt::entry;
-use embassy_executor::Spawner;
 use panic_rtt_target as _;
 use stm32f1xx_hal::{
     adc,
@@ -21,9 +21,11 @@ use ssd1306::{
 };
 
 use embedded_graphics::{
+    geometry::Point,
     mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
     pixelcolor::BinaryColor,
     prelude::*,
+    text::{Baseline, Text},
 };
 
 use core::fmt::Write;
@@ -31,13 +33,12 @@ use core::fmt::Write;
 use heapless::String;
 
 use crate::device_meta::DeviceMeta;
-use crate::w25q64::GosterStorage;
 use cortex_m as _;
 use rtt_target;
 use rtt_target::rprintln;
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[entry]
+fn main() -> ! {
     rtt_target::rtt_init_print!();
     let cp = cortex_m::Peripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
@@ -136,64 +137,64 @@ async fn main(_spawner: Spawner) {
         clocks,
     );
 
-    // 4. 实例化 w25q64
-    let mut flash_device = w25q46_drive::W25q64Device::new(spi, wq_cs);
-    let mut storage = GosterStorage::new(&mut flash_device, 0, 0x10000);
-
-    // 假设在 async 上下文中，变量 flash_device 和 storage 已经按照你之前的定义初始化
-    // storage 范围 0 到 0x10000
-
-    rprintln!("--- 启动 GosterStorage KV 读写测试 ---");
-
-    // 1. 定义测试用的 Key 和 Value
-    let test_key: u16 = 0x02;
-    let test_value: u32 = 0x1313; // 使用 u32 作为测试数据
-
-    // 2. 测试 set (写入/存储)
-    // 内部会调用 sequential-storage 的 store_item，处理擦除和负载均衡
-    rprintln!("Storage Setting: Key={}, Value={:#X}...", test_key, test_value);
-    match storage.set(test_key, test_value).await {
-        Ok(_) => rprintln!("Storage set success."),
-        Err(e) => {
-            rprintln!("Storage set error: {}", e);
-            return;
-        }
-    }
-
-    // 3. 测试 get (读取/查询)
-    // 需要显式指定获取的类型 V 为 u32
-    rprintln!("Storage Getting: Key={}...", test_key);
-    match storage.get::<u32>(test_key).await {
-        Ok(Some(val)) => {
-            rprintln!("Storage get success: {:#X}", val);
-
-            // 4. 校验数据
-            if val == test_value {
-                rprintln!("✅ 测试通过：读取到的 Value 与写入一致。");
-            } else {
-                rprintln!("❌ 测试失败：数据不匹配！");
-                rprintln!("   预期: {:#X}", test_value);
-                rprintln!("   实际: {:#X}", val);
-            }
-        }
-        Ok(None) => {
-            rprintln!("❌ 测试失败：未找到对应的 Key ({})", test_key);
-        }
-        Err(e) => {
-            rprintln!("❌ Storage get error: {}", e);
-        }
-    }
-
-    // 5. 可选：测试更新同一个 Key
-    let new_value: u32 = 0x12345678;
-    rprintln!("Testing update: Setting Key={} to {:#X}...", test_key, new_value);
-    if let Ok(_) = storage.set(test_key, new_value).await {
-        if let Ok(Some(val)) = storage.get::<u32>(test_key).await {
-            if val == new_value {
-                rprintln!("✅ 更新测试通过。");
-            }
-        }
-    }
+    // // 4. 实例化 w25q64
+    // let mut flash_device = w25q46_drive::W25q64Device::new(spi, wq_cs);
+    // let mut storage = GosterStorage::new(&mut flash_device, 0, 0x10000);
+    //
+    // // 假设在 async 上下文中，变量 flash_device 和 storage 已经按照你之前的定义初始化
+    // // storage 范围 0 到 0x10000
+    //
+    // rprintln!("--- 启动 GosterStorage KV 读写测试 ---");
+    //
+    // // 1. 定义测试用的 Key 和 Value
+    // let test_key: u16 = 0x02;
+    // let test_value: u32 = 0x1313; // 使用 u32 作为测试数据
+    //
+    // // 2. 测试 set (写入/存储)
+    // // 内部会调用 sequential-storage 的 store_item，处理擦除和负载均衡
+    // rprintln!("Storage Setting: Key={}, Value={:#X}...", test_key, test_value);
+    // match storage.set(test_key, test_value).await {
+    //     Ok(_) => rprintln!("Storage set success."),
+    //     Err(e) => {
+    //         rprintln!("Storage set error: {}", e);
+    //         return;
+    //     }
+    // }
+    //
+    // // 3. 测试 get (读取/查询)
+    // // 需要显式指定获取的类型 V 为 u32
+    // rprintln!("Storage Getting: Key={}...", test_key);
+    // match storage.get::<u32>(test_key).await {
+    //     Ok(Some(val)) => {
+    //         rprintln!("Storage get success: {:#X}", val);
+    //
+    //         // 4. 校验数据
+    //         if val == test_value {
+    //             rprintln!("✅ 测试通过：读取到的 Value 与写入一致。");
+    //         } else {
+    //             rprintln!("❌ 测试失败：数据不匹配！");
+    //             rprintln!("   预期: {:#X}", test_value);
+    //             rprintln!("   实际: {:#X}", val);
+    //         }
+    //     }
+    //     Ok(None) => {
+    //         rprintln!("❌ 测试失败：未找到对应的 Key ({})", test_key);
+    //     }
+    //     Err(e) => {
+    //         rprintln!("❌ Storage get error: {}", e);
+    //     }
+    // }
+    //
+    // // 5. 可选：测试更新同一个 Key
+    // let new_value: u32 = 0x12345678;
+    // rprintln!("Testing update: Setting Key={} to {:#X}...", test_key, new_value);
+    // if let Ok(_) = storage.set(test_key, new_value).await {
+    //     if let Ok(Some(val)) = storage.get::<u32>(test_key).await {
+    //         if val == new_value {
+    //             rprintln!("✅ 更新测试通过。");
+    //         }
+    //     }
+    // }
 
 
     loop {

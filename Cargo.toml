@@ -26,6 +26,9 @@ stm32-device-signature = { version = "0.3.3", features = ["stm32f1"] }
 rtt-target = "0.6.2"
 embedded-storage-async = "0.4.1"
 sequential-storage = { version = "7.0", default-features = false }
+postcard = { version = "=1.0.10", default-features = false }
+w25 = "0.6.0"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 # 针对 dev (debug) 模式的优化
 [profile.dev]

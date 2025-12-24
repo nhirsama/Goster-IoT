@@ -1,7 +1,7 @@
 package main
 
 import (
-	"stm32f103keshe/cli"
+	"github.com/nhirsama/Goster-IoT/cli"
 )
 
 func main() {

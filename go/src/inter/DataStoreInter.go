@@ -2,15 +2,26 @@ package inter
 
 import "time"
 
+type AuthenticateStatusType int
+
+const (
+	Authenticated       AuthenticateStatusType = iota // 已认证
+	AuthenticateRefuse                                // 拒绝认证
+	AuthenticatePending                               // 等待认证
+	AuthenticateUnknown                               // 未知的设备
+)
+
 // DeviceMetadata 设备静态元数据
 type DeviceMetadata struct {
-	Name          string    `json:"name"`           // 设备名称
-	HWVersion     string    `json:"hw_version"`     // 硬件版本
-	SWVersion     string    `json:"sw_version"`     // 固件/软件版本
-	ConfigVersion string    `json:"config_version"` // 配置文件版本
-	SerialNumber  string    `json:"sn"`             // 序列号
-	CreatedAt     time.Time `json:"created_at"`     // 首次注册时间
-	Token         string    `json:"token"`          // 设备 Token
+	Name               string                 `json:"name"`               // 设备名称
+	HWVersion          string                 `json:"hw_version"`         // 硬件版本
+	SWVersion          string                 `json:"sw_version"`         // 固件/软件版本
+	ConfigVersion      string                 `json:"config_version"`     // 配置文件版本
+	SerialNumber       string                 `json:"sn"`                 // 序列号
+	MACAddress         string                 `json:"mac"`                // Mac 地址
+	CreatedAt          time.Time              `json:"created_at"`         // 首次注册时间
+	Token              string                 `json:"token"`              // 设备 Token
+	AuthenticateStatus AuthenticateStatusType `json:"authenticateStatus"` // 设备认证状态
 }
 
 // DeviceRecord 设备记录（用于列表展示）
@@ -36,22 +47,16 @@ type DataStore interface {
 	InitDevice(uuid string, meta DeviceMetadata) error
 
 	// DestroyDevice 彻底删除指定设备的所有数据，包括配置、时序指标和日志。
-	// 该操作不可逆，请谨慎调用。
 	DestroyDevice(uuid string) error
 
 	// [配置与元数据管理]
 
 	// LoadConfig 从存储中读取指定设备的配置信息。
-	// out 必须是一个指针类型，函数会将存储的配置反序列化到该对象中。
-	LoadConfig(uuid string, out interface{}) error
+	LoadConfig(uuid string) (out DeviceMetadata, err error)
 
-	// SaveConfig 将配置信息持久化到存储中（冷数据存储）。
-	// data 是要保存的配置对象，该方法会覆盖原有的配置。
-	SaveConfig(uuid string, data interface{}) error
-
-	// GetMetadata 获取设备的静态描述信息。
-	// 返回 DeviceMetadata 结构体，包含注册时确定的硬件属性。
-	GetMetadata(uuid string) (DeviceMetadata, error)
+	// SaveMetadata 将元信息持久化到存储中（冷数据存储）。
+	// meta 是要保存的配置对象，该方法会覆盖原有的配置。
+	SaveMetadata(uuid string, meta DeviceMetadata) error
 
 	// ListDevices 分页查询已注册的设备列表。
 	// page 指定页码（通常从 1 开始），size 指定每页返回的条数。
@@ -76,9 +81,7 @@ type DataStore interface {
 	// [权限与映射管理]
 
 	// GetDeviceByToken 根据 Token 查找对应的设备 UUID。
-	// 权限模块在拦截到请求后，通过此方法确定请求属于哪个设备。
-	// 如果 Token 不存在或已过期，应返回特定错误（如 ErrInvalidToken）。
-	GetDeviceByToken(token string) (uuid string, err error)
+	GetDeviceByToken(token string) (uuid string, Status AuthenticateStatusType, err error)
 
 	// UpdateToken 更新指定设备的 Token。
 	// 用于 Token 过期重刷或安全性重置场景。
