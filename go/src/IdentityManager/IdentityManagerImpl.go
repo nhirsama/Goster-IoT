@@ -13,9 +13,9 @@ type IdentityManager struct {
 	DataStore inter.DataStore
 }
 
-func NewIdentityManager(ds inter.DataStore) inter.IdentityManager {
+func NewIdentityManager(db inter.DataStore) inter.IdentityManager {
 	return &IdentityManager{
-		DataStore: ds,
+		DataStore: db,
 	}
 }
 func (i IdentityManager) GenerateUUID(meta inter.DeviceMetadata) (uuid string) {
@@ -40,12 +40,26 @@ func (i IdentityManager) generateToken(uuid string) (token string) {
 func (i IdentityManager) RegisterDevice(uuid string, meta inter.DeviceMetadata) (token string, err error) {
 	token = i.generateToken(uuid)
 	meta.Token = token
+	meta.AuthenticateStatus = inter.Authenticated
 	err = i.DataStore.InitDevice(uuid, meta)
 	return token, err
 }
 
 func (i IdentityManager) Authenticate(token string) (uuid string, err error) {
-	return i.DataStore.GetDeviceByToken(token)
+	uuid, AuthenticateStatusType, err := i.DataStore.GetDeviceByToken(token)
+	if err != nil {
+		return uuid, err
+	}
+	switch AuthenticateStatusType {
+	case inter.Authenticated:
+		return uuid, err
+	case inter.AuthenticateRefuse:
+		return uuid, inter.ErrInvalidToken
+	case inter.AuthenticatePending:
+		return uuid, inter.ErrInvalidToken
+	default:
+		return uuid, inter.ErrDeviceUnknown
+	}
 }
 
 func (i IdentityManager) RefreshToken(uuid string) (newToken string, err error) {
@@ -53,7 +67,17 @@ func (i IdentityManager) RefreshToken(uuid string) (newToken string, err error) 
 	return token, i.DataStore.UpdateToken(uuid, token)
 }
 func (i IdentityManager) RevokeToken(uuid string) error {
-	token := i.generateToken(uuid)
-	// 删除 token 哪有直接生成一个新 token 来的方便
-	return i.DataStore.UpdateToken(uuid, token+"_invalid_token")
+	meta, err := i.DataStore.LoadConfig(uuid)
+	// 生成一个无效 token 以确保唯一性约束
+	token := i.generateToken(uuid) + "_invalid_token"
+	if err != nil {
+		return err
+	}
+	meta.Token = token
+	meta.AuthenticateStatus = inter.Authenticated
+	err = i.DataStore.SaveMetadata(uuid, meta)
+	if err != nil {
+		return err
+	}
+	return err
 }

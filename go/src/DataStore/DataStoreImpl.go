@@ -25,7 +25,7 @@ type LocalStore struct {
 }
 
 // NewLocalStore 初始化存储根目录
-func NewLocalStore(basePath string) (*LocalStore, error) {
+func NewLocalStore(basePath string) (inter.DataStore, error) {
 	if err := os.MkdirAll(basePath, 0755); err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (s *LocalStore) InitDevice(uuid string, meta inter.DeviceMetadata) error {
 	}
 
 	// 保存私有配置
-	if err := s.SaveConfig(uuid, meta); err != nil {
+	if err := s.SaveMetadata(uuid, meta); err != nil {
 		return err
 	}
 
@@ -122,7 +122,7 @@ func (s *LocalStore) DestroyDevice(uuid string) error {
 }
 
 // LoadConfig 从 config.json 加载配置
-func (s *LocalStore) LoadConfig(uuid string, out interface{}) error {
+func (s *LocalStore) LoadConfig(uuid string) (out inter.DeviceMetadata, err error) {
 	lock := s.getLock(uuid)
 	lock.RLock()
 	defer lock.RUnlock()
@@ -130,13 +130,18 @@ func (s *LocalStore) LoadConfig(uuid string, out interface{}) error {
 	path := filepath.Join(s.basePath, uuid, "config.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return inter.DeviceMetadata{}, err
 	}
-	return json.Unmarshal(data, out)
+	err = json.Unmarshal(data, &out)
+	if err != nil {
+		return inter.DeviceMetadata{}, err
+	}
+
+	return out, err
 }
 
-// SaveConfig 原子化保存配置（写临时文件 + Rename）
-func (s *LocalStore) SaveConfig(uuid string, data interface{}) error {
+// SaveMetadata 原子化保存配置（写临时文件 + Rename）
+func (s *LocalStore) SaveMetadata(uuid string, meta inter.DeviceMetadata) error {
 	lock := s.getLock(uuid)
 	lock.Lock()
 	defer lock.Unlock()
@@ -145,7 +150,7 @@ func (s *LocalStore) SaveConfig(uuid string, data interface{}) error {
 	tmpPath := filepath.Join(dir, "config.json.tmp")
 	finalPath := filepath.Join(dir, "config.json")
 
-	jsonData, err := json.MarshalIndent(data, "", "  ")
+	jsonData, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -161,7 +166,7 @@ func (s *LocalStore) SaveConfig(uuid string, data interface{}) error {
 // GetMetadata 获取元数据
 func (s *LocalStore) GetMetadata(uuid string) (inter.DeviceMetadata, error) {
 	var meta inter.DeviceMetadata
-	err := s.LoadConfig(uuid, &meta)
+	meta, err := s.LoadConfig(uuid)
 	return meta, err
 }
 
@@ -271,28 +276,28 @@ func (s *LocalStore) WriteLog(uuid string, level string, message string) error {
 }
 
 // GetDeviceByToken 实现 inter.DataStore 接口
-func (s *LocalStore) GetDeviceByToken(token string) (string, error) {
+func (s *LocalStore) GetDeviceByToken(token string) (uuid string, Status inter.AuthenticateStatusType, err error) {
 	s.tokenMu.RLock()
 	defer s.tokenMu.RUnlock()
 
 	uuid, ok := s.tokenMap[token]
 	if !ok {
-		return "", fmt.Errorf("token not found")
+		return uuid, inter.AuthenticateRefuse, fmt.Errorf("token not found")
 	}
-	return uuid, nil
+	return uuid, inter.Authenticated, nil
 }
 
 // UpdateToken 更新指定设备的 Token 并同步全局索引
 func (s *LocalStore) UpdateToken(uuid string, newToken string) error {
 	// 1. 更新设备私有 config.json
 	var meta inter.DeviceMetadata
-	if err := s.LoadConfig(uuid, &meta); err != nil {
+	if _, err := s.LoadConfig(uuid); err != nil {
 		return err
 	}
 
 	oldToken := meta.Token
 	meta.Token = newToken
-	if err := s.SaveConfig(uuid, meta); err != nil {
+	if err := s.SaveMetadata(uuid, meta); err != nil {
 		return err
 	}
 

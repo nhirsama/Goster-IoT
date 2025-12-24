@@ -4,8 +4,17 @@ import "errors"
 
 // 定义鉴权相关的标准错误
 var (
-	ErrInvalidToken = errors.New("auth: invalid or expired token")
-	ErrAccessDenied = errors.New("auth: access denied for this resource")
+	ErrInvalidToken = errors.New("auth: 令牌无效或已过期")
+	ErrAccessDenied = errors.New("auth: 该资源访问受限")
+
+	// ErrDeviceRefused 对应 AuthenticateRefuse
+	ErrDeviceRefused = errors.New("auth: 设备认证已被拒绝，禁止接入")
+
+	// ErrDevicePending 对应 AuthenticatePending
+	ErrDevicePending = errors.New("auth: 设备认证审核中，请等待管理员通过")
+
+	// ErrDeviceUnknown 对应 AuthenticateUnknown
+	ErrDeviceUnknown = errors.New("auth: 未找到对应设备信息或状态未知")
 )
 
 // IdentityManager 定义了设备身份认证与安全管理的标准接口。
