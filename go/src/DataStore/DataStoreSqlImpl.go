@@ -22,26 +22,39 @@ func NewAtomStore(dbPath string) (inter.DataStore, error) {
 
 	// 初始化原子化表结构
 	schema := `
-	CREATE TABLE IF NOT EXISTS devices (
-		uuid TEXT PRIMARY KEY,
-		name TEXT,
-		hw_version TEXT,
-		sw_version TEXT,
-		config_version TEXT,
-		sn TEXT,
-		mac TEXT,
-		created_at DATETIME,
-		token TEXT UNIQUE,
-		auth_status INTEGER
-	);
-	CREATE TABLE IF NOT EXISTS metrics (
-		uuid TEXT,
-		ts BIGINT,
-		value REAL
-	);
-	CREATE INDEX IF NOT EXISTS idx_metrics_query ON metrics (uuid, ts);
-	`
+    CREATE TABLE IF NOT EXISTS devices (
+       uuid TEXT PRIMARY KEY,
+       name TEXT,
+       hw_version TEXT,
+       sw_version TEXT,
+       config_version TEXT,
+       sn TEXT,
+       mac TEXT,
+       created_at DATETIME,
+       token TEXT UNIQUE,
+       auth_status INTEGER
+    );
+    
+    CREATE TABLE IF NOT EXISTS metrics (
+       uuid TEXT,
+       ts BIGINT,
+       value REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_metrics_query ON metrics (uuid, ts);
+
+    CREATE TABLE IF NOT EXISTS logs (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       uuid TEXT,
+       level TEXT,
+       message TEXT,
+       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_logs_uuid ON logs (uuid);
+    `
+
 	if _, err := db.Exec(schema); err != nil {
+		// 最好关闭数据库连接再返回错误，防止泄露
+		db.Close()
 		return nil, err
 	}
 	return &AtomStore{db: db}, nil
