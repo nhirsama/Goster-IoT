@@ -27,14 +27,10 @@ type DeviceManager interface {
 type MessageQueue interface {
 	// Push 入队
 	// 将指令推入指定 UUID 的队列中
-	Push(uuid string, message string) error
+	Push(uuid string, message interface{}) error
 
 	// Pop 出队
 	// 从指定 UUID 的队列中取出最早的一条指令 (FIFO)
 	// 返回: (指令内容, 是否存在指令)
-	Pop(uuid string) (string, bool)
-
-	// IsEmpty 判空
-	// 查询指定 UUID 的队列是否为空
-	IsEmpty(uuid string) bool
+	Pop(uuid string) (interface{}, bool)
 }
