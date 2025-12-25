@@ -1,0 +1,186 @@
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-white border-bottom py-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="card-title mb-0 fw-bold">{{.Meta.Name}}</h4>
+                <small class="text-muted">UUID: {{.UUID}}</small>
+            </div>
+            <!-- Optional: Add refresh button or status here -->
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">硬件版本</small>
+                    <span class="fw-medium">{{.Meta.HWVersion}}</span>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">软件版本</small>
+                    <span class="fw-medium">{{.Meta.SWVersion}}</span>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">序列号</small>
+                    <span class="fw-medium">{{.Meta.SerialNumber}}</span>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">MAC 地址</small>
+                    <span class="fw-medium">{{.Meta.MACAddress}}</span>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="p-2 border rounded bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted d-block">设备 Token</small>
+                        <code class="fw-medium text-break">{{.Meta.Token}}</code>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary"
+                            hx-post="/device/token/refresh?uuid={{.UUID}}"
+                            hx-confirm="确定要重置该设备的 Token 吗？这将导致设备断开连接。">
+                        重置 Token
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4 shadow-sm border-0 border-danger">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0 fs-6">危险操作区</h5>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2">
+             <button class="btn btn-danger"
+                    hx-post="/device/delete?uuid={{.UUID}}"
+                    hx-confirm="确定要永久删除该设备吗？所有数据将丢失！">
+                删除设备
+            </button>
+            <button class="btn btn-warning"
+                    hx-post="/device/revoke?uuid={{.UUID}}"
+                    hx-confirm="确定要吊销该设备的认证吗？">
+                吊销认证
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4 shadow-sm border-0" id="chart-container">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">实时数据监控</h5>
+        <div class="btn-group btn-group-sm" role="group">
+            <a href="#" class="btn btn-outline-secondary {{if eq .Range "1h"}}active{{end}}"
+               hx-get="/metrics/{{.UUID}}?range=1h" hx-target="#metrics-view" hx-swap="innerHTML">1小时</a>
+            <a href="#" class="btn btn-outline-secondary {{if eq .Range "6h"}}active{{end}}"
+               hx-get="/metrics/{{.UUID}}?range=6h" hx-target="#metrics-view" hx-swap="innerHTML">6小时</a>
+            <a href="#" class="btn btn-outline-secondary {{if eq .Range "24h"}}active{{end}}"
+               hx-get="/metrics/{{.UUID}}?range=24h" hx-target="#metrics-view" hx-swap="innerHTML">24小时</a>
+            <a href="#" class="btn btn-outline-secondary {{if eq .Range "7d"}}active{{end}}"
+               hx-get="/metrics/{{.UUID}}?range=7d" hx-target="#metrics-view" hx-swap="innerHTML">7天</a>
+            <a href="#" class="btn btn-outline-secondary {{if eq .Range "all"}}active{{end}}"
+               hx-get="/metrics/{{.UUID}}?range=all" hx-target="#metrics-view" hx-swap="innerHTML">全部</a>
+        </div>
+    </div>
+    <div class="card-body">
+        {{if .Metrics}}
+        <canvas id="metricsChart" style="max-height: 400px;"></canvas>
+        {{else}}
+        <div class="text-center py-5 text-muted">
+            <p class="mb-0">暂无数据</p>
+        </div>
+        <!-- Keep canvas hidden or non-existent to prevent chart errors, or just don't render script -->
+        {{end}}
+    </div>
+    {{if .Metrics}}
+    <script>
+      (function() {
+        function renderChart() {
+            var ctx = document.getElementById('metricsChart');
+            if (!ctx) return;
+            
+            // ... (rest of chart code) ...
+            
+            if (window.myMetricsChart) {
+                window.myMetricsChart.destroy();
+            }
+
+            window.myMetricsChart = new Chart(ctx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: [{{range .Metrics}}{{.Timestamp}} * 1000,{{end}}],
+                    datasets: [{
+                        label: '传感器数值',
+                        data: [{{range .Metrics}}{{.Value}},{{end}}],
+                        borderColor: 'rgb(13, 110, 253)', 
+                        backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute',
+                                tooltipFormat: 'yyyy-MM-dd HH:mm',
+                                displayFormats: {
+                                    minute: 'HH:mm',
+                                    hour: 'MM-dd HH:mm',
+                                    day: 'MM-dd'
+                                }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            grid: {
+                                color: '#f0f0f0'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    },
+                    animation: false
+                }
+            });
+        }
+
+        renderChart();
+
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'metrics-view') {
+                 if (window.myMetricsChart) {
+                    window.myMetricsChart.destroy();
+                 }
+            }
+        });
+      })();
+    </script>
+    {{end}}
+</div>

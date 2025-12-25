@@ -9,17 +9,17 @@ import (
 )
 
 type DeviceManager struct {
-	DataStore     inter.DataStore
-	DeviceManager inter.DeviceManager
-	timer         sync.Map
-	DeathLine     time.Duration
+	DataStore       inter.DataStore
+	IdentityManager inter.IdentityManager
+	timer           sync.Map
+	DeathLine       time.Duration
 }
 
-func NewDeviceManager(ds inter.DataStore, deviceManager inter.DeviceManager) inter.DeviceManager {
+func NewDeviceManager(ds inter.DataStore, IdentityManager inter.IdentityManager) inter.DeviceManager {
 	return &DeviceManager{
-		DataStore:     ds,
-		DeviceManager: deviceManager,
-		timer:         sync.Map{},
+		DataStore:       ds,
+		IdentityManager: IdentityManager,
+		timer:           sync.Map{},
 	}
 }
 

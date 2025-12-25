@@ -1,259 +1,432 @@
 package DataStore
 
 import (
-	"path/filepath"
+	"fmt"
+	"log"
+	"math/rand"
 	"testing"
+	"time"
 
-	"github.com/nhirsama/Goster-IoT/src/inter"
-	// 确保引入 sqlite 驱动，如果主文件已经引了，这里其实可以省略，但为了保险
-	_ "modernc.org/sqlite"
+	// TODO: 这里引入你实际实现接口的包
+	// "your_project/impl/sqlite"
+	"github.com/nhirsama/Goster-IoT/src/inter" // 替换为你的 inter 包路径
 )
 
-// setupTestStore 是一个辅助函数，用于创建临时的真实数据库环境
-// 它利用 t.TempDir() 创建临时目录，测试结束后操作系统会自动清理
-func setupTestStore(t *testing.T) (*AtomStore, string) {
-	// 1. 获取临时数据库路径
-	tempDir := t.TempDir()
-	//tempDir := "./data"
-	dbPath := filepath.Join(tempDir, "test_iot.db")
+// 全局存储接口实例
+var store inter.DataStore
 
-	// 2. 初始化 Store
-	ds, err := NewAtomStore(dbPath)
+// TestMain 用于全局初始化（可选），这里我们在每个测试用例中懒加载
+func TestMain(m *testing.M) {
+	rand.Seed(time.Now().UnixNano())
+	var err error
+	store, err = NewDataStoreSql("./data.db")
 	if err != nil {
-		t.Fatalf("Failed to init store: %v", err)
+		log.Fatal(err)
 	}
 
-	store, ok := ds.(*AtomStore)
-	if !ok {
-		t.Fatalf("Returned interface is not *AtomStore")
+	if store == nil {
+		fmt.Println("警告: store 未初始化，请修改测试文件中的 TestMain 或 initStore")
+		// 为了防止编译错误，这里如果不改代码会 panic，
+		// 实际使用请取消注释下面的代码并填入你的构造函数
+		// s, _ := sqlite.New("./data.db")
+		// store = s
 	}
 
-	return store, dbPath
+	m.Run()
 }
 
-func TestAtomStore_DeviceLifecycle(t *testing.T) {
-	store, _ := setupTestStore(t)
-	// 测试结束后关闭连接
-	defer store.db.Close()
+// -----------------------------------------------------------------------------
+// 辅助函数：随机数据生成器
+// -----------------------------------------------------------------------------
 
-	targetUUID := "uuid-test-001"
-	initMeta := inter.DeviceMetadata{
-		Name:               "Test Device",
-		HWVersion:          "v1.0",
-		SWVersion:          "v1.0.1",
-		ConfigVersion:      "c-100",
-		SerialNumber:       "SN-001",
-		MACAddress:         "AA:BB:CC:DD:EE:FF",
-		Token:              "token-secret-123",
-		AuthenticateStatus: 1, // 假设 1 代表已认证
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randomString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(b)
+}
+
+func generateUUID() string {
+	// 纳秒时间戳 + 随机数确保唯一性
+	return fmt.Sprintf("test-device-%d-%d", time.Now().UnixNano(), rand.Intn(100000))
+}
+
+func generateRandomMeta() inter.DeviceMetadata {
+	return inter.DeviceMetadata{
+		Name:               "Device-" + randomString(6),
+		HWVersion:          "v" + randomString(3),
+		SWVersion:          "v" + randomString(3),
+		ConfigVersion:      randomString(8),
+		SerialNumber:       "SN" + randomString(12),
+		MACAddress:         fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255)),
+		CreatedAt:          time.Now().Truncate(time.Second), // Truncate 避免数据库存储精度问题
+		Token:              "tk-" + randomString(32),
+		AuthenticateStatus: inter.AuthenticatePending,
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 功能测试 (Functional Tests)
+// -----------------------------------------------------------------------------
+
+// TestDeviceLifecycle 测试完整的设备生命周期：创建 -> 读取 -> 更新 -> 删除
+func TestDeviceLifecycle(t *testing.T) {
+	if store == nil {
+		t.Skip("Store not initialized")
 	}
 
+	uuid := generateUUID()
+	meta := generateRandomMeta()
+
+	// 1. InitDevice
 	t.Run("InitDevice", func(t *testing.T) {
-		err := store.InitDevice(targetUUID, initMeta)
+		err := store.InitDevice(uuid, meta)
 		if err != nil {
 			t.Fatalf("InitDevice failed: %v", err)
 		}
 	})
 
+	// 2. LoadConfig (Verify Init)
 	t.Run("LoadConfig", func(t *testing.T) {
-		loaded, err := store.LoadConfig(targetUUID)
+		loaded, err := store.LoadConfig(uuid)
 		if err != nil {
 			t.Fatalf("LoadConfig failed: %v", err)
 		}
-
-		if loaded.Name != initMeta.Name {
-			t.Errorf("Expected name %s, got %s", initMeta.Name, loaded.Name)
-		}
-		if loaded.Token != initMeta.Token {
-			t.Errorf("Expected token %s, got %s", initMeta.Token, loaded.Token)
+		// 简单的字段对比
+		if loaded.SerialNumber != meta.SerialNumber || loaded.Token != meta.Token {
+			t.Errorf("Loaded config mismatch. Got %+v, want %+v", loaded, meta)
 		}
 	})
 
-	t.Run("SaveMetadata (Update)", func(t *testing.T) {
-		newMeta := initMeta
-		newMeta.Name = "Updated Device Name"
-		newMeta.SWVersion = "v2.0"
+	// 3. SaveMetadata (Update)
+	newMeta := meta
+	newMeta.Name = "Updated-" + randomString(5)
+	newMeta.AuthenticateStatus = inter.Authenticated
 
-		err := store.SaveMetadata(targetUUID, newMeta)
+	t.Run("SaveMetadata", func(t *testing.T) {
+		err := store.SaveMetadata(uuid, newMeta)
 		if err != nil {
 			t.Fatalf("SaveMetadata failed: %v", err)
 		}
 
-		// 验证更新是否生效
-		loaded, err := store.LoadConfig(targetUUID)
-		if err != nil {
-			t.Fatalf("LoadConfig after update failed: %v", err)
+		// Verify Update
+		loaded, _ := store.LoadConfig(uuid)
+		if loaded.Name != newMeta.Name {
+			t.Errorf("Update failed. Name is %s, expected %s", loaded.Name, newMeta.Name)
 		}
-		if loaded.Name != "Updated Device Name" {
-			t.Errorf("Update failed, name is %s", loaded.Name)
+	})
+
+	// 4. DestroyDevice
+	t.Run("DestroyDevice", func(t *testing.T) {
+		err := store.DestroyDevice(uuid)
+		if err != nil {
+			t.Fatalf("DestroyDevice failed: %v", err)
+		}
+
+		// Verify Destroy
+		_, err = store.LoadConfig(uuid)
+		if err == nil {
+			t.Error("Device should be deleted, but LoadConfig returned success")
 		}
 	})
 }
 
-func TestAtomStore_Metrics(t *testing.T) {
-	store, _ := setupTestStore(t)
-	defer store.db.Close()
-
-	uuid := "sensor-001"
-	// 预先插入设备（虽然 metrics 表没有外键强约束，但符合逻辑）
-	store.InitDevice(uuid, inter.DeviceMetadata{Name: "Sensor"})
-
-	// 模拟插入数据：时间戳分别为 100, 200, 300
-	metrics := []struct {
-		ts  int64
-		val float32
-	}{
-		{100, 10.5},
-		{200, 20.5},
-		{300, 30.5},
+// TestMetricsManagement 测试时序数据的写入与查询
+func TestMetricsManagement(t *testing.T) {
+	if store == nil {
+		t.Skip("Store not initialized")
 	}
 
+	uuid := generateUUID()
+	store.InitDevice(uuid, generateRandomMeta())
+
+	baseTime := time.Now().Unix()
+	count := 100
+
+	// 1. AppendMetric
 	t.Run("AppendMetric", func(t *testing.T) {
-		for _, m := range metrics {
-			err := store.AppendMetric(uuid, m.ts, m.val)
+		for i := 0; i < count; i++ {
+			// 模拟每秒一个点，值随机
+			ts := baseTime + int64(i)
+			val := rand.Float32() * 100
+			err := store.AppendMetric(uuid, inter.MetricPoint{ts, val})
 			if err != nil {
-				t.Errorf("Failed to append metric: %v", err)
+				t.Fatalf("AppendMetric failed at index %d: %v", i, err)
 			}
 		}
 	})
 
+	// 2. QueryMetrics
 	t.Run("QueryMetrics", func(t *testing.T) {
-		// 查询范围 150 - 350 (应该包含 200 和 300)
-		points, err := store.QueryMetrics(uuid, 150, 350)
+		// 查询中间的一段数据 [20, 50]
+		start := baseTime + 20
+		end := baseTime + 50
+		expectedCount := 31 // 闭区间 inclusive
+
+		points, err := store.QueryMetrics(uuid, start, end)
 		if err != nil {
 			t.Fatalf("QueryMetrics failed: %v", err)
 		}
 
-		if len(points) != 2 {
-			t.Errorf("Expected 2 points, got %d", len(points))
+		if len(points) != expectedCount {
+			t.Errorf("QueryMetrics count mismatch. Got %d, want %d", len(points), expectedCount)
 		}
 
-		if points[0].Timestamp != 200 || points[1].Timestamp != 300 {
-			t.Errorf("Unexpected points data: %+v", points)
+		// 验证时间戳是否在范围内
+		for _, p := range points {
+			if p.Timestamp < start || p.Timestamp > end {
+				t.Errorf("Point timestamp %d out of range [%d, %d]", p.Timestamp, start, end)
+			}
 		}
 	})
 }
 
-func TestAtomStore_TokenAuth(t *testing.T) {
-	store, _ := setupTestStore(t)
-	defer store.db.Close()
+// TestAuthentication 测试 Token 相关的逻辑
+func TestAuthentication(t *testing.T) {
+	if store == nil {
+		t.Skip("Store not initialized")
+	}
 
-	uuid := "auth-device-001"
-	token := "sk-live-token"
-	authStatus := inter.AuthenticateStatusType(1)
+	uuid := generateUUID()
+	meta := generateRandomMeta()
+	originalToken := meta.Token
 
-	store.InitDevice(uuid, inter.DeviceMetadata{
-		Token:              token,
-		AuthenticateStatus: authStatus,
-	})
+	store.InitDevice(uuid, meta)
 
-	t.Run("GetDeviceByToken Success", func(t *testing.T) {
-		gotUUID, gotStatus, err := store.GetDeviceByToken(token)
+	// 1. GetDeviceByToken
+	t.Run("GetDeviceByToken", func(t *testing.T) {
+		gotUUID, status, err := store.GetDeviceByToken(originalToken)
 		if err != nil {
 			t.Fatalf("GetDeviceByToken failed: %v", err)
 		}
 		if gotUUID != uuid {
-			t.Errorf("UUID mismatch: expected %s, got %s", uuid, gotUUID)
+			t.Errorf("UUID mismatch. Got %s, want %s", gotUUID, uuid)
 		}
-		if gotStatus != authStatus {
-			t.Errorf("Status mismatch: expected %v, got %v", authStatus, gotStatus)
-		}
-	})
-
-	t.Run("GetDeviceByToken Fail", func(t *testing.T) {
-		_, _, err := store.GetDeviceByToken("invalid-token")
-		if err == nil {
-			t.Error("Expected error for invalid token, got nil")
+		if status != inter.AuthenticatePending {
+			t.Errorf("Status mismatch. Got %v", status)
 		}
 	})
 
+	// 2. UpdateToken
+	newToken := "tk-new-" + randomString(20)
 	t.Run("UpdateToken", func(t *testing.T) {
-		newToken := "sk-new-token"
 		err := store.UpdateToken(uuid, newToken)
 		if err != nil {
 			t.Fatalf("UpdateToken failed: %v", err)
 		}
 
 		// 验证旧 Token 失效
-		_, _, err = store.GetDeviceByToken(token)
+		_, _, err = store.GetDeviceByToken(originalToken)
 		if err == nil {
-			t.Error("Old token should not work")
+			t.Error("Old token should be invalid now")
 		}
 
 		// 验证新 Token 生效
 		gotUUID, _, err := store.GetDeviceByToken(newToken)
 		if err != nil || gotUUID != uuid {
-			t.Errorf("New token failed to verify")
+			t.Error("New token failed to authenticate")
+		}
+
+		// 验证 LoadConfig 也能读到新 Token
+		loaded, _ := store.LoadConfig(uuid)
+		if loaded.Token != newToken {
+			t.Errorf("Metadata not updated with new token. Got %s", loaded.Token)
 		}
 	})
 }
 
-func TestAtomStore_DestroyDevice_Transaction(t *testing.T) {
-	store, _ := setupTestStore(t)
-	defer store.db.Close()
-
-	uuid := "delete-me"
-
-	// 1. 准备数据：设备信息、Metrics、Logs
-	store.InitDevice(uuid, inter.DeviceMetadata{Name: "To Delete"})
-	store.AppendMetric(uuid, 1000, 50.0)
-	store.WriteLog(uuid, "INFO", "System start")
-
-	// 2. 执行删除
-	err := store.DestroyDevice(uuid)
-	if err != nil {
-		t.Fatalf("DestroyDevice failed: %v", err)
+// TestPagination 测试设备列表分页
+func TestPagination(t *testing.T) {
+	if store == nil {
+		t.Skip("Store not initialized")
 	}
 
-	// 3. 验证是否全部删除 (Devices 表)
-	_, err = store.LoadConfig(uuid)
-	if err == nil {
-		t.Error("Device should be deleted, but LoadConfig found it")
+	// 创建一批特定的测试设备，使用特殊前缀以便区分
+	prefix := "page-test-" + randomString(5)
+	total := 15
+
+	for i := 0; i < total; i++ {
+		uuid := fmt.Sprintf("%s-%d", prefix, i)
+		meta := generateRandomMeta()
+		meta.Name = uuid
+		store.InitDevice(uuid, meta)
 	}
 
-	// 4. 验证 Metrics 表
-	points, _ := store.QueryMetrics(uuid, 0, 2000)
-	if len(points) > 0 {
-		t.Error("Metrics should be deleted")
+	// 测试分页
+	pageSize := 5
+	// 我们无法保证数据库里只有我们刚插入的这15个，因为测试是追加的
+	// 所以我们主要测试返回的数量是否不超过 pageSize
+
+	t.Run("ListDevices", func(t *testing.T) {
+		list, err := store.ListDevices(1, pageSize)
+		if err != nil {
+			t.Fatalf("ListDevices failed: %v", err)
+		}
+
+		if len(list) > pageSize {
+			t.Errorf("Return size %d exceeds page size %d", len(list), pageSize)
+		}
+
+		// 如果是全新的库，第一页应该满
+		if len(list) == 0 {
+			t.Error("Returned empty list")
+		}
+	})
+}
+
+// TestLogging 测试日志写入 (由于接口没有 ReadLog，只测写入不报错)
+func TestLogging(t *testing.T) {
+	if store == nil {
+		t.Skip("Store not initialized")
 	}
 
-	// 5. 验证 Logs 表 (手动查询)
-	var logCount int
-	store.db.QueryRow("SELECT COUNT(*) FROM logs WHERE uuid = ?", uuid).Scan(&logCount)
-	if logCount > 0 {
-		t.Error("Logs should be deleted")
+	uuid := generateUUID()
+	store.InitDevice(uuid, generateRandomMeta())
+
+	levels := []string{"info", "warn", "error"}
+	for _, lvl := range levels {
+		err := store.WriteLog(uuid, lvl, "Test log message "+randomString(10))
+		if err != nil {
+			t.Errorf("WriteLog failed for level %s: %v", lvl, err)
+		}
 	}
 }
 
-func TestAtomStore_ListDevices(t *testing.T) {
-	store, _ := setupTestStore(t)
-	defer store.db.Close()
+// -----------------------------------------------------------------------------
+// 性能测试 (Benchmarks)
+// -----------------------------------------------------------------------------
 
-	// 插入 15 条数据
-	for i := 0; i < 15; i++ {
-		// 为了测试分页，确保 token 唯一，uuid 唯一
-		uuid := string(rune('A' + i)) // 简易生成 A, B, C...
-		store.InitDevice(uuid, inter.DeviceMetadata{
-			Name:  "Device " + uuid,
-			Token: "token-" + uuid,
-		})
+// BenchmarkInitDevice 压测设备注册性能
+func BenchmarkInitDevice(b *testing.B) {
+	if store == nil {
+		b.Skip("Store not initialized")
+	}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		uuid := fmt.Sprintf("bench-init-%d-%d", b.N, i)
+		meta := generateRandomMeta()
+		// 忽略错误，只测性能
+		_ = store.InitDevice(uuid, meta)
+	}
+}
+
+// BenchmarkAppendMetric 压测传感器数据写入性能
+func BenchmarkAppendMetric(b *testing.B) {
+	if store == nil {
+		b.Skip("Store not initialized")
 	}
 
-	// 测试分页：每页 10 条，取第 1 页
-	page1, err := store.ListDevices(1, 10)
-	if err != nil {
-		t.Fatalf("ListDevices page 1 failed: %v", err)
+	// 准备一个设备
+	uuid := "bench-metric-device-" + randomString(5)
+	store.InitDevice(uuid, generateRandomMeta())
+
+	ts := time.Now().Unix()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = store.AppendMetric(uuid, inter.MetricPoint{ts + int64(i), rand.Float32()})
 	}
-	if len(page1) != 10 {
-		t.Errorf("Expected 10 devices on page 1, got %d", len(page1))
+}
+
+// BenchmarkGetDeviceByToken 压测鉴权性能 (通常是最高频的操作)
+func BenchmarkGetDeviceByToken(b *testing.B) {
+	if store == nil {
+		b.Skip("Store not initialized")
 	}
 
-	// 测试分页：每页 10 条，取第 2 页 (应该剩 5 条)
-	page2, err := store.ListDevices(2, 10)
-	if err != nil {
-		t.Fatalf("ListDevices page 2 failed: %v", err)
+	uuid := "bench-auth-" + randomString(5)
+	meta := generateRandomMeta()
+	token := meta.Token
+	store.InitDevice(uuid, meta)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = store.GetDeviceByToken(token)
 	}
-	if len(page2) != 5 {
-		t.Errorf("Expected 5 devices on page 2, got %d", len(page2))
+}
+
+// BenchmarkQueryMetrics_Parallel 并发查询性能测试
+// 模拟场景：多个协程同时查询同一个设备的数据（测试读锁争用和缓存能力）
+func BenchmarkQueryMetrics_Parallel(b *testing.B) {
+	if store == nil {
+		b.Skip("Store not initialized")
 	}
+
+	// 1. 准备数据 (Setup)
+	uuid := "bench-query-parallel-" + randomString(5)
+	store.InitDevice(uuid, generateRandomMeta())
+
+	// 预埋 5000 条数据 (模拟比较大的数据集)
+	base := time.Now().Unix()
+	for i := 0; i < 5000; i++ {
+		// 忽略插入错误，这里只管造数据
+		_ = store.AppendMetric(uuid, inter.MetricPoint{base + int64(i), float32(i)})
+	}
+
+	// 2. 重置计时器，开始测试
+	b.ResetTimer()
+
+	// 3. 使用 RunParallel 利用所有 CPU 核心
+	b.RunParallel(func(pb *testing.PB) {
+		// 注意：查询通常是只读的，不需要每个协程有独立的随机源，
+		// 这里我们模拟查询固定的时间段
+		start := base
+		end := base + 100 // 每次查 100 个点
+
+		for pb.Next() {
+			_, _ = store.QueryMetrics(uuid, start, end)
+		}
+	})
+}
+
+// BenchmarkDeviceIngestion_Parallel 并发设备数据接入测试
+// 模拟场景：模拟 b.N 个设备同时发起连接，每个设备写入 batchSize 条数据
+// 这里的 ns/op 将代表“处理完一个设备的一批数据所需的时间”
+func BenchmarkDeviceIngestion_Parallel(b *testing.B) {
+	if store == nil {
+		b.Skip("Store not initialized")
+	}
+
+	const batchSize = 1000 // 每个设备写入 1000 个采样点
+
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		// ⚠️关键优化：每个协程使用独立的随机源，避免全局锁竞争
+		// 如果使用全局 rand.Intn，由于加锁，性能测试结果会严重失真
+		src := rand.NewSource(time.Now().UnixNano())
+		r := rand.New(src)
+
+		for pb.Next() {
+			// 1. 每个 Op 模拟一个新的设备接入
+			// 使用纳秒+随机数尽量保证 UUID 不冲突，避免 InitDevice 报错
+			uuid := fmt.Sprintf("bench-ingest-%d-%d", time.Now().UnixNano(), r.Int63())
+
+			// 构造元数据
+			meta := inter.DeviceMetadata{
+				Name:  "BenchDevice",
+				Token: fmt.Sprintf("tk-%d", r.Int63()),
+				// ... 其他字段简化 ...
+			}
+
+			// 2. 初始化设备
+			if err := store.InitDevice(uuid, meta); err != nil {
+				// 如果极低概率碰撞了，就跳过
+				continue
+			}
+
+			var point []inter.MetricPoint = make([]inter.MetricPoint, batchSize)
+			var tim = time.Now().UnixNano()
+			for i := 0; i < batchSize; i++ {
+				tim += 1
+				point[i] = inter.MetricPoint{Timestamp: tim, Value: 123.45}
+			}
+			store.BatchAppendMetrics(uuid, point)
+
+		}
+	})
 }

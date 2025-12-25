@@ -66,7 +66,10 @@ type DataStore interface {
 
 	// AppendMetric 向指定设备追加一条时序数据。
 	// ts 为 Unix 时间戳（秒或毫秒，取决于系统实现），value 为传感器采集的浮点数值。
-	AppendMetric(uuid string, ts int64, value float32) error
+	AppendMetric(uuid string, points MetricPoint) error
+
+	// BatchAppendMetrics 同时插入多条数据
+	BatchAppendMetrics(uuid string, points []MetricPoint) error
 
 	// QueryMetrics 查询指定时间范围内的时序数据。
 	// start 和 end 分别为开始和结束的时间戳（闭区间）。
