@@ -1,183 +1,234 @@
-<div class="card shadow-sm border-0">
-    <div class="card-header bg-white border-bottom py-3">
-        <div class="d-flex justify-content-between align-items-center">
-            <div>
-                <h4 class="card-title mb-0 fw-bold">{{.Meta.Name}}</h4>
-                <small class="text-muted">UUID: {{.UUID}}</small>
-            </div>
-            <!-- Optional: Add refresh button or status here -->
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-md-3 col-6">
-                <div class="p-2 border rounded bg-light">
-                    <small class="text-muted d-block">硬件版本</small>
-                    <span class="fw-medium">{{.Meta.HWVersion}}</span>
+<div class="fade-in">
+    <!-- Header Card -->
+    <div class="card mb-4">
+        <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                <div class="bg-light p-3 rounded-circle me-3 text-primary">
+                    <i class="fa-solid fa-server fa-2x"></i>
+                </div>
+                <div>
+                    <h4 class="mb-0 fw-bold">{{.Meta.Name}}</h4>
+                    <div class="text-muted small"><i class="fa-solid fa-fingerprint me-1"></i>{{.UUID}}</div>
                 </div>
             </div>
-            <div class="col-md-3 col-6">
-                <div class="p-2 border rounded bg-light">
-                    <small class="text-muted d-block">软件版本</small>
-                    <span class="fw-medium">{{.Meta.SWVersion}}</span>
-                </div>
-            </div>
-            <div class="col-md-3 col-6">
-                <div class="p-2 border rounded bg-light">
-                    <small class="text-muted d-block">序列号</small>
-                    <span class="fw-medium">{{.Meta.SerialNumber}}</span>
-                </div>
-            </div>
-            <div class="col-md-3 col-6">
-                <div class="p-2 border rounded bg-light">
-                    <small class="text-muted d-block">MAC 地址</small>
-                    <span class="fw-medium">{{.Meta.MACAddress}}</span>
-                </div>
-            </div>
-            <div class="col-12">
-                <div class="p-2 border rounded bg-light d-flex justify-content-between align-items-center">
-                    <div>
-                        <small class="text-muted d-block">设备 Token</small>
-                        <code class="fw-medium text-break">{{.Meta.Token}}</code>
-                    </div>
-                    <button class="btn btn-sm btn-outline-primary"
-                            hx-post="/device/token/refresh?uuid={{.UUID}}"
-                            hx-confirm="确定要重置该设备的 Token 吗？这将导致设备断开连接。">
-                        重置 Token
+            
+            {{if ge .Permission 2}}
+            <div class="d-flex align-items-center gap-2">
+                 <button class="btn btn-outline-primary btn-sm"
+                         hx-post="/device/token/refresh?uuid={{.UUID}}"
+                         hx-confirm="确定要重置该设备的 Token 吗？这将导致设备断开连接。">
+                    <i class="fa-solid fa-key me-1"></i>重置令牌
+                </button>
+                
+                <!-- Settings Dropdown -->
+                <div class="dropdown">
+                    <button class="btn btn-light btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fa-solid fa-gear text-secondary"></i>
                     </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                        <li><h6 class="dropdown-header text-uppercase small fw-bold">危险操作</h6></li>
+                        <li>
+                            <button class="dropdown-item text-danger"
+                                    hx-post="/device/revoke?uuid={{.UUID}}"
+                                    hx-confirm="确定要吊销该设备的认证吗？设备将无法连接。"
+                                    hx-target="body">
+                                <i class="fa-solid fa-ban me-2"></i>吊销认证
+                            </button>
+                        </li>
+                        <li>
+                            <button class="dropdown-item text-danger"
+                                    hx-post="/device/delete?uuid={{.UUID}}"
+                                    hx-confirm="确定要永久删除该设备吗？所有历史数据将丢失且无法恢复！"
+                                    hx-target="body">
+                                <i class="fa-solid fa-trash-can me-2"></i>删除设备
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Info Grid -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">硬件版本</h6>
+                    <div class="fs-5">{{.Meta.HWVersion}}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">软件版本</h6>
+                    <div class="fs-5">{{.Meta.SWVersion}}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">序列号</h6>
+                    <div class="fs-5 text-truncate" title="{{.Meta.SerialNumber}}">{{.Meta.SerialNumber}}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">MAC 地址</h6>
+                    <div class="fs-5 text-truncate" title="{{.Meta.MACAddress}}">{{.Meta.MACAddress}}</div>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
-<div class="card mt-4 shadow-sm border-0 border-danger">
-    <div class="card-header bg-danger text-white">
-        <h5 class="mb-0 fs-6">危险操作区</h5>
-    </div>
-    <div class="card-body">
-        <div class="d-flex gap-2">
-             <button class="btn btn-danger"
-                    hx-post="/device/delete?uuid={{.UUID}}"
-                    hx-confirm="确定要永久删除该设备吗？所有数据将丢失！">
-                删除设备
-            </button>
-            <button class="btn btn-warning"
-                    hx-post="/device/revoke?uuid={{.UUID}}"
-                    hx-confirm="确定要吊销该设备的认证吗？">
-                吊销认证
-            </button>
+    <div class="card mb-4">
+        <div class="card-body">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">当前访问令牌</h6>
+            <div class="bg-light p-2 rounded d-flex justify-content-between align-items-center">
+                {{if ge .Permission 2}}
+                <code class="text-break text-dark">{{.Meta.Token}}</code>
+                <i class="fa-regular fa-copy text-muted ms-2" style="cursor: pointer;" onclick="navigator.clipboard.writeText('{{.Meta.Token}}')"></i>
+                {{else}}
+                <code class="text-break text-muted">******** (权限不足)</code>
+                {{end}}
+            </div>
         </div>
     </div>
-</div>
 
-<div class="card mt-4 shadow-sm border-0" id="chart-container">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">实时数据监控</h5>
-        <div class="btn-group btn-group-sm" role="group">
-            <a href="#" class="btn btn-outline-secondary {{if eq .Range "1h"}}active{{end}}"
-               hx-get="/metrics/{{.UUID}}?range=1h" hx-target="#metrics-view" hx-swap="innerHTML">1小时</a>
-            <a href="#" class="btn btn-outline-secondary {{if eq .Range "6h"}}active{{end}}"
-               hx-get="/metrics/{{.UUID}}?range=6h" hx-target="#metrics-view" hx-swap="innerHTML">6小时</a>
-            <a href="#" class="btn btn-outline-secondary {{if eq .Range "24h"}}active{{end}}"
-               hx-get="/metrics/{{.UUID}}?range=24h" hx-target="#metrics-view" hx-swap="innerHTML">24小时</a>
-            <a href="#" class="btn btn-outline-secondary {{if eq .Range "7d"}}active{{end}}"
-               hx-get="/metrics/{{.UUID}}?range=7d" hx-target="#metrics-view" hx-swap="innerHTML">7天</a>
-            <a href="#" class="btn btn-outline-secondary {{if eq .Range "all"}}active{{end}}"
-               hx-get="/metrics/{{.UUID}}?range=all" hx-target="#metrics-view" hx-swap="innerHTML">全部</a>
+    <!-- Chart -->
+    <div class="card mb-4 chart-container">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold"><i class="fa-solid fa-chart-area me-2 text-primary"></i>数据监控</h5>
+            <div class="btn-group btn-group-sm">
+                {{ $uuid := .UUID }}
+                {{ $range := .Range }}
+                {{ range $r, $label := dict "1h" "1小时" "6h" "6小时" "24h" "24小时" "7d" "7天" "all" "全部" }}
+                <button class="btn btn-outline-secondary {{if eq $range $r}}active{{end}}"
+                   hx-get="/metrics/{{$uuid}}?range={{$r}}" 
+                   hx-target="#main-view" 
+                   hx-swap="innerHTML">
+                   {{$label}}
+                </button>
+                {{ end }}
+            </div>
+        </div>
+        <div class="card-body">
+            {{if .Metrics}}
+            <div style="position: relative; height: 350px; width: 100%;">
+                <canvas id="metricsChart"></canvas>
+            </div>
+            {{else}}
+            <div class="h-100 d-flex flex-column align-items-center justify-content-center text-muted" style="height: 350px;">
+                <i class="fa-solid fa-chart-simple fa-3x mb-3 text-light"></i>
+                <p>该时间段内暂无数据</p>
+            </div>
+            {{end}}
         </div>
     </div>
-    <div class="card-body">
-        {{if .Metrics}}
-        <canvas id="metricsChart" style="max-height: 400px;"></canvas>
-        {{else}}
-        <div class="text-center py-5 text-muted">
-            <p class="mb-0">暂无数据</p>
-        </div>
-        <!-- Keep canvas hidden or non-existent to prevent chart errors, or just don't render script -->
-        {{end}}
-    </div>
+
     {{if .Metrics}}
     <script>
       (function() {
-        function renderChart() {
-            var ctx = document.getElementById('metricsChart');
-            if (!ctx) return;
-            
-            // ... (rest of chart code) ...
-            
-            if (window.myMetricsChart) {
-                window.myMetricsChart.destroy();
-            }
+        var ctx = document.getElementById('metricsChart');
+        if (!ctx) return;
 
-            window.myMetricsChart = new Chart(ctx.getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels: [{{range .Metrics}}{{.Timestamp}} * 1000,{{end}}],
-                    datasets: [{
-                        label: '传感器数值',
-                        data: [{{range .Metrics}}{{.Value}},{{end}}],
-                        borderColor: 'rgb(13, 110, 253)', 
-                        backgroundColor: 'rgba(13, 110, 253, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'minute',
-                                tooltipFormat: 'yyyy-MM-dd HH:mm',
-                                displayFormats: {
-                                    minute: 'HH:mm',
-                                    hour: 'MM-dd HH:mm',
-                                    day: 'MM-dd'
-                                }
-                            },
-                            grid: {
-                                display: false
-                            }
-                        },
-                        y: {
-                            beginAtZero: false,
-                            grid: {
-                                color: '#f0f0f0'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                        }
-                    },
-                    interaction: {
-                        mode: 'nearest',
-                        axis: 'x',
-                        intersect: false
-                    },
-                    animation: false
-                }
-            });
+        // Ensure we destroy any existing chart on this canvas ID before creating a new one
+        // Note: HTMX swap might have already removed the old canvas from DOM, 
+        // but window.myMetricsChart might still hold a reference.
+        if (window.myMetricsChart instanceof Chart) {
+            window.myMetricsChart.destroy();
+            window.myMetricsChart = null;
         }
 
-        renderChart();
+        // Get the computed style for primary color
+        var style = getComputedStyle(document.body);
+        var primaryColor = style.getPropertyValue('--primary-color') || '#4361ee';
 
-        document.body.addEventListener('htmx:afterSwap', function(evt) {
-            if (evt.detail.target.id === 'metrics-view') {
-                 if (window.myMetricsChart) {
-                    window.myMetricsChart.destroy();
-                 }
+        window.myMetricsChart = new Chart(ctx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [{{range .Metrics}}{{.Timestamp}} * 1000,{{end}}],
+                datasets: [{
+                    label: '传感器数值',
+                    data: [{{range .Metrics}}{{.Value}},{{end}}],
+                    borderColor: primaryColor, 
+                    backgroundColor: primaryColor + '1A', // 10% opacity
+                    borderWidth: 2,
+                    fill: true,
+                    cubicInterpolationMode: 'monotone',
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    pointHitRadius: 10
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'HH:mm',
+                                hour: 'MM-dd HH:mm',
+                                day: 'MM-dd'
+                            }
+                        },
+                        grid: {
+                            display: false,
+                            drawBorder: false
+                        },
+                        ticks: {
+                            maxTicksLimit: 8,
+                            color: '#adb5bd'
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        grid: {
+                            color: '#f1f3f5',
+                            borderDash: [5, 5]
+                        },
+                        ticks: {
+                            color: '#adb5bd'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                        titleColor: '#2b2d42',
+                        bodyColor: '#2b2d42',
+                        borderColor: '#e9ecef',
+                        borderWidth: 1,
+                        padding: 10,
+                        titleFont: { size: 13, weight: 'bold' },
+                        callbacks: {
+                            label: function(context) {
+                                return '数值: ' + context.parsed.y;
+                            }
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                },
+                animation: {
+                    duration: 0 // Disable animation for smoother updates during range switch
+                }
             }
         });
       })();

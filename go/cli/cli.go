@@ -11,7 +11,7 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/DataStore"
 	"github.com/nhirsama/Goster-IoT/src/DeviceManager"
 	"github.com/nhirsama/Goster-IoT/src/IdentityManager"
-	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/Web"
 )
 
 func Run() {
@@ -30,7 +30,15 @@ func start(ctx context.Context) {
 		log.Fatal(err)
 	}
 	im := IdentityManager.NewIdentityManager(db)
-	_ = DeviceManager.NewDeviceManager(db, im)
-	db.InitDevice("313123", inter.DeviceMetadata{})
-	//inter.db()
+	dm := DeviceManager.NewDeviceManager(db, im)
+
+	// Inject HTML directory path
+	htmlDir := "html"
+	web := Web.NewWebServer(db, dm, htmlDir)
+
+	go web.Start()
+	select {
+	case <-ctx.Done():
+		return
+	}
 }

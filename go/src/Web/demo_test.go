@@ -1,4 +1,4 @@
-package web
+package Web
 
 import (
 	"fmt"
@@ -13,8 +13,8 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-// TestRunServer sets up the full stack and runs the web server.
-// Run this with: go test -v ./go/src/web -run TestRunServer
+// TestRunServer sets up the full stack and runs the Web server.
+// Run this with: go test -v ./go/src/Web -run TestRunServer
 func TestRunServer(t *testing.T) {
 	// 1. Change to project root so "go/html/..." paths work
 	if err := os.Chdir("../../.."); err != nil {
@@ -43,7 +43,7 @@ func TestRunServer(t *testing.T) {
 	}
 
 	// 4. Create WebServer
-	ws := NewWebServer(ds, dm)
+	ws := NewWebServer(ds, dm, "go/html")
 
 	// 5. Populate Dummy Data (Ignore errors if devices exist)
 	// Device 1: Online

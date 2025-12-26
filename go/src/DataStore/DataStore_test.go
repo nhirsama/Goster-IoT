@@ -295,6 +295,83 @@ func TestLogging(t *testing.T) {
 	}
 }
 
+// TestUserManagement 测试用户注册、登录、修改密码
+func TestUserManagement(t *testing.T) {
+	if store == nil {
+		t.Skip("Store not initialized")
+	}
+
+	username := "user_" + randomString(8)
+	password := "pass_" + randomString(8)
+	permission := inter.PermissionReadWrite
+
+	// 1. RegisterUser
+	t.Run("RegisterUser", func(t *testing.T) {
+		err := store.RegisterUser(username, password, permission)
+		if err != nil {
+			t.Fatalf("RegisterUser failed: %v", err)
+		}
+
+		// 测试重复注册
+		err = store.RegisterUser(username, password, permission)
+		if err == nil {
+			t.Error("Should fail when registering existing user")
+		}
+	})
+
+	// 2. LoginUser
+	t.Run("LoginUser", func(t *testing.T) {
+		// 成功登录
+		perm, err := store.LoginUser(username, password)
+		if err != nil {
+			t.Fatalf("LoginUser failed: %v", err)
+		}
+		if perm != permission {
+			t.Errorf("Permission mismatch. Got %d, want %d", perm, permission)
+		}
+
+		// 密码错误
+		_, err = store.LoginUser(username, password+"wrong")
+		if err == nil {
+			t.Error("Should fail with wrong password")
+		}
+
+		// 用户不存在
+		_, err = store.LoginUser(username+"nonexist", password)
+		if err == nil {
+			t.Error("Should fail with non-existent user")
+		}
+	})
+
+	// 3. ChangePassword
+	newPassword := "new_" + randomString(8)
+	t.Run("ChangePassword", func(t *testing.T) {
+		// 旧密码错误
+		err := store.ChangePassword(username, "wrong_old", newPassword)
+		if err == nil {
+			t.Error("Should fail with wrong old password")
+		}
+
+		// 修改成功
+		err = store.ChangePassword(username, password, newPassword)
+		if err != nil {
+			t.Fatalf("ChangePassword failed: %v", err)
+		}
+
+		// 验证新密码登录
+		_, err = store.LoginUser(username, newPassword)
+		if err != nil {
+			t.Error("Failed to login with new password")
+		}
+
+		// 验证旧密码失效
+		_, err = store.LoginUser(username, password)
+		if err == nil {
+			t.Error("Old password should be invalid")
+		}
+	})
+}
+
 // -----------------------------------------------------------------------------
 // 性能测试 (Benchmarks)
 // -----------------------------------------------------------------------------

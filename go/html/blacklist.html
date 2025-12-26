@@ -1,21 +1,23 @@
 {{range .}}
-<div class="list-group-item list-group-item-action border-0 rounded-3 mb-2 shadow-sm bg-light text-muted">
+<div class="list-group-item border-0 rounded-3 mb-2 shadow-sm bg-light text-muted p-3" style="opacity: 0.8;">
     <div class="d-flex w-100 justify-content-between align-items-center">
         <div>
             <h6 class="mb-0 fw-bold text-decoration-line-through">{{.Meta.Name}}</h6>
-            <small>SN: {{.Meta.SerialNumber}} | MAC: {{.Meta.MACAddress}}</small>
+            <small class="d-block mt-1" style="font-size: 0.7rem;">
+                SN: {{.Meta.SerialNumber}}
+            </small>
         </div>
-        <span class="badge bg-dark">黑名单</span>
-    </div>
-    <div class="mt-2 d-flex justify-content-end gap-2">
-        <button class="btn btn-sm btn-outline-secondary" 
+        <button class="btn btn-sm btn-outline-secondary rounded-circle" 
                 hx-post="/device/unblock?uuid={{.UUID}}" 
                 hx-target="#blacklist-view"
-                hx-confirm="确定要将该设备移出黑名单吗？">
-            移出黑名单
+                hx-confirm="确定要将该设备移出黑名单吗？"
+                title="移出黑名单">
+            <i class="fa-solid fa-rotate-left"></i>
         </button>
     </div>
 </div>
 {{else}}
-<div class="text-center text-muted py-3">无黑名单设备</div>
+<div class="text-center text-muted py-3 small">
+    <i class="fa-solid fa-check-double me-1"></i>黑名单为空
+</div>
 {{end}}

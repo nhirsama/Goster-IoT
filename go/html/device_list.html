@@ -1,15 +1,29 @@
 {{range .}}
 <a href="#" 
-   class="list-group-item list-group-item-action border-0 rounded-3 mb-2 shadow-sm"
+   class="list-group-item list-group-item-action mb-2 shadow-sm d-flex justify-content-between align-items-center"
+   style="border-left: 4px solid {{if eq .StatusString "在线"}}var(--primary-color){{else if eq .StatusString "延迟"}}var(--warning-color){{else}}var(--danger-color){{end}};"
    hx-get="/metrics/{{.UUID}}" 
-   hx-target="#metrics-view"
+   hx-target="#main-view"
    hx-swap="innerHTML">
-    <div class="d-flex w-100 justify-content-between align-items-center">
+    <div>
         <h6 class="mb-0 fw-semibold text-dark">{{.Meta.Name}}</h6>
-        <span class="badge rounded-pill bg-light {{.Status}} border">{{.StatusString}}</span>
+        <small class="text-muted" style="font-size: 0.75rem;">
+            <i class="fa-solid fa-fingerprint me-1"></i>{{.UUID}}
+        </small>
     </div>
-    <small class="text-muted d-block mt-1" style="font-size: 0.75rem;">UUID: {{.UUID}}</small>
+    <div class="text-end">
+        {{if eq .StatusString "在线"}}
+            <span class="badge text-bg-success"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>在线</span>
+        {{else if eq .StatusString "延迟"}}
+            <span class="badge text-bg-warning"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>延迟</span>
+        {{else}}
+            <span class="badge text-bg-danger"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>离线</span>
+        {{end}}
+    </div>
 </a>
 {{else}}
-<div class="text-center text-muted py-3">暂无设备</div>
+<div class="text-center text-muted py-4">
+    <i class="fa-solid fa-robot fa-2x mb-2 text-light"></i>
+    <p class="small mb-0">暂无在线设备</p>
+</div>
 {{end}}

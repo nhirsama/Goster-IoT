@@ -1,0 +1,53 @@
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-white py-3 border-0">
+        <h4 class="mb-0 fw-bold"><i class="fa-solid fa-ban text-danger me-2"></i>已注销 / 黑名单设备</h4>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="bg-light">
+                <tr>
+                    <th class="ps-3 border-0">设备名称</th>
+                    <th class="border-0">MAC地址</th>
+                    <th class="border-0">注册时间</th>
+                    <th class="text-end pe-3 border-0">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .}}
+                <tr>
+                    <td class="ps-3">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-light p-2 rounded-circle me-2 text-danger">
+                                <i class="fa-solid fa-slash"></i>
+                            </div>
+                            <div>
+                                <div class="fw-bold text-dark">{{.Meta.Name}}</div>
+                                <div class="small text-muted">{{.Meta.SerialNumber}}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td><code class="text-muted small">{{.Meta.MACAddress}}</code></td>
+                    <td class="text-muted small">{{.Meta.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                    <td class="text-end pe-3">
+                        <button class="btn btn-sm btn-outline-secondary" 
+                                hx-post="/device/unblock?uuid={{.UUID}}" 
+                                hx-target="#main-view"
+                                hx-confirm="确定要解除该设备的黑名单状态吗？这将使其变为待认证状态。">
+                            <i class="fa-solid fa-unlock me-1"></i>解除黑名单
+                        </button>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="4" class="text-center py-5">
+                        <div class="text-muted">
+                            <i class="fa-solid fa-shield-cat fa-3x mb-3 text-light"></i>
+                            <p class="mb-0">暂无黑名单设备</p>
+                        </div>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -11,6 +11,16 @@ const (
 	AuthenticateUnknown                               // 未知的设备
 )
 
+// PermissionType 用户权限类型
+type PermissionType int
+
+const (
+	PermissionNone      PermissionType = iota // 零权限
+	PermissionReadOnly                        // 只读
+	PermissionReadWrite                       // 读写
+	PermissionAdmin                           // 管理员
+)
+
 // DeviceMetadata 设备静态元数据
 type DeviceMetadata struct {
 	Name               string                 `json:"name"`               // 设备名称
@@ -89,4 +99,37 @@ type DataStore interface {
 	// UpdateToken 更新指定设备的 Token。
 	// 用于 Token 过期重刷或安全性重置场景。
 	UpdateToken(uuid string, newToken string) error
+
+	// [用户管理]
+
+	// RegisterUser 注册一个新用户。
+	// username 为用户名（唯一），password 为明文密码，permission 为权限字段。
+	RegisterUser(username, password string, permission PermissionType) error
+
+	// LoginUser 用户登录验证。
+	// 验证成功返回用户的权限级别，失败返回错误。
+	LoginUser(username, password string) (PermissionType, error)
+
+	// ChangePassword 修改用户密码。
+	// 需要验证 oldPassword 是否正确，如果正确则更新为 newPassword。
+	ChangePassword(username, oldPassword, newPassword string) error
+
+	// GetUserCount 获取注册用户总数
+	GetUserCount() (int, error)
+
+	// ListUsers 获取所有用户列表（仅管理员可用）
+	ListUsers() ([]User, error)
+
+	// GetUserPermission 获取指定用户的当前权限
+	GetUserPermission(username string) (PermissionType, error)
+
+	// UpdateUserPermission 更新用户权限（仅管理员可用）
+	UpdateUserPermission(username string, perm PermissionType) error
+}
+
+// User 用户信息
+type User struct {
+	Username   string         `json:"username"`
+	Permission PermissionType `json:"permission"`
+	CreatedAt  time.Time      `json:"created_at"`
 }

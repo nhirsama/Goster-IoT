@@ -1,7 +1,10 @@
 package DataStore
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -50,10 +53,17 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_logs_uuid ON logs (uuid);
+
+    CREATE TABLE IF NOT EXISTS users (
+       username TEXT PRIMARY KEY,
+       password_hash TEXT,
+       salt TEXT,
+       permission INTEGER,
+       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     `
 
 	if _, err := db.Exec(schema); err != nil {
-		// 最好关闭数据库连接再返回错误，防止泄露
 		db.Close()
 		return nil, err
 	}
@@ -127,10 +137,10 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 	var uuid string
 	var authStatus int // SQLite 中的 INTEGER 对应 Go 的 int
 
-	// 1. 在 SQL 语句中同时请求两列数据
+	// 在 SQL 语句中同时请求两列数据
 	query := "SELECT uuid, auth_status FROM devices WHERE token = ?"
 
-	// 2. 执行查询并利用预处理语句防止 SQL 注入
+	// 执行查询并利用预处理语句防止 SQL 注入
 	err := s.db.QueryRow(query, token).Scan(&uuid, &authStatus)
 
 	if err != nil {
@@ -141,7 +151,7 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 		return "", 0, err
 	}
 
-	// 3. 将数据库中的 int 强制转换为接口定义的 AuthenticateStatusType 类型
+	// 将数据库中的 int 强制转换为接口定义的 AuthenticateStatusType 类型
 	return uuid, inter.AuthenticateStatusType(authStatus), nil
 }
 
@@ -211,7 +221,7 @@ func (s *DataStoreSql) WriteLog(uuid string, level string, message string) error
 
 // BatchAppendMetrics 批量高效写入
 func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoint) error {
-	// 1. 开启事务
+	// 开启事务
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -219,20 +229,153 @@ func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoin
 	// 安全机制：如果函数中途崩溃或返回错误，自动回滚，保证数据一致性
 	defer tx.Rollback()
 
-	// 2. 预编译 SQL 语句 (极大地提升循环插入的性能)
+	// 预编译 SQL 语句 (极大地提升循环插入的性能)
 	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, ts, value) VALUES (?, ?, ?)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close() // 循环结束后关闭 statement
 
-	// 3. 在内存中执行循环插入
+	// 在内存中执行循环插入
 	for _, p := range points {
 		if _, err := stmt.Exec(uuid, p.Timestamp, p.Value); err != nil {
 			return err // 只要有一条失败，直接返回错误，defer 会触发 Rollback
 		}
 	}
 
-	// 4. 提交事务 (这是唯一一次真正的磁盘 IO)
+	// 提交事务 (这是唯一一次真正的磁盘 IO)
 	return tx.Commit()
+}
+
+// [用户管理实现]
+
+// generateSalt 生成随机盐值
+func (s *DataStoreSql) generateSalt() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// hashPassword 计算密码哈希：SHA256(password + salt)
+func (s *DataStoreSql) hashPassword(password, salt string) string {
+	hash := sha256.New()
+	hash.Write([]byte(password + salt))
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// RegisterUser 注册新用户
+func (s *DataStoreSql) RegisterUser(username, password string, permission inter.PermissionType) error {
+	// 生成盐
+	salt, err := s.generateSalt()
+	if err != nil {
+		return err
+	}
+
+	// 计算哈希
+	hashed := s.hashPassword(password, salt)
+
+	// 插入数据库
+	_, err = s.db.Exec(`
+		INSERT INTO users (username, password_hash, salt, permission)
+		VALUES (?, ?, ?, ?)`,
+		username, hashed, salt, permission,
+	)
+	if err != nil {
+		// 检查唯一性约束冲突（SQLite error code 19 or generic string check）
+		// 这里简单返回错误，上层可以根据错误信息判断是否是用户名已存在
+		return fmt.Errorf("failed to register user: %w", err)
+	}
+	return nil
+}
+
+// LoginUser 用户登录
+func (s *DataStoreSql) LoginUser(username, password string) (inter.PermissionType, error) {
+	var currentHash, salt string
+	var permission int
+
+	// 查询用户凭证
+	err := s.db.QueryRow("SELECT password_hash, salt, permission FROM users WHERE username = ?", username).Scan(&currentHash, &salt, &permission)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, errors.New("user not found or password incorrect")
+		}
+		return 0, err
+	}
+
+	// 验证密码
+	if s.hashPassword(password, salt) != currentHash {
+		return 0, errors.New("user not found or password incorrect")
+	}
+
+	return inter.PermissionType(permission), nil
+}
+
+// ChangePassword 修改密码
+func (s *DataStoreSql) ChangePassword(username, oldPassword, newPassword string) error {
+	// 查询现有用户的哈希和盐
+	var currentHash, salt string
+	err := s.db.QueryRow("SELECT password_hash, salt FROM users WHERE username = ?", username).Scan(&currentHash, &salt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("user not found")
+		}
+		return err
+	}
+
+	// 验证旧密码
+	if s.hashPassword(oldPassword, salt) != currentHash {
+		return errors.New("invalid old password")
+	}
+
+	// 生成新盐和新哈希
+	newSalt, err := s.generateSalt()
+	if err != nil {
+		return err
+	}
+	newHash := s.hashPassword(newPassword, newSalt)
+	// 更新数据库
+	_, err = s.db.Exec("UPDATE users SET password_hash = ?, salt = ? WHERE username = ?", newHash, newSalt, username)
+	return err
+}
+func (s *DataStoreSql) GetUserCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
+}
+func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
+	rows, err := s.db.Query("SELECT username, permission, created_at FROM users")
+	if err != nil {
+		return nil, err
+
+	}
+	defer rows.Close()
+	var users []inter.User
+	for rows.Next() {
+		var u inter.User
+		var perm int
+		if err := rows.Scan(&u.Username, &perm, &u.CreatedAt); err != nil {
+			continue
+		}
+		u.Permission = inter.PermissionType(perm)
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType, error) {
+	var perm int
+	err := s.db.QueryRow("SELECT permission FROM users WHERE username = ?", username).Scan(&perm)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return inter.PermissionNone, errors.New("user not found")
+		}
+		return inter.PermissionNone, err
+	}
+	return inter.PermissionType(perm), nil
+}
+func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.PermissionType) error {
+	_, err := s.db.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
+	return err
 }
