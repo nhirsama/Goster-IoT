@@ -25,7 +25,11 @@ func Run() {
 }
 
 func start(ctx context.Context) {
-	db, err := DataStore.NewDataStoreSql("./data.db")
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./data.db"
+	}
+	db, err := DataStore.NewDataStoreSql(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
