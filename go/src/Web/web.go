@@ -9,25 +9,113 @@ import (
 	"path/filepath"
 	"time"
 
+	"os"
+
+	"github.com/dchest/captcha"
 	"github.com/gorilla/sessions"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
 var store = sessions.NewCookieStore([]byte("super-secret-key-change-me"))
 
+// CaptchaProvider defines the interface for different captcha strategies
+type CaptchaProvider interface {
+	// GetTemplateData returns the data needed by the template to render the captcha (e.g., CaptchaId or SiteKey)
+	GetTemplateData() map[string]interface{}
+	// Verify validates the captcha response from the request
+	Verify(r *http.Request) bool
+	// Type returns "local" or "turnstile"
+	Type() string
+}
+
+// LocalCaptcha implements the dchest/captcha strategy
+type LocalCaptcha struct{}
+
+func (l *LocalCaptcha) GetTemplateData() map[string]interface{} {
+	return map[string]interface{}{
+		"CaptchaType": "local",
+		"CaptchaId":   captcha.New(),
+	}
+}
+
+func (l *LocalCaptcha) Verify(r *http.Request) bool {
+	return captcha.VerifyString(r.FormValue("captchaId"), r.FormValue("captchaSolution"))
+}
+
+func (l *LocalCaptcha) Type() string {
+	return "local"
+}
+
+// CloudflareTurnstile implements the Cloudflare Turnstile strategy
+type CloudflareTurnstile struct {
+	SiteKey   string
+	SecretKey string
+}
+
+func (c *CloudflareTurnstile) GetTemplateData() map[string]interface{} {
+	return map[string]interface{}{
+		"CaptchaType": "turnstile",
+		"SiteKey":     c.SiteKey,
+	}
+}
+
+type turnstileResponse struct {
+	Success bool `json:"success"`
+}
+
+func (c *CloudflareTurnstile) Verify(r *http.Request) bool {
+	token := r.FormValue("cf-turnstile-response")
+	ip := r.RemoteAddr
+
+	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", map[string][]string{
+		"secret":   {c.SecretKey},
+		"response": {token},
+		"remoteip": {ip},
+	})
+	if err != nil {
+		log.Printf("Turnstile verification failed: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result turnstileResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false
+	}
+	return result.Success
+}
+
+func (c *CloudflareTurnstile) Type() string {
+	return "turnstile"
+}
+
 type webServer struct {
 	dataStore     inter.DataStore
 	deviceManager inter.DeviceManager
 	templates     map[string]*template.Template
 	htmlDir       string
+	captcha       CaptchaProvider
 }
 
 func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, htmlDir string) inter.WebServer {
+	providerType := os.Getenv("CAPTCHA_PROVIDER")
+	var provider CaptchaProvider
+
+	if providerType == "turnstile" {
+		provider = &CloudflareTurnstile{
+			SiteKey:   os.Getenv("CF_SITE_KEY"),
+			SecretKey: os.Getenv("CF_SECRET_KEY"),
+		}
+	} else {
+		provider = &LocalCaptcha{}
+	}
+
 	return &webServer{
 		dataStore:     ds,
 		deviceManager: dm,
 		templates:     loadTemplates(htmlDir),
 		htmlDir:       htmlDir,
+		captcha:       provider,
 	}
 }
 
@@ -36,6 +124,11 @@ func (ws *webServer) Start() {
 	http.HandleFunc("/login", ws.loginHandler)
 	http.HandleFunc("/register", ws.registerHandler)
 	http.HandleFunc("/logout", ws.logoutHandler)
+	http.Handle("/captcha/", captcha.Server(captcha.StdWidth, captcha.StdHeight))
+	http.HandleFunc("/api/captcha/new", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"id": captcha.New()})
+	})
 
 	staticPath := filepath.Join(ws.htmlDir, "static")
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))))
@@ -151,6 +244,13 @@ func (ws *webServer) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 func (ws *webServer) registerHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
+		if !ws.captcha.Verify(r) {
+			data := ws.captcha.GetTemplateData()
+			data["Error"] = "验证码错误"
+			ws.templates["register.html"].Execute(w, data)
+			return
+		}
+
 		username := r.FormValue("username")
 		password := r.FormValue("password")
 
@@ -169,7 +269,9 @@ func (ws *webServer) registerHandler(w http.ResponseWriter, r *http.Request) {
 
 		err = ws.dataStore.RegisterUser(username, password, perm)
 		if err != nil {
-			http.Error(w, "Registration failed: "+err.Error(), http.StatusBadRequest)
+			data := ws.captcha.GetTemplateData()
+			data["Error"] = "Registration failed: " + err.Error()
+			ws.templates["register.html"].Execute(w, data)
 			return
 		}
 
@@ -178,7 +280,7 @@ func (ws *webServer) registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if t, ok := ws.templates["register.html"]; ok {
-		t.Execute(w, nil)
+		t.Execute(w, ws.captcha.GetTemplateData())
 	} else {
 		http.Error(w, "Register template missing", http.StatusInternalServerError)
 	}

@@ -26,6 +26,41 @@
                                 <label for="password" class="form-label">密码</label>
                                 <input type="password" class="form-control" id="password" name="password" required>
                             </div>
+
+                            {{if eq .CaptchaType "turnstile"}}
+                            <!-- Cloudflare Turnstile -->
+                            <div class="mb-3 d-flex justify-content-center">
+                                <div class="cf-turnstile" data-sitekey="{{.SiteKey}}"></div>
+                            </div>
+                            <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                            {{else}}
+                            <!-- Local Captcha -->
+                            <div class="mb-3">
+                                <label class="form-label">验证码</label>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input type="text" class="form-control" name="captchaSolution" placeholder="输入验证码" required autocomplete="off">
+                                        <input type="hidden" name="captchaId" id="captchaId" value="{{.CaptchaId}}">
+                                    </div>
+                                    <div class="col-6 d-flex align-items-center">
+                                        <img id="captchaImage" src="/captcha/{{.CaptchaId}}.png" alt="Captcha" style="cursor: pointer; height: 40px; border-radius: 4px; border: 1px solid #ced4da;" onclick="reloadCaptcha()" title="点击刷新">
+                                    </div>
+                                </div>
+                            </div>
+                            <script>
+                                function reloadCaptcha() {
+                                    fetch('/api/captcha/new')
+                                        .then(response => response.json())
+                                        .then(data => {
+                                            document.getElementById('captchaId').value = data.id;
+                                            document.getElementById('captchaImage').src = "/captcha/" + data.id + ".png";
+                                            document.querySelector('input[name="captchaSolution"]').value = '';
+                                        })
+                                        .catch(err => console.error('Failed to reload captcha', err));
+                                }
+                            </script>
+                            {{end}}
+
                             <div class="d-grid gap-2">
                                 <button type="submit" class="btn btn-success">注册</button>
                                 <a href="/login" class="btn btn-link">已有账户？登录</a>
