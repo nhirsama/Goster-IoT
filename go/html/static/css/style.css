@@ -14,10 +14,11 @@
     /* Mobile Variables */
     --header-height: 60px;
     --bottom-nav-height: 60px;
+    --app-border-radius: 16px; /* Consistent modern radius */
 }
 
 body {
-    background-color: var(--light-bg);
+    background-color: #f3f4f6; /* Cleaner, cooler gray */
     color: var(--dark-text);
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     min-height: 100vh;
@@ -168,17 +169,22 @@ body {
     #main-view .list-group-item {
         background: white;
         border: none;
-        border-radius: 12px !important;
+        border-radius: var(--app-border-radius) !important;
         margin-bottom: 0.75rem;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* Softer shadow */
         padding: 1rem;
+        transition: transform 0.1s;
+    }
+    #main-view .list-group-item:active {
+        transform: scale(0.98);
+        background-color: #fafafa;
     }
 }
 
 /* Common Components */
 .card {
     border: none;
-    border-radius: 1rem;
+    border-radius: 1rem; /* Desktop defaults, Mobile overrides via utility classes usually, but let's keep it safe */
     box-shadow: var(--card-shadow);
     background: white;
     transition: box-shadow 0.2s;

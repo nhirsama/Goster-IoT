@@ -1,15 +1,20 @@
 {{range .}}
-<a href="#" 
-   class="list-group-item list-group-item-action border-0 border-bottom py-3 px-3 d-flex align-items-center justify-content-between"
-   hx-get="/metrics/{{.UUID}}" 
+<a href="#"
+   class="list-group-item list-group-item-action d-flex align-items-center justify-content-between"
+   hx-get="/metrics/{{.UUID}}"
    hx-target="#main-view"
    hx-swap="innerHTML">
     <div class="d-flex align-items-center overflow-hidden">
         <!-- Status Dot -->
-        <span class="status-dot {{if eq .StatusString "在线"}}status-online{{else if eq .StatusString "延迟"}}status-delay{{else}}status-offline{{end}} flex-shrink-0"></span>
-        
-        <div class="ms-2 text-truncate">
-            <h6 class="mb-0 fw-semibold text-dark text-truncate" style="font-size: 0.95rem;">{{.Meta.Name}}</h6>
+        <span class="status-dot flex-shrink-0 me-3
+    {{if eq .StatusString " 在线"}}status-online
+        {{else if eq .StatusString "延迟"}}status-delay
+        {{else}}status-offline{{end}}"
+        style="width: 10px; height: 10px;">
+        </span>
+
+        <div class="text-truncate">
+            <h6 class="mb-0 fw-bold text-dark text-truncate" style="font-size: 0.95rem;">{{.Meta.Name}}</h6>
             <small class="text-muted text-truncate font-monospace" style="font-size: 0.75rem;">
                 {{.UUID}}
             </small>
@@ -20,7 +25,7 @@
 {{else}}
 <div class="text-center text-muted py-5">
     <div class="mb-3">
-        <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+        <div class="bg-white p-3 rounded-circle shadow-sm d-inline-block">
             <i class="fa-solid fa-server fa-2x text-secondary opacity-50"></i>
         </div>
     </div>
