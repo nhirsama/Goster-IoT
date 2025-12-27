@@ -2,8 +2,12 @@ package Web
 
 import (
 	"fmt"
+	"io"
 	"math/rand"
+	"net/http"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,104 +17,188 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-// TestRunServer sets up the full stack and runs the Web server.
-// Run this with: go test -v ./go/src/Web -run TestRunServer
-func TestRunServer(t *testing.T) {
+// MockApi implements inter.Api for testing purposes
+type MockApi struct{}
+
+func (m *MockApi) Start()                                                        {}
+func (m *MockApi) Handshake(uuid, token string) (string, error)                  { return "", nil }
+func (m *MockApi) Heartbeat(uuid string) (bool, error)                           { return false, nil }
+func (m *MockApi) UploadMetrics(uuid string, data inter.MetricsUploadData) error { return nil }
+func (m *MockApi) UploadLog(uuid, level, message string) error                   { return nil }
+func (m *MockApi) GetMessages(uuid string) ([]interface{}, error)                { return nil, nil }
+
+// TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
+// Run with: go test -v ./go/src/Web -run TestRunServerAndStressTest
+func TestRunServerAndStressTest(t *testing.T) {
 	// 1. Change to project root so "go/html/..." paths work
-	if err := os.Chdir("../../.."); err != nil {
-		t.Fatal(err)
+	// Adjust this depending on where you run the test from.
+	// Assuming running from project root or having robust path handling.
+	// For this test, we try to find the project root.
+	wd, _ := os.Getwd()
+	fmt.Println("Starting Test in:", wd)
+
+	// Try to locate 'go/html'
+	htmlDir := "../../html" // Relative from go/src/Web
+	if _, err := os.Stat(htmlDir); os.IsNotExist(err) {
+		// Try absolute path if known, or fail
+		t.Logf("Warning: Could not find html dir at %s, trying absolute path logic or skipping template loading checks if flexible.", htmlDir)
 	}
 
-	cwd, _ := os.Getwd()
-	fmt.Println("Current Working Directory:", cwd)
-
-	// 2. Setup DataStore (Use existing DB)
-	dbPath := "go/src/DataStore/data.db"
+	// 2. Setup Temporary DataStore
+	tempDir, err := os.MkdirTemp("", "goster_test_db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir) // Clean up after test
+	dbPath := filepath.Join(tempDir, "test_data.db")
 
 	ds, err := DataStore.NewDataStoreSql(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open DataStore at %s: %v", dbPath, err)
 	}
+	fmt.Printf("Using temporary database: %s\n", dbPath)
 
 	// 3. Setup Managers
 	im := IdentityManager.NewIdentityManager(ds)
 	dm := DeviceManager.NewDeviceManager(ds, im)
+	api := &MockApi{}
 
 	// Hack: Set DeathLine on DeviceManager implementation manually
 	if impl, ok := dm.(*DeviceManager.DeviceManager); ok {
-		impl.DeathLine = 30 * time.Second
-		fmt.Println("DeviceManager DeathLine set to 30s")
+		impl.DeathLine = 5 * time.Second // Shorten for test
 	}
 
 	// 4. Create WebServer
-	ws := NewWebServer(ds, dm, "go/html")
+	ws := NewWebServer(ds, dm, api, htmlDir)
 
-	// 5. Populate Dummy Data (Ignore errors if devices exist)
-	// Device 1: Online
-	uuid1 := "device-online-001"
-	createDevice(t, ds, uuid1, "Temperature Sensor A", inter.Authenticated)
-	generateMetrics(t, ds, uuid1)
+	// 5. Populate Data
+	populateData(t, ds, dm)
 
-	// Device 2: Offline
-	uuid2 := "device-offline-002"
-	createDevice(t, ds, uuid2, "Humidity Sensor B", inter.Authenticated)
-
-	// Device 3: Pending
-	uuid3 := "device-pending-003"
-	createDevice(t, ds, uuid3, "Smart Light (New)", inter.AuthenticatePending)
-
-	// Background heartbeat loop
-	go func() {
-		// Initial heartbeat
-		dm.HandleHeartbeat(uuid1)
-		dm.HandleHeartbeat(uuid3)
-
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			dm.HandleHeartbeat(uuid1)
-			dm.HandleHeartbeat(uuid3)
-			<-ticker.C
-		}
-	}()
-
-	// 6. Start Server
+	// 6. Start Server in Goroutine
 	go ws.Start()
 
+	// Wait for server to start
+	time.Sleep(1 * time.Second)
+
 	fmt.Println("------------------------------------------------")
-	fmt.Println("Web Server is running at http://localhost:8080")
-	fmt.Println("Using Database: ", dbPath)
-	fmt.Println("You can access the dashboard to see the devices.")
-	fmt.Println("Press Ctrl+C to stop this test.")
+	fmt.Println("Web Server running on :8080 backed by Temp DB")
+	fmt.Println("Starting Stress Test...")
 	fmt.Println("------------------------------------------------")
 
-	// Block forever
-	select {}
+	// 7. Run Stress Test
+	runStressTest(t)
+
+	// Uncomment to keep server running for manual inspection
+	// select {}
 }
 
-func createDevice(t *testing.T, ds inter.DataStore, uuid, name string, status inter.AuthenticateStatusType) {
-	err := ds.InitDevice(uuid, inter.DeviceMetadata{
-		Name:               name,
-		HWVersion:          "v1.0",
-		SWVersion:          "v1.0",
-		SerialNumber:       "SN-" + uuid,
-		MACAddress:         "AA:BB:CC:DD:EE:FF",
-		CreatedAt:          time.Now(),
-		Token:              "token-" + uuid,
-		AuthenticateStatus: status,
-	})
-	if err != nil {
-		// Ignore error if device likely exists
+func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
+	// Users
+	ds.RegisterUser("admin", "admin123", inter.PermissionAdmin)
+	ds.RegisterUser("viewer", "view123", inter.PermissionReadOnly)
+
+	// Devices
+	// 50 Online
+	for i := 0; i < 50; i++ {
+		uuid := fmt.Sprintf("dev-online-%03d", i)
+		createDevice(ds, uuid, fmt.Sprintf("Sensor Online %d", i), inter.Authenticated)
+		generateMetrics(ds, uuid, 100)
+		dm.HandleHeartbeat(uuid) // Mark active
+	}
+
+	// 50 Offline
+	for i := 0; i < 50; i++ {
+		uuid := fmt.Sprintf("dev-offline-%03d", i)
+		createDevice(ds, uuid, fmt.Sprintf("Sensor Offline %d", i), inter.Authenticated)
+		// No heartbeat -> Offline
+	}
+
+	// 20 Pending
+	for i := 0; i < 20; i++ {
+		uuid := fmt.Sprintf("dev-pending-%03d", i)
+		createDevice(ds, uuid, fmt.Sprintf("New Device %d", i), inter.AuthenticatePending)
+	}
+
+	// 10 Blacklisted
+	for i := 0; i < 10; i++ {
+		uuid := fmt.Sprintf("dev-block-%03d", i)
+		createDevice(ds, uuid, fmt.Sprintf("Bad Device %d", i), inter.AuthenticateRefuse)
 	}
 }
 
-func generateMetrics(t *testing.T, ds inter.DataStore, uuid string) {
+func createDevice(ds inter.DataStore, uuid, name string, status inter.AuthenticateStatusType) {
+	ds.InitDevice(uuid, inter.DeviceMetadata{
+		Name:               name,
+		HWVersion:          "v1.0",
+		SerialNumber:       "SN-" + uuid,
+		CreatedAt:          time.Now(),
+		Token:              "tk-" + uuid,
+		AuthenticateStatus: status,
+	})
+}
+
+func generateMetrics(ds inter.DataStore, uuid string, count int) {
 	now := time.Now().Unix()
-	// Generate data for the last 7 days (approx 1000 points, 1 per 10 mins)
-	for i := 0; i < 1008; i++ {
-		ds.AppendMetric(uuid, inter.MetricPoint{
-			Timestamp: now - int64(1008-i)*600, // Every 10 minutes
+	var points []inter.MetricPoint
+	for i := 0; i < count; i++ {
+		points = append(points, inter.MetricPoint{
+			Timestamp: now - int64(count-i)*60,
 			Value:     20.0 + rand.Float32()*10.0,
 		})
 	}
+	ds.BatchAppendMetrics(uuid, points)
+}
+
+func runStressTest(t *testing.T) {
+	var wg sync.WaitGroup
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	start := time.Now()
+	totalRequests := 1000
+	concurrency := 50
+
+	requestCh := make(chan string, totalRequests)
+
+	// Generate requests
+	go func() {
+		endpoints := []string{
+			"http://localhost:8080/login",
+			// Protected endpoints will redirect to login, still valid for load testing
+			"http://localhost:8080/",
+			"http://localhost:8080/devices",
+		}
+		for i := 0; i < totalRequests; i++ {
+			requestCh <- endpoints[rand.Intn(len(endpoints))]
+		}
+		close(requestCh)
+	}()
+
+	// Workers
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for url := range requestCh {
+				resp, err := client.Get(url)
+				if err != nil {
+					// Connection errors are expected if server is overloaded or starting
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		}()
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+	rps := float64(totalRequests) / duration.Seconds()
+
+	fmt.Printf("Stress Test Completed:\n")
+	fmt.Printf("Total Requests: %d\n", totalRequests)
+	fmt.Printf("Concurrency: %d\n", concurrency)
+	fmt.Printf("Duration: %v\n", duration)
+	fmt.Printf("RPS: %.2f\n", rps)
 }

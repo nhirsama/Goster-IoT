@@ -1,2 +1,5 @@
 /target
 .idea
+*.db
+*.typ
+todo.md

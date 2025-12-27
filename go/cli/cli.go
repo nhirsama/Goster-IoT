@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nhirsama/Goster-IoT/src/Api"
 	"github.com/nhirsama/Goster-IoT/src/DataStore"
 	"github.com/nhirsama/Goster-IoT/src/DeviceManager"
 	"github.com/nhirsama/Goster-IoT/src/IdentityManager"
@@ -36,11 +37,15 @@ func start(ctx context.Context) {
 	im := IdentityManager.NewIdentityManager(db)
 	dm := DeviceManager.NewDeviceManager(db, im)
 
-	// Inject HTML directory path
-	htmlDir := "html"
-	web := Web.NewWebServer(db, dm, htmlDir)
+	api := Api.NewApi(db, dm, im)
 
+	htmlDir := os.Getenv("HTML_DIR")
+	if htmlDir == "" {
+		htmlDir = "html"
+	}
+	web := Web.NewWebServer(db, dm, api, htmlDir)
 	go web.Start()
+	go api.Start()
 	select {
 	case <-ctx.Done():
 		return
