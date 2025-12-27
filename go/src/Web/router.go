@@ -3,6 +3,7 @@ package Web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/dchest/captcha"
@@ -11,6 +12,22 @@ import (
 )
 
 var store = sessions.NewCookieStore([]byte("super-secret-key-change-me"))
+
+func init() {
+	// 配置 Session 选项
+	// HttpOnly: true 防止 XSS 攻击获取 Cookie
+	// SameSite: Lax 防止大部分 CSRF 攻击，同时允许跨站导航（如从外部链接跳转回来）
+	// Secure: 默认设为 true
+	isSecure := os.Getenv("SESSION_SECURE") != "false"
+
+	store.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 7, // 7天有效期
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	}
+}
 
 // registerRoutes 注册所有的 HTTP 路由
 func (ws *webServer) registerRoutes(mux *http.ServeMux) {

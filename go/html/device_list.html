@@ -1,29 +1,29 @@
 {{range .}}
 <a href="#" 
-   class="list-group-item list-group-item-action mb-2 shadow-sm d-flex justify-content-between align-items-center"
-   style="border-left: 4px solid {{if eq .StatusString "在线"}}var(--primary-color){{else if eq .StatusString "延迟"}}var(--warning-color){{else}}var(--danger-color){{end}};"
+   class="list-group-item list-group-item-action border-0 border-bottom py-3 px-3 d-flex align-items-center justify-content-between"
    hx-get="/metrics/{{.UUID}}" 
    hx-target="#main-view"
    hx-swap="innerHTML">
-    <div>
-        <h6 class="mb-0 fw-semibold text-dark">{{.Meta.Name}}</h6>
-        <small class="text-muted" style="font-size: 0.75rem;">
-            <i class="fa-solid fa-fingerprint me-1"></i>{{.UUID}}
-        </small>
+    <div class="d-flex align-items-center overflow-hidden">
+        <!-- Status Dot -->
+        <span class="status-dot {{if eq .StatusString "在线"}}status-online{{else if eq .StatusString "延迟"}}status-delay{{else}}status-offline{{end}} flex-shrink-0"></span>
+        
+        <div class="ms-2 text-truncate">
+            <h6 class="mb-0 fw-semibold text-dark text-truncate" style="font-size: 0.95rem;">{{.Meta.Name}}</h6>
+            <small class="text-muted text-truncate font-monospace" style="font-size: 0.75rem;">
+                {{.UUID}}
+            </small>
+        </div>
     </div>
-    <div class="text-end">
-        {{if eq .StatusString "在线"}}
-            <span class="badge text-bg-success"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>在线</span>
-        {{else if eq .StatusString "延迟"}}
-            <span class="badge text-bg-warning"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>延迟</span>
-        {{else}}
-            <span class="badge text-bg-danger"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>离线</span>
-        {{end}}
-    </div>
+    <i class="fa-solid fa-chevron-right text-muted opacity-25" style="font-size: 0.8rem;"></i>
 </a>
 {{else}}
-<div class="text-center text-muted py-4">
-    <i class="fa-solid fa-robot fa-2x mb-2 text-light"></i>
-    <p class="small mb-0">暂无在线设备</p>
+<div class="text-center text-muted py-5">
+    <div class="mb-3">
+        <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+            <i class="fa-solid fa-server fa-2x text-secondary opacity-50"></i>
+        </div>
+    </div>
+    <p class="small mb-0 fw-medium">暂无在线设备</p>
 </div>
 {{end}}

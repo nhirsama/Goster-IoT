@@ -1,23 +1,23 @@
 <div class="fade-in">
     <!-- Header Card -->
     <div class="card mb-4">
-        <div class="card-body d-flex justify-content-between align-items-center">
+        <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
             <div class="d-flex align-items-center">
-                <div class="bg-light p-3 rounded-circle me-3 text-primary">
+                <div class="bg-light p-3 rounded-circle me-3 text-primary flex-shrink-0">
                     <i class="fa-solid fa-server fa-2x"></i>
                 </div>
-                <div>
-                    <h4 class="mb-0 fw-bold">{{.Meta.Name}}</h4>
-                    <div class="text-muted small"><i class="fa-solid fa-fingerprint me-1"></i>{{.UUID}}</div>
+                <div style="min-width: 0;">
+                    <h4 class="mb-0 fw-bold text-truncate">{{.Meta.Name}}</h4>
+                    <div class="text-muted small text-truncate"><i class="fa-solid fa-fingerprint me-1"></i>{{.UUID}}</div>
                 </div>
             </div>
             
             {{if ge .Permission 2}}
-            <div class="d-flex align-items-center gap-2">
-                 <button class="btn btn-outline-primary btn-sm"
+            <div class="d-flex align-items-center gap-2 ms-auto">
+                 <button class="btn btn-outline-primary btn-sm text-nowrap"
                          hx-post="/device/token/refresh?uuid={{.UUID}}"
                          hx-confirm="确定要重置该设备的 Token 吗？这将导致设备断开连接。">
-                    <i class="fa-solid fa-key me-1"></i>重置令牌
+                    <i class="fa-solid fa-key me-1"></i><span class="d-none d-sm-inline">重置令牌</span>
                 </button>
                 
                 <!-- Settings Dropdown -->
@@ -50,51 +50,51 @@
         </div>
     </div>
 
-    <!-- Info Grid -->
-    <div class="row g-4 mb-4">
-        <div class="col-md-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h6 class="text-uppercase text-muted small fw-bold mb-2">硬件版本</h6>
-                    <div class="fs-5">{{.Meta.HWVersion}}</div>
+    <!-- Info Grid - Compact on Mobile -->
+    <div class="row g-2 g-md-4 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card h-100 border-0 shadow-sm bg-white">
+                <div class="card-body p-3">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-1" style="font-size: 0.7rem;">硬件版本</h6>
+                    <div class="fs-6 fw-semibold">{{.Meta.HWVersion}}</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h6 class="text-uppercase text-muted small fw-bold mb-2">软件版本</h6>
-                    <div class="fs-5">{{.Meta.SWVersion}}</div>
+        <div class="col-6 col-md-3">
+            <div class="card h-100 border-0 shadow-sm bg-white">
+                <div class="card-body p-3">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-1" style="font-size: 0.7rem;">软件版本</h6>
+                    <div class="fs-6 fw-semibold">{{.Meta.SWVersion}}</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h6 class="text-uppercase text-muted small fw-bold mb-2">序列号</h6>
-                    <div class="fs-5 text-truncate" title="{{.Meta.SerialNumber}}">{{.Meta.SerialNumber}}</div>
+        <div class="col-6 col-md-3">
+            <div class="card h-100 border-0 shadow-sm bg-white">
+                <div class="card-body p-3">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-1" style="font-size: 0.7rem;">序列号</h6>
+                    <div class="fs-6 fw-semibold text-truncate" title="{{.Meta.SerialNumber}}">{{.Meta.SerialNumber}}</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h6 class="text-uppercase text-muted small fw-bold mb-2">MAC 地址</h6>
-                    <div class="fs-5 text-truncate" title="{{.Meta.MACAddress}}">{{.Meta.MACAddress}}</div>
+        <div class="col-6 col-md-3">
+            <div class="card h-100 border-0 shadow-sm bg-white">
+                <div class="card-body p-3">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-1" style="font-size: 0.7rem;">MAC 地址</h6>
+                    <div class="fs-6 fw-semibold text-truncate" title="{{.Meta.MACAddress}}">{{.Meta.MACAddress}}</div>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="card mb-4">
-        <div class="card-body">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">当前访问令牌</h6>
+        <div class="card-body p-3">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2" style="font-size: 0.7rem;">当前访问令牌</h6>
             <div class="bg-light p-2 rounded d-flex justify-content-between align-items-center">
                 {{if ge .Permission 2}}
-                <code class="text-break text-dark">{{.Meta.Token}}</code>
-                <i class="fa-regular fa-copy text-muted ms-2" style="cursor: pointer;" onclick="navigator.clipboard.writeText('{{.Meta.Token}}')"></i>
+                <code class="text-break text-dark small">{{.Meta.Token}}</code>
+                <i class="fa-regular fa-copy text-muted ms-2 p-1" style="cursor: pointer;" onclick="navigator.clipboard.writeText('{{.Meta.Token}}')"></i>
                 {{else}}
-                <code class="text-break text-muted">******** (权限不足)</code>
+                <code class="text-break text-muted small">******** (权限不足)</code>
                 {{end}}
             </div>
         </div>
@@ -102,9 +102,24 @@
 
     <!-- Chart -->
     <div class="card mb-4 chart-container">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 fw-bold"><i class="fa-solid fa-chart-area me-2 text-primary"></i>数据监控</h5>
-            <div class="btn-group btn-group-sm">
+        <div class="card-header bg-white border-0 pt-3 px-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold fs-6"><i class="fa-solid fa-chart-area me-2 text-primary"></i>数据监控</h5>
+            <div class="dropdown d-md-none">
+                 <button class="btn btn-sm btn-light" type="button" data-bs-toggle="dropdown">
+                     <i class="fa-solid fa-clock"></i>
+                 </button>
+                 <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                     {{ $uuid := .UUID }}
+                     {{ $range := .Range }}
+                     {{ range $r, $label := dict "1h" "1小时" "6h" "6小时" "24h" "24小时" "7d" "7天" "all" "全部" }}
+                     <li><a class="dropdown-item {{if eq $range $r}}active{{end}}" href="#"
+                        hx-get="/metrics/{{$uuid}}?range={{$r}}" 
+                        hx-target="#main-view" 
+                        hx-swap="innerHTML">{{$label}}</a></li>
+                     {{ end }}
+                 </ul>
+            </div>
+            <div class="btn-group btn-group-sm d-none d-md-inline-flex">
                 {{ $uuid := .UUID }}
                 {{ $range := .Range }}
                 {{ range $r, $label := dict "1h" "1小时" "6h" "6小时" "24h" "24小时" "7d" "7天" "all" "全部" }}
@@ -117,11 +132,15 @@
                 {{ end }}
             </div>
         </div>
-        <div class="card-body">
+        <div class="card-body p-2 p-md-3">
             {{if .Metrics}}
-            <div style="position: relative; height: 350px; width: 100%;">
+            <div class="chart-wrapper">
                 <canvas id="metricsChart"></canvas>
             </div>
+            <style>
+                .chart-wrapper { position: relative; width: 100%; height: 350px; }
+                @media (max-width: 768px) { .chart-wrapper { height: 250px; } }
+            </style>
             {{else}}
             <div class="h-100 d-flex flex-column align-items-center justify-content-center text-muted" style="height: 350px;">
                 <i class="fa-solid fa-chart-simple fa-3x mb-3 text-light"></i>
