@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package goster;
+
+option go_package = "./pb";
+
+// =============================================================================
+// Goster-WY 协议负载 (Payload) 定义
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 系统消息 (System Messages) (0x0000 - 0x00FF)
+// -----------------------------------------------------------------------------
+
+// 指令ID: 0x0001 (HANDSHAKE_INIT)
+// 方向: 客户端 -> 服务端
+message HandshakeInit {
+    bytes client_pub_key = 1; // 32字节 (X25519 客户端公钥)
+    bytes client_random  = 2; // 16字节 (客户端随机数)
+}
+
+// 指令ID: 0x0002 (HANDSHAKE_RESP)
+// 方向: 服务端 -> 客户端
+message HandshakeResp {
+    bytes server_pub_key = 1; // 32字节 (X25519 服务端公钥)
+    bytes server_random  = 2; // 16字节 (服务端随机数)
+    bytes salt_iv        = 3; // 4字节 (用于派生 IV 的初始 Salt)
+    
+    // 扩展: 服务端签名，用于信任扩展 (参考文档 7.1 节)
+    bytes signature      = 4; 
+}
+
+// 指令ID: 0x0003 (AUTH_VERIFY)
+// 方向: 客户端 -> 服务端 (已加密)
+message AuthVerify {
+    string device_uuid = 1; // 设备 UUID
+    bytes  signature   = 2; // 签名数据 Signed(Client_Random + Server_Random)
+    string token       = 3; // 可选: 如果使用 Token 认证代替签名
+}
+
+// 指令ID: 0x0004 (AUTH_ACK)
+// 方向: 服务端 -> 客户端 (已加密)
+message AuthAck {
+    bool   success      = 1; // 是否认证成功
+    uint32 session_id   = 2; // 后续通信 Header 中使用的 KeyID
+    uint32 expires_in   = 3; // 会话有效期 (秒)
+    string error_reason = 4; // 若失败，填充错误原因
+}
+
+// 指令ID: 0x00FF (ERROR_REPORT)
+// 方向: 双向
+message ErrorReport {
+    int32  code    = 1; // 错误码
+    string message = 2; // 错误信息
+    uint32 related_cmd_id = 3; // 关联的指令 ID
+}
+
+// -----------------------------------------------------------------------------
+// 上行消息 (Uplink) (设备 -> 云端) (0x0100 - 0x01FF)
+// -----------------------------------------------------------------------------
+
+// 指令ID: 0x0101 (METRICS_REPORT)
+// 注意: 高频纯数值采样建议使用 Raw Binary 格式传输，而非此 Proto 消息
+message MetricsReport {
+    int64  timestamp       = 1; // Unix 时间戳 (毫秒)
+    uint32 sample_interval = 2; // 采样间隔 (微秒)
+    
+    // 灵活的数据点定义
+    message DataPoint {
+        string key   = 1; // 例如: "temp_cpu", "volt_batt"
+        double value = 2; // 数值
+    }
+    repeated DataPoint metrics = 3;
+}
+
+// 指令ID: 0x0102 (LOG_REPORT)
+enum LogLevel {
+    DEBUG = 0;
+    INFO  = 1;
+    WARN  = 2;
+    ERROR = 3;
+    FATAL = 4;
+}
+
+message LogReport {
+    int64    timestamp = 1; // 时间戳
+    LogLevel level     = 2; // 日志等级
+    string   tag       = 3; // 模块或组件名称
+    string   content   = 4; // 日志内容
+}
+
+// 指令ID: 0x0103 (EVENT_REPORT)
+message EventReport {
+    int64  timestamp  = 1;
+    string event_type = 2; // 事件类型 (如: "motion_detected", "low_battery")
+    string payload    = 3; // JSON 格式详情或其他载荷
+    int32  severity   = 4; // 严重程度
+}
+
+// -----------------------------------------------------------------------------
+// 下行消息 (Downlink) (云端 -> 设备) (0x0200 - 0x02FF)
+// -----------------------------------------------------------------------------
+
+// 指令ID: 0x0201 (CONFIG_PUSH)
+message ConfigPush {
+    string config_version = 1; // 配置版本号
+    map<string, string> settings = 2; // 键值对配置项
+}
+
+// 指令ID: 0x0202 (OTA_DATA)
+// 通常 OTA 数据块使用 Raw Binary 传输，此消息可作为元数据头 (Metadata Header)
+message OtaHeader {
+    string version    = 1; // 固件版本
+    uint32 total_size = 2; // 总大小
+    uint32 checksum   = 3; // 完整镜像的 CRC32 或 SHA256
+    uint32 chunk_size = 4; // 分块大小
+}
+
+// 指令ID: 0x0203 (ACTION_EXEC)
+message ActionExec {
+    string action_id = 1; // 动作唯一 ID (用于 ACK)
+    string type      = 2; // 动作类型 (如: "reboot", "open_lock", "blink_led")
+    string params    = 3; // JSON 编码的参数
+}
+
+// 指令ID: 0x0204 (SCREEN_WY)
+message ScreenWy {
+    uint32 width  = 1; // 宽
+    uint32 height = 2; // 高
+    bytes  pixels = 3; // 1-bit 或压缩后的像素数据
+}

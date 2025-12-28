@@ -99,7 +99,7 @@ func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
 
 	// Devices
 	// 50 Online
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 500; i++ {
 		uuid := fmt.Sprintf("dev-online-%03d", i)
 		createDevice(ds, uuid, fmt.Sprintf("Sensor Online %d", i), inter.Authenticated)
 		generateMetrics(ds, uuid, 100)
@@ -107,20 +107,20 @@ func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
 	}
 
 	// 50 Offline
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 500; i++ {
 		uuid := fmt.Sprintf("dev-offline-%03d", i)
 		createDevice(ds, uuid, fmt.Sprintf("Sensor Offline %d", i), inter.Authenticated)
 		// No heartbeat -> Offline
 	}
 
 	// 20 Pending
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 200; i++ {
 		uuid := fmt.Sprintf("dev-pending-%03d", i)
 		createDevice(ds, uuid, fmt.Sprintf("New Device %d", i), inter.AuthenticatePending)
 	}
 
 	// 10 Blacklisted
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		uuid := fmt.Sprintf("dev-block-%03d", i)
 		createDevice(ds, uuid, fmt.Sprintf("Bad Device %d", i), inter.AuthenticateRefuse)
 	}
@@ -156,8 +156,8 @@ func runStressTest(t *testing.T) {
 	}
 
 	start := time.Now()
-	totalRequests := 1000
-	concurrency := 50
+	totalRequests := 100000
+	concurrency := 5000
 
 	requestCh := make(chan string, totalRequests)
 

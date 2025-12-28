@@ -12,6 +12,7 @@ type DeviceManager struct {
 	DataStore       inter.DataStore
 	IdentityManager inter.IdentityManager
 	timer           sync.Map
+	message         inter.MessageQueue
 	DeathLine       time.Duration
 }
 
@@ -20,6 +21,7 @@ func NewDeviceManager(ds inter.DataStore, IdentityManager inter.IdentityManager)
 		DataStore:       ds,
 		IdentityManager: IdentityManager,
 		timer:           sync.Map{},
+		message:         NewMessageQueue(100),
 	}
 }
 
@@ -42,10 +44,10 @@ type MessageQueue struct {
 	capacity int
 }
 
-func NewMessageQueue(cap int) (inter.MessageQueue, error) {
+func NewMessageQueue(cap int) inter.MessageQueue {
 	return &MessageQueue{
 		capacity: cap,
-	}, nil
+	}
 }
 
 func (m *MessageQueue) Push(uuid string, message interface{}) error {
