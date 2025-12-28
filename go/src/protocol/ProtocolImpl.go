@@ -3,6 +3,7 @@ package protocol
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -19,10 +20,6 @@ type GosterCodec struct{}
 func NewGosterCodec() inter.ProtocolCodec {
 	return &GosterCodec{}
 }
-
-// -----------------------------------------------------------------------------
-// CRC16/MODBUS 实现
-// -----------------------------------------------------------------------------
 
 var crc16Table = []uint16{
 	0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
@@ -67,167 +64,111 @@ func crc16Modbus(data []byte) uint16 {
 	return crc
 }
 
-// -----------------------------------------------------------------------------
-// Pack 实现
-// -----------------------------------------------------------------------------
-
 func (c *GosterCodec) Pack(payload []byte, cmd inter.CmdID, keyID uint32, sessionKey []byte, seqNonce uint64) ([]byte, error) {
-	// 1. 准备标志位
+	payloadLen := len(payload)
+	if payloadLen > 1*1024*1024 { // 1MB 限制
+		return nil, fmt.Errorf("payload过大: %d", payloadLen)
+	}
+
+	totalSize := int(inter.HeaderSize) + payloadLen + int(inter.FooterSize)
+
+	// 初始长度为HeaderSize用于填充头部，容量为totalSize用于追加Payload/Footer
+	buf := make([]byte, inter.HeaderSize, totalSize)
+
 	var flags uint8 = 0
 	isEncrypted := sessionKey != nil && keyID != 0
 	if isEncrypted {
-		flags |= 0x02 // Set Bit 1: ENCRYPTED
+		flags |= 0x02 // Bit 1: 加密
 	}
-	// TODO: 压缩支持可在此处添加
 
-	// 2. 构造 Nonce (12 Bytes)
-	// 建议结构: Salt(4B) + Seq(8B) 或直接使用 Seq 填充
-	// 这里简化实现：直接将 seqNonce (uint64) 填入后 8 字节，前 4 字节留空或填 0
-	nonce := make([]byte, 12)
-	binary.LittleEndian.PutUint64(nonce[4:], seqNonce) // 简单的 Nonce 构造
+	// 填充头部 (Offset 0-31)
+	binary.LittleEndian.PutUint16(buf[0:], inter.MagicNumber)
+	buf[2] = inter.ProtocolVersion
+	buf[3] = flags
+	binary.LittleEndian.PutUint16(buf[4:], 0) // Status
+	binary.LittleEndian.PutUint16(buf[6:], uint16(cmd))
+	binary.LittleEndian.PutUint32(buf[8:], keyID)
+	binary.LittleEndian.PutUint32(buf[12:], uint32(payloadLen))
 
-	// 3. 准备 Payload (加密或原始内容)
-	var finalPayload []byte
-	var tag []byte
-	var length uint32
+	// Nonce: Salt(4B) + Seq(8B) 在 Offset 16
+	if _, err := io.ReadFull(rand.Reader, buf[16:20]); err != nil {
+		return nil, fmt.Errorf("生成随机Salt失败: %w", err)
+	}
+	binary.LittleEndian.PutUint64(buf[20:], seqNonce)
 
+	// 计算 Header CRC16 (Offset 0-27)
+	// 覆盖前 28 字节 (Magic, Ver, Flags, Status, Cmd, Key, Len, Nonce)
+	hCrc := crc16Modbus(buf[:28])
+	binary.LittleEndian.PutUint16(buf[28:], hCrc)
+	// buf[30:32] 是填充位，已为 0
+
+	// 加密或追加 Payload
 	if isEncrypted {
 		block, err := aes.NewCipher(sessionKey)
 		if err != nil {
-			return nil, fmt.Errorf("aes init failed: %w", err)
+			return nil, fmt.Errorf("AES初始化失败: %w", err)
 		}
 
 		gcm, err := cipher.NewGCM(block)
 		if err != nil {
-			return nil, fmt.Errorf("gcm init failed: %w", err)
+			return nil, fmt.Errorf("GCM初始化失败: %w", err)
 		}
 
-		// 构造 AAD (Header 前 28 字节)
-		// 我们需要先构建一个 Header 才能做 AAD，但 Length 字段此时取决于密文长度
-		// AES-GCM 密文长度通常 = 明文长度 (不含 Tag，Tag 在 Seal 时追加)
-		// Go 的 gcm.Seal 会将 Tag 追加在密文后面。
-		// 但协议要求 Tag 放在 Footer。
-		// 因此我们需要把 Tag 分离出来。
+		// Nonce 在 buf[16:28]
+		nonce := buf[16:28]
+		// AAD 是 buf[:28] (不含CRC/Padding的头部)
+		aad := buf[:28]
 
-		// 这里的 length 是指 Payload 长度。
-		// 加密后的 Payload 长度 = 明文长度。 Tag 是额外的。
-		length = uint32(len(payload))
+		// 加密并追加到 buf
+		// gcm.Seal 追加 (ciphertext + tag) 到 dst
+		// 此时 buf 长度为 32，追加后长度为 32 + len(payload) + 16
+		buf = gcm.Seal(buf, nonce, payload, aad)
 
-		// 预构建 Header 用于 AAD
-		headerAAD := make([]byte, 28) // Offset 0-27
-		binary.LittleEndian.PutUint16(headerAAD[0:], inter.MagicNumber)
-		headerAAD[2] = inter.ProtocolVersion
-		headerAAD[3] = flags
-		binary.LittleEndian.PutUint16(headerAAD[4:], 0) // Status (Reserved)
-		binary.LittleEndian.PutUint16(headerAAD[6:], uint16(cmd))
-		binary.LittleEndian.PutUint32(headerAAD[8:], keyID)
-		binary.LittleEndian.PutUint32(headerAAD[12:], length)
-		copy(headerAAD[16:], nonce)
-
-		// 执行加密
-		// gcm.Seal(dst, nonce, plaintext, additionalData)
-		// 注意：Go 的 gcm.Seal 会把 Authentication Tag (16 bytes) 附加在 ciphertext 的末尾
-		ciphertextWithTag := gcm.Seal(nil, nonce, payload, headerAAD)
-
-		// 分离 ciphertext 和 tag
-		tagSize := gcm.Overhead() // 通常是 16
-		if len(ciphertextWithTag) < tagSize {
-			return nil, errors.New("encryption error: output too short")
+		// 校验最终大小
+		if len(buf) != totalSize {
+			return nil, fmt.Errorf("加密输出大小不匹配: 期望 %d, 实际 %d", totalSize, len(buf))
 		}
-
-		finalPayload = ciphertextWithTag[:len(ciphertextWithTag)-tagSize]
-		tag = ciphertextWithTag[len(ciphertextWithTag)-tagSize:]
 
 	} else {
 		// 明文模式
-		length = uint32(len(payload))
-		finalPayload = payload
+		// 追加 Payload
+		buf = append(buf, payload...)
 
-		// 计算 CRC32 作为 Footer 的一部分
-		// 协议: CRC32(Header + Payload) -> Footer[0:4]
-		// 但这时候 Header 还没完全生成(缺 CRC16)，这会造成循环依赖吗？
-		// 文档 2.3 节: "Byte 0-3: Header + Payload 的 CRC32 校验值"
-		// 这里的 Header 通常是指除了 H_CRC16 之外的部分，或者整个已完成的 Header?
-		// 通常为了简便，明文校验往往校验 payload。
-		// 让我们再次查看 docs.md: "Header + Payload 的 CRC32"。
-		// 如果 Header 包含 H_CRC16，那么必须先算 H_CRC16。
-		// H_CRC16 计算范围是 Offset 0~27。
-		// 所以我们可以先生成完整的 Header，再算 Footer 的 CRC32。
-	}
-
-	// 4. 构建最终 Header (32 Bytes)
-	header := make([]byte, inter.HeaderSize)
-	binary.LittleEndian.PutUint16(header[0:], inter.MagicNumber)
-	header[2] = inter.ProtocolVersion
-	header[3] = flags
-	binary.LittleEndian.PutUint16(header[4:], 0) // Status
-	binary.LittleEndian.PutUint16(header[6:], uint16(cmd))
-	binary.LittleEndian.PutUint32(header[8:], keyID)
-	binary.LittleEndian.PutUint32(header[12:], length)
-	copy(header[16:], nonce)
-
-	// 计算 Header CRC16 (前 28 字节)
-	hCrc := crc16Modbus(header[:28])
-	binary.LittleEndian.PutUint16(header[28:], hCrc)
-	// header[30:32] 是 padding (0), make 已初始化为 0
-
-	// 5. 构建 Footer (16 Bytes)
-	footer := make([]byte, inter.FooterSize)
-	if isEncrypted {
-		// 填入 Tag (16 Bytes)
-		if len(tag) != 16 {
-			return nil, fmt.Errorf("invalid tag size: %d", len(tag))
-		}
-		copy(footer, tag)
-	} else {
-		// 填入 CRC32 + Padding
-		// 计算范围: Header (32B) + Payload
+		// 计算 CRC32 (Header + Payload)
 		chk := crc32.NewIEEE()
-		chk.Write(header)
-		chk.Write(finalPayload)
+		chk.Write(buf)
 		sum := chk.Sum32()
-		binary.LittleEndian.PutUint32(footer[0:], sum)
-		// footer[4:] 默认为 0
+
+		// 追加 Footer (CRC32 + Padding)
+		// Footer 共 16 字节，前 4 字节为 CRC32，其余为 0
+		currentLen := len(buf)
+		buf = append(buf, make([]byte, inter.FooterSize)...)
+		binary.LittleEndian.PutUint32(buf[currentLen:], sum)
 	}
-
-	// 6. 拼接最终数据包
-	// Size = 32 + Length + 16
-	totalSize := int(inter.HeaderSize) + len(finalPayload) + int(inter.FooterSize)
-	buf := make([]byte, totalSize)
-
-	copy(buf[0:], header)
-	copy(buf[inter.HeaderSize:], finalPayload)
-	copy(buf[inter.HeaderSize+uint32(len(finalPayload)):], footer)
 
 	return buf, nil
 }
 
-// -----------------------------------------------------------------------------
-// Unpack 实现
-// -----------------------------------------------------------------------------
-
-func (c *GosterCodec) Unpack(r io.Reader, keyProvider inter.SessionKeyProvider) (*inter.Packet, error) {
-	// 1. 读取 Header (32 Bytes)
+func (c *GosterCodec) Unpack(r io.Reader, key []byte) (*inter.Packet, error) {
+	// 读取 Header (32 Bytes)
 	headerBuf := make([]byte, inter.HeaderSize)
 	if _, err := io.ReadFull(r, headerBuf); err != nil {
 		return nil, err
 	}
 
-	// 2. 验证 Magic
 	magic := binary.LittleEndian.Uint16(headerBuf[0:])
 	if magic != inter.MagicNumber {
-		return nil, fmt.Errorf("invalid magic: 0x%X", magic)
+		return nil, fmt.Errorf("无效Magic: 0x%X", magic)
 	}
 
-	// 3. 验证 Header CRC16
+	// 验证 Header CRC16
 	expectedCRC := binary.LittleEndian.Uint16(headerBuf[28:])
 	actualCRC := crc16Modbus(headerBuf[:28])
 	if expectedCRC != actualCRC {
-		return nil, fmt.Errorf("header crc mismatch: expect 0x%X, got 0x%X", expectedCRC, actualCRC)
+		return nil, fmt.Errorf("头部CRC校验失败: 期望 0x%X, 实际 0x%X", expectedCRC, actualCRC)
 	}
 
-	// 4. 解析 Header 字段
-	// version := headerBuf[2]
+	// 解析 Header
 	flags := headerBuf[3]
 	cmdID := inter.CmdID(binary.LittleEndian.Uint16(headerBuf[6:]))
 	keyID := binary.LittleEndian.Uint32(headerBuf[8:])
@@ -237,35 +178,28 @@ func (c *GosterCodec) Unpack(r io.Reader, keyProvider inter.SessionKeyProvider) 
 	isEncrypted := (flags & 0x02) != 0
 	isAck := (flags & 0x01) != 0
 
-	// 5. 读取 Payload + Footer
-	// 总共需要读取 length + 16 字节
+	if length > 1*1024*1024 {
+		return nil, fmt.Errorf("接收到的Payload过大: %d", length)
+	}
+
+	// 读取 Payload + Footer (一次性读取)
+	// Body = Payload (length) + Footer (16)
 	bodyLen := length + inter.FooterSize
 	bodyBuf := make([]byte, bodyLen)
 	if _, err := io.ReadFull(r, bodyBuf); err != nil {
 		return nil, err
 	}
 
-	rawPayload := bodyBuf[:length]
-	footer := bodyBuf[length:]
-
-	// 6. 验证与解密
 	var finalPayload []byte
 
 	if isEncrypted {
 		// 查找密钥
-		if keyProvider == nil {
-			return nil, errors.New("encrypted packet received but no key provider")
-		}
-		sessionKey, err := keyProvider(keyID)
-		if err != nil {
-			return nil, fmt.Errorf("key lookup failed: %w", err)
-		}
-		if sessionKey == nil {
-			return nil, fmt.Errorf("session key not found for ID: %d", keyID)
+		if key == nil {
+			return nil, errors.New("收到加密包但未提供 KeyProvider")
 		}
 
-		// AES-GCM 解密
-		block, err := aes.NewCipher(sessionKey)
+		// 初始化 AES-GCM
+		block, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, err
 		}
@@ -274,27 +208,25 @@ func (c *GosterCodec) Unpack(r io.Reader, keyProvider inter.SessionKeyProvider) 
 			return nil, err
 		}
 
-		// 重构 ciphertext (Payload + Tag) 用于 gcm.Open
-		// Tag 位于 Footer
-		tag := footer // 16 bytes
-		ciphertextWithTag := make([]byte, len(rawPayload)+len(tag))
-		copy(ciphertextWithTag, rawPayload)
-		copy(ciphertextWithTag[len(rawPayload):], tag)
-
-		// 构造 AAD (Header 前 28 字节)
+		// AAD (Header 前 28 字节)
 		headerAAD := headerBuf[:28]
 
 		// 解密
-		// gcm.Open(dst, nonce, ciphertext, additionalData)
-		plaintext, err := gcm.Open(nil, nonce, ciphertextWithTag, headerAAD)
+		// bodyBuf 包含 [EncryptedPayload... | Tag(16)]
+		// 这正好符合 gcm.Open 对 ciphertext 的要求 (ciphertext + tag)
+		plaintext, err := gcm.Open(nil, nonce, bodyBuf, headerAAD)
 		if err != nil {
-			return nil, fmt.Errorf("decryption failed: %w", err)
+			return nil, fmt.Errorf("解密失败: %w", err)
 		}
 		finalPayload = plaintext
 
 	} else {
 		// 明文校验
 		// 计算 Header + Payload 的 CRC32
+		// bodyBuf 结构: [Payload... | Footer(16)]
+		rawPayload := bodyBuf[:length]
+		footer := bodyBuf[length:]
+
 		chk := crc32.NewIEEE()
 		chk.Write(headerBuf)
 		chk.Write(rawPayload)
@@ -302,7 +234,7 @@ func (c *GosterCodec) Unpack(r io.Reader, keyProvider inter.SessionKeyProvider) 
 
 		expectedSum := binary.LittleEndian.Uint32(footer[0:])
 		if actualSum != expectedSum {
-			return nil, fmt.Errorf("payload crc32 mismatch: expect 0x%X, got 0x%X", expectedSum, actualSum)
+			return nil, fmt.Errorf("payload CRC32校验失败: 期望 0x%X, 实际 0x%X", expectedSum, actualSum)
 		}
 		finalPayload = rawPayload
 	}

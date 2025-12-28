@@ -20,6 +20,12 @@ type DeviceManager interface {
 	HandleHeartbeat(uuid string)
 
 	QueryDeviceStatus(uuid string) (DeviceStatus, error)
+
+	QueuePush(uuid string, message interface{}) error
+
+	QueuePop(uuid string) (interface{}, bool)
+
+	QueueIsEmpty(uuid string) bool
 }
 
 // MessageQueue 定义消息队列的底层操作接口
@@ -33,4 +39,6 @@ type MessageQueue interface {
 	// 从指定 UUID 的队列中取出最早的一条指令 (FIFO)
 	// 返回: (指令内容, 是否存在指令)
 	Pop(uuid string) (interface{}, bool)
+
+	IsEmpty(uuid string) bool
 }

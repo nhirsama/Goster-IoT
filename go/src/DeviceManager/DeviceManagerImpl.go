@@ -39,6 +39,18 @@ func (d *DeviceManager) QueryDeviceStatus(uuid string) (inter.DeviceStatus, erro
 	return inter.StatusOffline, errors.New("设备未找到")
 }
 
+func (d *DeviceManager) QueuePush(uuid string, message interface{}) error {
+	return d.message.Push(uuid, message)
+}
+
+func (d *DeviceManager) QueuePop(uuid string) (interface{}, bool) {
+	return d.message.Pop(uuid)
+}
+
+func (d *DeviceManager) QueueIsEmpty(uuid string) bool {
+	return d.message.IsEmpty(uuid)
+}
+
 type MessageQueue struct {
 	queues   sync.Map
 	capacity int
@@ -84,4 +96,12 @@ func (m *MessageQueue) Pop(uuid string) (interface{}, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func (m *MessageQueue) IsEmpty(uuid string) bool {
+	actual, exists := m.queues.Load(uuid)
+	if !exists {
+		return false
+	}
+	return len(actual.(chan interface{})) == 0
 }

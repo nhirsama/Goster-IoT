@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	// TODO: 这里引入你实际实现接口的包
-	// "your_project/impl/sqlite"
 	"github.com/nhirsama/Goster-IoT/src/inter" // 替换为你的 inter 包路径
 )
 
