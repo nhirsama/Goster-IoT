@@ -10,16 +10,17 @@ import (
 )
 
 type webServer struct {
-	dataStore     inter.DataStore
-	deviceManager inter.DeviceManager
-	api           inter.Api
-	templates     map[string]*template.Template
-	htmlDir       string
-	captcha       CaptchaProvider
+	dataStore       inter.DataStore
+	deviceManager   inter.DeviceManager
+	identityManager inter.IdentityManager
+	api             inter.Api
+	templates       map[string]*template.Template
+	htmlDir         string
+	captcha         CaptchaProvider
 }
 
 // NewWebServer 创建一个新的 Web 服务器实例
-func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, api inter.Api, htmlDir string) inter.WebServer {
+func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager, api inter.Api, htmlDir string) inter.WebServer {
 	providerType := os.Getenv("CAPTCHA_PROVIDER")
 	var provider CaptchaProvider
 
@@ -33,12 +34,13 @@ func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, api inter.Api, htm
 	}
 
 	return &webServer{
-		dataStore:     ds,
-		deviceManager: dm,
-		api:           api,
-		templates:     loadTemplates(htmlDir),
-		htmlDir:       htmlDir,
-		captcha:       provider,
+		dataStore:       ds,
+		deviceManager:   dm,
+		identityManager: im,
+		api:             api,
+		templates:       loadTemplates(htmlDir),
+		htmlDir:         htmlDir,
+		captcha:         provider,
 	}
 }
 

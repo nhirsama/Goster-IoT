@@ -3,12 +3,10 @@ package Api
 import (
 	"crypto/ecdh"
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net"
 	"time"
 
@@ -70,19 +68,14 @@ func (a *apiImpl) negotiateSecret(peerPubKeyBytes []byte) ([]byte, error) {
 	return a.privateKey.ECDH(peerPubKey)
 }
 
-// handleDownlinkAck 处理下行指令的 ACK 确认
-func (a *apiImpl) handleDownlinkAck(uuid string, cmd inter.CmdID) {
-	log.Printf("API: 收到下行确认 (UUID: %s, Cmd: 0x%X)", uuid, cmd)
-	// TODO: 调用相关的消息队列 ACK 接口
-}
-
 // handleConnection 处理长连接协议循环
 func (a *apiImpl) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// 为当前会话创建独立的业务逻辑处理器 (Application Layer)
+	handler := NewBusinessHandler(a.dataStore, a.deviceManager, a.identityManager)
+
 	var sessionKey []byte
-	var currentUUID string
-	var authenticated bool = false
 	var writeSeq uint64 = 0
 
 	for {
@@ -97,8 +90,12 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			return
 		}
 
-		// 权限检查：未完成鉴权前，只允许握手和鉴权指令
-		if !authenticated && packet.CmdID != inter.CmdHandshakeInit && packet.CmdID != inter.CmdAuthVerify {
+		// 权限检查：未完成鉴权前，只允许握手、鉴权和注册指令
+		allowed := packet.CmdID == inter.CmdHandshakeInit ||
+			packet.CmdID == inter.CmdAuthVerify ||
+			packet.CmdID == inter.CmdDeviceRegister
+
+		if !handler.IsAuthenticated() && !allowed {
 			log.Printf("API: 拒绝非法指令 0x%X (未鉴权)", packet.CmdID)
 			return
 		}
@@ -124,146 +121,80 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			log.Printf("API: 已交换密钥 (Remote: %s)", conn.RemoteAddr())
 
 		case inter.CmdAuthVerify:
-			// 设备第二帧：发送 Token (加密)
+			// Token 鉴权 (0x0003)
 			token := string(packet.Payload)
 
-			// 直接调用接口进行鉴权
-			authUUID, err := a.identityManager.Authenticate(token)
+			// 调用业务层鉴权
+			status, respPayload, err := handler.Authenticate(token)
 
 			if err != nil {
-				log.Printf("API: %v", err)
-				return
-			}
-
-			status := byte(0) // Success
-			if err != nil {
-				status = 1 // Fail
 				log.Printf("API: 鉴权失败 (Token: %s): %v", token, err)
 			}
 
 			// 发送 CmdAuthAck (加密)
+			ackPayload := append([]byte{status}, respPayload...)
 			writeSeq++
-			ackBuf, _ := a.protocol.Pack([]byte{status}, inter.CmdAuthAck, 1, sessionKey, writeSeq)
+			ackBuf, _ := a.protocol.Pack(ackPayload, inter.CmdAuthAck, 1, sessionKey, writeSeq)
 			conn.Write(ackBuf)
 
-			if err != nil {
+			if status != 0x00 {
 				return // 鉴权失败关闭连接
 			}
+			log.Printf("API: 身份鉴权通过 (UUID: %s)", handler.GetUUID())
 
-			currentUUID = authUUID
-			authenticated = true
-			log.Printf("API: 身份鉴权通过 (UUID: %s)", currentUUID)
+		case inter.CmdDeviceRegister:
+			// 设备注册 (0x0005)
+			payloadStr := string(packet.Payload)
+
+			// 调用业务层注册
+			status, respPayload, err := handler.HandleRegistration(payloadStr)
+
+			if err != nil {
+				log.Printf("API: 注册处理异常 (Status: %d): %v", status, err)
+			}
+
+			// 发送 CmdAuthAck (加密)
+			ackPayload := append([]byte{status}, respPayload...)
+			writeSeq++
+			ackBuf, _ := a.protocol.Pack(ackPayload, inter.CmdAuthAck, 1, sessionKey, writeSeq)
+			conn.Write(ackBuf)
+
+			if status != 0x00 {
+				if status == 0x02 {
+					log.Printf("API: 设备注册申请已提交 (Pending), 关闭连接")
+				} else {
+					log.Printf("API: 注册被拒绝 (Status: %d), 关闭连接", status)
+				}
+				return // 关闭连接
+			}
+			log.Printf("API: 注册并登录成功 (UUID: %s)", handler.GetUUID())
 
 		case inter.CmdMetricsReport:
-			// 解析并上报指标
-			if len(packet.Payload) < 17 { // 基础头部长度检查
-				continue
+			if err := handler.HandleMetrics(packet.Payload); err != nil {
+				log.Printf("API: Metrics error: %v", err)
 			}
-			data := inter.MetricsUploadData{
-				StartTimestamp: int64(binary.LittleEndian.Uint64(packet.Payload[0:8])),
-				SampleInterval: binary.LittleEndian.Uint32(packet.Payload[8:12]),
-				DataType:       packet.Payload[12],
-				Count:          binary.LittleEndian.Uint32(packet.Payload[13:17]),
-				DataBlob:       packet.Payload[17:],
-			}
-			a.UploadMetrics(currentUUID, data)
 
 		case inter.CmdLogReport:
-			// 解析日志上报 Payload
-			// 结构: [Timestamp(8B)] + [Level(1B)] + [MsgLen(2B)] + [Message(N)]
-			if len(packet.Payload) < 11 { // 8+1+2
-				log.Printf("API: 日志上报数据过短")
-				continue
+			if err := handler.HandleLog(packet.Payload); err != nil {
+				log.Printf("API: Log error: %v", err)
 			}
 
-			ts := int64(binary.LittleEndian.Uint64(packet.Payload[0:8]))
-			levelVal := inter.LogLevel(packet.Payload[8])
-			msgLen := int(binary.LittleEndian.Uint16(packet.Payload[9:11]))
-
-			if len(packet.Payload) < 11+msgLen {
-				log.Printf("API: 日志消息体长度不足")
-				continue
-			}
-
-			message := string(packet.Payload[11 : 11+msgLen])
-
-			// 转换日志级别字符串
-			var levelStr string
-			switch levelVal {
-			case inter.LogLevelDebug:
-				levelStr = "DEBUG"
-			case inter.LogLevelInfo:
-				levelStr = "INFO"
-			case inter.LogLevelWarn:
-				levelStr = "WARN"
-			case inter.LogLevelError:
-				levelStr = "ERROR"
-			default:
-				levelStr = "UNKNOWN"
-			}
-
-			// 格式化最终消息 (附加时间戳)
-			finalMsg := fmt.Sprintf("[%s] %s", time.UnixMilli(ts).Format(time.DateTime), message)
-			a.dataStore.WriteLog(currentUUID, levelStr, finalMsg)
 		case inter.CmdEventReport:
-			log.Printf("API: 收到事件上报 (UUID: %s)", currentUUID)
+			handler.HandleEvent(packet.Payload)
 
 		case inter.CmdConfigPush, inter.CmdOtaData, inter.CmdActionExec, inter.CmdScreenWy:
 			if packet.IsAck {
-				a.handleDownlinkAck(currentUUID, packet.CmdID)
+				handler.HandleDownlinkAck(packet.CmdID)
 			}
 		case inter.CmdHeartbeat:
-			a.Heartbeat(currentUUID)
+			handler.HandleHeartbeat()
+
 		case inter.CmdErrorReport:
-			log.Printf("API: 收到设备错误: %s", string(packet.Payload))
+			handler.HandleError(packet.Payload)
 			return
 
 		default:
 			log.Printf("API: 未知指令 0x%X", packet.CmdID)
 		}
 	}
-}
-
-// Heartbeat 心跳处理
-func (a *apiImpl) Heartbeat(uuid string) bool {
-	a.deviceManager.HandleHeartbeat(uuid)
-	return a.deviceManager.QueueIsEmpty(uuid)
-}
-
-// UploadMetrics 指标上报处理
-func (a *apiImpl) UploadMetrics(uuid string, data inter.MetricsUploadData) error {
-	log.Printf("API: 解析采样数据 (UUID: %s, Count: %d)", uuid, data.Count)
-
-	// DataType Check (0 = Float32)
-	if data.DataType != 0 {
-		return fmt.Errorf("API: 不支持的指标数据类型: %d", data.DataType)
-	}
-
-	// Check DataBlob length
-	pointSize := 4 // float32
-	expectedLen := int(data.Count) * pointSize
-	if len(data.DataBlob) != expectedLen {
-		return fmt.Errorf("API: 数据长度不匹配: 期望 %d, 实际 %d", expectedLen, len(data.DataBlob))
-	}
-
-	points := make([]inter.MetricPoint, 0, data.Count)
-	startTime := data.StartTimestamp
-	intervalUs := int64(data.SampleInterval)
-
-	for i := 0; i < int(data.Count); i++ {
-		// Parse float32 (Little Endian)
-		bits := binary.LittleEndian.Uint32(data.DataBlob[i*pointSize : (i+1)*pointSize])
-		val := math.Float32frombits(bits)
-
-		// Calculate Timestamp
-		offsetMs := (int64(i) * intervalUs) / 1000
-		ts := startTime + offsetMs
-
-		points = append(points, inter.MetricPoint{
-			Timestamp: ts,
-			Value:     val,
-		})
-	}
-
-	return a.dataStore.BatchAppendMetrics(uuid, points)
 }

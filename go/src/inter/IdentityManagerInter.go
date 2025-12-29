@@ -30,8 +30,11 @@ type IdentityManager interface {
 
 	// RegisterDevice 注册一个新设备到系统中。
 	// hwID: 硬件原始 ID；name: 设备别名。
-	// 返回生成的 UUID 和访问令牌 Token。
-	RegisterDevice(uuid string, meta DeviceMetadata) (token string, err error)
+	// 注册只负责初始化设备信息，不负责设备的具体认证状态
+	RegisterDevice(meta DeviceMetadata) (err error)
+
+	// UpdateDeviceAuthenticateStatus 修改设备认证状态并返回设备现有的 token
+	UpdateDeviceAuthenticateStatus(uuid string, Status AuthenticateStatusType) (token string, err error)
 	// [凭证校验]
 
 	// Authenticate 验证传入 Token 的合法性。
@@ -48,4 +51,24 @@ type IdentityManager interface {
 	// RevokeToken 吊销指定设备的访问权限。
 	// 该操作会清除存储中的 Token，使设备立即失去访问资格。
 	RevokeToken(uuid string) error
+
+	// [Web 管理接口]
+
+	// ListDevices 分页获取设备列表
+	ListDevices(page, size int) ([]DeviceRecord, error)
+
+	// GetDeviceMetadata 获取设备详细元数据
+	GetDeviceMetadata(uuid string) (DeviceMetadata, error)
+
+	// ApproveDevice 批准设备接入 (Pending -> Authenticated)
+	ApproveDevice(uuid string) error
+
+	// RejectDevice 拒绝/拉黑设备 (-> Refused)
+	RejectDevice(uuid string) error
+
+	// UnblockDevice 解除拉黑 (Refused -> Pending)
+	UnblockDevice(uuid string) error
+
+	// DeleteDevice 彻底删除设备
+	DeleteDevice(uuid string) error
 }

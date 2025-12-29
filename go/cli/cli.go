@@ -43,7 +43,7 @@ func start(ctx context.Context) {
 	if htmlDir == "" {
 		htmlDir = "html"
 	}
-	web := Web.NewWebServer(db, dm, api, htmlDir)
+	web := Web.NewWebServer(db, dm, im, api, htmlDir)
 	go web.Start()
 	go api.Start()
 	select {

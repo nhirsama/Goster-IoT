@@ -9,6 +9,8 @@ const (
 	AuthenticateRefuse                                // 拒绝认证
 	AuthenticatePending                               // 等待认证
 	AuthenticateUnknown                               // 未知的设备
+	AuthenticateRevoked                               // 已吊销
+
 )
 
 // PermissionType 用户权限类型

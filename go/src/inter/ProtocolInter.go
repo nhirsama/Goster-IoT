@@ -30,6 +30,8 @@ const (
 	CmdAuthVerify
 	// CmdAuthAck 身份鉴权确认指令，服务端返回验证结果
 	CmdAuthAck
+	// CmdDeviceRegister 设备注册申请指令，无 Token 设备提交元数据
+	CmdDeviceRegister
 	// CmdErrorReport 错误上报指令，用于传输协议层或系统级的异常信息
 	CmdErrorReport CmdID = 0x00FF
 )
