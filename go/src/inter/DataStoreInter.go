@@ -74,6 +74,9 @@ type DataStore interface {
 	// page 指定页码（通常从 1 开始），size 指定每页返回的条数。
 	ListDevices(page, size int) ([]DeviceRecord, error)
 
+	// ListDevicesByStatus 根据认证状态分页查询设备列表
+	ListDevicesByStatus(status AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
+
 	// [时序数据管理]
 
 	// AppendMetric 向指定设备追加一条时序数据。

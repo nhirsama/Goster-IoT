@@ -84,7 +84,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 		// 解包 (根据是否有 sessionKey 自动处理加密/明文)
 		packet, err := a.protocol.Unpack(conn, sessionKey)
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && err != io.ErrUnexpectedEOF {
 				log.Printf("API: 解包失败 (Remote: %s): %v", conn.RemoteAddr(), err)
 			}
 			return
@@ -116,7 +116,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 
 			// 回复服务端公钥 (明文)
 			writeSeq++
-			respBuf, _ := a.protocol.Pack(a.privateKey.PublicKey().Bytes(), inter.CmdHandshakeResp, 0, nil, writeSeq)
+			respBuf, _ := a.protocol.Pack(a.privateKey.PublicKey().Bytes(), inter.CmdHandshakeResp, 0, nil, writeSeq, true)
 			conn.Write(respBuf)
 			log.Printf("API: 已交换密钥 (Remote: %s)", conn.RemoteAddr())
 
@@ -134,7 +134,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			// 发送 CmdAuthAck (加密)
 			ackPayload := append([]byte{status}, respPayload...)
 			writeSeq++
-			ackBuf, _ := a.protocol.Pack(ackPayload, inter.CmdAuthAck, 1, sessionKey, writeSeq)
+			ackBuf, _ := a.protocol.Pack(ackPayload, inter.CmdAuthAck, 1, sessionKey, writeSeq, true)
 			conn.Write(ackBuf)
 
 			if status != 0x00 {
@@ -156,31 +156,56 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			// 发送 CmdAuthAck (加密)
 			ackPayload := append([]byte{status}, respPayload...)
 			writeSeq++
-			ackBuf, _ := a.protocol.Pack(ackPayload, inter.CmdAuthAck, 1, sessionKey, writeSeq)
+			ackBuf, _ := a.protocol.Pack(ackPayload, inter.CmdAuthAck, 1, sessionKey, writeSeq, true)
 			conn.Write(ackBuf)
 
 			if status != 0x00 {
 				if status == 0x02 {
 					log.Printf("API: 设备注册申请已提交 (Pending), 关闭连接")
 				} else {
-					log.Printf("API: 注册被拒绝 (Status: %d), 关闭连接", status)
+					log.Printf("API: 鉴权/注册被拒绝 (Status: %d), 关闭连接", status)
 				}
-				return // 关闭连接
+				time.Sleep(100 * time.Millisecond) // 给客户端留出读取响应的时间
+				return                             // 关闭连接
 			}
-			log.Printf("API: 注册并登录成功 (UUID: %s)", handler.GetUUID())
+			log.Printf("API: 设备注册成功并自动鉴权 (UUID: %s)", handler.GetUUID())
 
 		case inter.CmdMetricsReport:
 			if err := handler.HandleMetrics(packet.Payload); err != nil {
 				log.Printf("API: Metrics error: %v", err)
 			}
+			// 发送通用 ACK
+			writeSeq++
+			ackBuf, _ := a.protocol.Pack(nil, inter.CmdMetricsReport, 1, sessionKey, writeSeq, true)
+			conn.Write(ackBuf)
 
 		case inter.CmdLogReport:
 			if err := handler.HandleLog(packet.Payload); err != nil {
 				log.Printf("API: Log error: %v", err)
 			}
+			// 发送通用 ACK
+			writeSeq++
+			ackBuf, _ := a.protocol.Pack(nil, inter.CmdLogReport, 1, sessionKey, writeSeq, true)
+			conn.Write(ackBuf)
 
 		case inter.CmdEventReport:
 			handler.HandleEvent(packet.Payload)
+			// 发送通用 ACK
+			writeSeq++
+			ackBuf, _ := a.protocol.Pack(nil, inter.CmdEventReport, 1, sessionKey, writeSeq, true)
+			conn.Write(ackBuf)
+
+		case inter.CmdKeyExchangeUplink:
+			// 密钥重协商
+			secret, err := a.negotiateSecret(packet.Payload)
+			if err != nil {
+				log.Printf("API: 密钥重协商失败: %v", err)
+				return
+			}
+			sessionKey = secret
+			writeSeq++
+			respBuf, _ := a.protocol.Pack(a.privateKey.PublicKey().Bytes(), inter.CmdKeyExchangeDownlink, 1, sessionKey, writeSeq, true)
+			conn.Write(respBuf)
 
 		case inter.CmdConfigPush, inter.CmdOtaData, inter.CmdActionExec, inter.CmdScreenWy:
 			if packet.IsAck {
@@ -188,6 +213,10 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			}
 		case inter.CmdHeartbeat:
 			handler.HandleHeartbeat()
+			// 发送通用 ACK
+			writeSeq++
+			ackBuf, _ := a.protocol.Pack(nil, inter.CmdHeartbeat, 1, sessionKey, writeSeq, true)
+			conn.Write(ackBuf)
 
 		case inter.CmdErrorReport:
 			handler.HandleError(packet.Payload)
@@ -195,6 +224,22 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 
 		default:
 			log.Printf("API: 未知指令 0x%X", packet.CmdID)
+		}
+
+		// --- 检查并处理下行消息 ---
+		if handler.IsAuthenticated() {
+			for {
+				cmdID, downlinkPayload, ok := handler.PopMessage()
+				if !ok {
+					break
+				}
+				writeSeq++
+				downlinkBuf, err := a.protocol.Pack(downlinkPayload, cmdID, 1, sessionKey, writeSeq, false)
+				if err == nil {
+					conn.Write(downlinkBuf)
+					log.Printf("API: 下发指令 0x%X 到设备 %s", cmdID, handler.GetUUID())
+				}
+			}
 		}
 	}
 }

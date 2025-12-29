@@ -15,7 +15,8 @@ type DeviceListView struct {
 
 // deviceListHandler 设备列表页面处理
 func (ws *webServer) deviceListHandler(w http.ResponseWriter, r *http.Request) {
-	devices, err := ws.identityManager.ListDevices(1, 10000)
+	status := inter.Authenticated
+	devices, err := ws.deviceManager.ListDevices(&status, 1, 10000)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -23,10 +24,6 @@ func (ws *webServer) deviceListHandler(w http.ResponseWriter, r *http.Request) {
 
 	var viewData []DeviceListView
 	for _, d := range devices {
-		if d.Meta.AuthenticateStatus == inter.AuthenticatePending || d.Meta.AuthenticateStatus == inter.AuthenticateRefuse {
-			continue
-		}
-
 		status, _ := ws.deviceManager.QueryDeviceStatus(d.UUID)
 		statusStr := "离线"
 		statusClass := "text-secondary"
@@ -55,38 +52,24 @@ func (ws *webServer) deviceListHandler(w http.ResponseWriter, r *http.Request) {
 
 // pendingListHandler 待审核设备页面处理
 func (ws *webServer) pendingListHandler(w http.ResponseWriter, r *http.Request) {
-	devices, err := ws.identityManager.ListDevices(1, 10000)
+	status := inter.AuthenticatePending
+	devices, err := ws.deviceManager.ListDevices(&status, 1, 10000)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	var pendingDevices []inter.DeviceRecord
-	for _, d := range devices {
-		if d.Meta.AuthenticateStatus == inter.AuthenticatePending {
-			pendingDevices = append(pendingDevices, d)
-		}
-	}
-
-	ws.templates["pending_list.html"].Execute(w, pendingDevices)
+	ws.templates["pending_list.html"].Execute(w, devices)
 }
 
 // blacklistHandler 黑名单页面处理
 func (ws *webServer) blacklistHandler(w http.ResponseWriter, r *http.Request) {
-	devices, err := ws.identityManager.ListDevices(1, 10000)
+	status := inter.AuthenticateRefuse
+	devices, err := ws.deviceManager.ListDevices(&status, 1, 10000)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	var blacklistedDevices []inter.DeviceRecord
-	for _, d := range devices {
-		if d.Meta.AuthenticateStatus == inter.AuthenticateRefuse {
-			blacklistedDevices = append(blacklistedDevices, d)
-		}
-	}
-
-	ws.templates["blacklist.html"].Execute(w, blacklistedDevices)
+	ws.templates["blacklist.html"].Execute(w, devices)
 }
 
 // handleActionResponse 处理 HTMX 动作响应辅助函数
@@ -108,34 +91,24 @@ func (ws *webServer) handleActionResponse(w http.ResponseWriter, r *http.Request
 
 // pendingPageHandler 待审核表格局部视图处理
 func (ws *webServer) pendingPageHandler(w http.ResponseWriter, r *http.Request) {
-	devices, err := ws.identityManager.ListDevices(1, 10000)
+	status := inter.AuthenticatePending
+	devices, err := ws.deviceManager.ListDevices(&status, 1, 10000)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var pendingDevices []inter.DeviceRecord
-	for _, d := range devices {
-		if d.Meta.AuthenticateStatus == inter.AuthenticatePending {
-			pendingDevices = append(pendingDevices, d)
-		}
-	}
-	ws.templates["pending_table.html"].Execute(w, pendingDevices)
+	ws.templates["pending_table.html"].Execute(w, devices)
 }
 
 // blacklistPageHandler 黑名单表格局部视图处理
 func (ws *webServer) blacklistPageHandler(w http.ResponseWriter, r *http.Request) {
-	devices, err := ws.identityManager.ListDevices(1, 10000)
+	status := inter.AuthenticateRefuse
+	devices, err := ws.deviceManager.ListDevices(&status, 1, 10000)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var blacklistedDevices []inter.DeviceRecord
-	for _, d := range devices {
-		if d.Meta.AuthenticateStatus == inter.AuthenticateRefuse {
-			blacklistedDevices = append(blacklistedDevices, d)
-		}
-	}
-	ws.templates["blacklist_table.html"].Execute(w, blacklistedDevices)
+	ws.templates["blacklist_table.html"].Execute(w, devices)
 }
 
 // unblockHandler 解除屏蔽操作处理

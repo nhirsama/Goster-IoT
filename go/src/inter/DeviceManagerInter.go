@@ -26,6 +26,9 @@ type DeviceManager interface {
 	QueuePop(uuid string) (interface{}, bool)
 
 	QueueIsEmpty(uuid string) bool
+
+	// ListDevices 分页列出设备，可选按状态过滤
+	ListDevices(status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
 }
 
 // MessageQueue 定义消息队列的底层操作接口

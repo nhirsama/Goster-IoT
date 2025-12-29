@@ -83,8 +83,6 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 		// 设备不存在 -> 首次注册
 		log.Printf("API: 新设备注册申请 (UUID: %s, SN: %s)", uuid, meta.SerialNumber)
 
-		//meta.AuthenticateStatus = inter.AuthenticatePending
-
 		if err := h.identityManager.RegisterDevice(meta); err != nil {
 			return 0x01, nil, fmt.Errorf("init device failed: %w", err)
 		}
@@ -223,7 +221,24 @@ func (h *BusinessHandler) HandleDownlinkAck(cmd inter.CmdID) {
 		return
 	}
 	log.Printf("API: 收到下行确认 (UUID: %s, Cmd: 0x%X)", h.uuid, cmd)
-	// TODO: 调用相关的消息队列 ACK 接口
+	// TODO: 在消息队列中标记该消息已送达
+}
+
+// PopMessage 获取并弹出一个待处理的下行消息
+func (h *BusinessHandler) PopMessage() (inter.CmdID, []byte, bool) {
+	if !h.authenticated {
+		return 0, nil, false
+	}
+	msg, ok := h.deviceManager.QueuePop(h.uuid)
+	if !ok {
+		return 0, nil, false
+	}
+
+	// 尝试断言为 DownlinkMessage 结构
+	if dmsg, ok := msg.(inter.DownlinkMessage); ok {
+		return dmsg.CmdID, dmsg.Payload, true
+	}
+	return 0, nil, false
 }
 
 // HandleEvent 处理事件上报
@@ -232,9 +247,13 @@ func (h *BusinessHandler) HandleEvent(payload []byte) {
 		return
 	}
 	log.Printf("API: 收到事件上报 (UUID: %s)", h.uuid)
+	h.dataStore.WriteLog(h.uuid, "EVENT", string(payload))
 }
 
 // HandleError 处理错误上报
 func (h *BusinessHandler) HandleError(payload []byte) {
 	log.Printf("API: 收到设备错误: %s", string(payload))
+	if h.authenticated {
+		h.dataStore.WriteLog(h.uuid, "ERROR", string(payload))
+	}
 }

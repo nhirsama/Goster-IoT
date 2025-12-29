@@ -64,7 +64,7 @@ func crc16Modbus(data []byte) uint16 {
 	return crc
 }
 
-func (c *GosterCodec) Pack(payload []byte, cmd inter.CmdID, keyID uint32, sessionKey []byte, seqNonce uint64) ([]byte, error) {
+func (c *GosterCodec) Pack(payload []byte, cmd inter.CmdID, keyID uint32, sessionKey []byte, seqNonce uint64, isAck bool) ([]byte, error) {
 	payloadLen := len(payload)
 	if payloadLen > 1*1024*1024 { // 1MB 限制
 		return nil, fmt.Errorf("payload过大: %d", payloadLen)
@@ -76,6 +76,9 @@ func (c *GosterCodec) Pack(payload []byte, cmd inter.CmdID, keyID uint32, sessio
 	buf := make([]byte, inter.HeaderSize, totalSize)
 
 	var flags uint8 = 0
+	if isAck {
+		flags |= 0x01 // Bit 0: ACK
+	}
 	isEncrypted := sessionKey != nil && keyID != 0
 	if isEncrypted {
 		flags |= 0x02 // Bit 1: 加密

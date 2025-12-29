@@ -105,3 +105,10 @@ func (m *MessageQueue) IsEmpty(uuid string) bool {
 	}
 	return len(actual.(chan interface{})) == 0
 }
+
+func (d *DeviceManager) ListDevices(status *inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {
+	if status == nil {
+		return d.DataStore.ListDevices(page, size)
+	}
+	return d.DataStore.ListDevicesByStatus(*status, page, size)
+}

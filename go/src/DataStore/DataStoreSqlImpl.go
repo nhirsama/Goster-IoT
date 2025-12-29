@@ -212,6 +212,33 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 	return records, nil
 }
 
+// ListDevicesByStatus 根据认证状态分页查询设备列表
+func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {
+	offset := (page - 1) * size
+	rows, err := s.db.Query(`
+        SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status 
+        FROM devices WHERE auth_status = ? LIMIT ? OFFSET ?`, status, size, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []inter.DeviceRecord
+	for rows.Next() {
+		var r inter.DeviceRecord
+		err := rows.Scan(
+			&r.UUID, &r.Meta.Name, &r.Meta.HWVersion, &r.Meta.SWVersion,
+			&r.Meta.ConfigVersion, &r.Meta.SerialNumber, &r.Meta.MACAddress,
+			&r.Meta.CreatedAt, &r.Meta.Token, &r.Meta.AuthenticateStatus,
+		)
+		if err != nil {
+			continue
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
 // WriteLog 记录设备运行日志
 func (s *DataStoreSql) WriteLog(uuid string, level string, message string) error {
 	// 插入日志，时间戳由数据库默认值生成

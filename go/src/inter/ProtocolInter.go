@@ -81,11 +81,17 @@ type Packet struct {
 	Payload []byte
 }
 
+// DownlinkMessage 表示一个待下发给设备的指令
+type DownlinkMessage struct {
+	CmdID   CmdID
+	Payload []byte
+}
+
 // ProtocolCodec 定义了协议封包与解包的核心接口
 type ProtocolCodec interface {
 	// Pack 将业务 Payload 封装为传输用的字节流
-	// payload: 原始数据, cmd: 指令ID, keyID: 密钥ID, sessionKey: 加密密钥, seqNonce: 序列号/Nonce
-	Pack(payload []byte, cmd CmdID, keyID uint32, sessionKey []byte, seqNonce uint64) ([]byte, error)
+	// payload: 原始数据, cmd: 指令ID, keyID: 密钥ID, sessionKey: 加密密钥, seqNonce: 序列号/Nonce, isAck: 是否为响应包
+	Pack(payload []byte, cmd CmdID, keyID uint32, sessionKey []byte, seqNonce uint64, isAck bool) ([]byte, error)
 
 	// Unpack 从输入流中解析出一帧完整的协议包
 	// reader: 数据源, key: 用于解密的对称密钥 (若未加密可传 nil)
