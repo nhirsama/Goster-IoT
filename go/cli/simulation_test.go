@@ -234,7 +234,7 @@ func TestCompleteIoTSystemSimulation(t *testing.T) {
 
 	// --- 场景 1: 新设备注册并进入轮询 ---
 	t.Run("RegistrationAndPolling", func(t *testing.T) {
-		for i := 1; i <= 10; i++ {
+		for i := 1; i <= 100; i++ {
 			t.Logf("轮次 %d: 尝试注册设备 %s", i, sn)
 			client := NewSimClient()
 			if err := client.Connect(serverAddr); err != nil {

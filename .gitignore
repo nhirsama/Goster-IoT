@@ -2,4 +2,7 @@
 .idea
 *.db
 *.typ
-#todo.md
+.pio
+goster-iot.tar
+/cpp/src/CMakeLists.txt
+/go/docs.md
