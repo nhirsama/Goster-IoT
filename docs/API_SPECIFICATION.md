@@ -135,13 +135,20 @@ X25519) 的前提下，极大地优化了握手开销和头部冗余。
 
 ### 3.1 传感器数据 (CmdID: 0x0101)
 
-采用紧凑二进制布局：
+采用紧凑二进制布局 (在 MCU 间通信时，使用 `Postcard` 序列化并经 `COBS` 编码)：
 
-* `StartTimestamp` (8Bytes, int64): 起始时间戳 (ms)
+* `StartTimestamp` (8Bytes, uint64): 本批次数据的起始时间戳 (ms, Unix Epoch)
 * `SampleInterval` (4Bytes, uint32): 采样间隔 (ms)
-* `DataType` (1Bytes): 数据类型枚举
-* `Count` (4Bytes, uint32): 数据点个数
-* `DataBlob` (N Bytes): 原始数据流
+* `DataType` (1Bytes, uint8): 数据类型枚举
+    * `0x01`: 温度 (Temperature)
+    * `0x02`: 湿度 (Humidity)
+    * `0x03`: PM2.5
+* `Count` (4Bytes, uint32): 数据点个数 (N)
+* `DataBlob` (N * 4 Bytes): 原始数据流，为 `Count` 个 `float32` 组成的数组。
+
+**MCU 间通信 (UART) 示例**:
+`[Packet Structure] = COBS_Encode( Postcard_Serialize( Struct { StartTimestamp, SampleInterval, DataType, Count, DataBlob } ) ) + 0x00`
+
 
 ### 3.2 日志数据 (CmdID: 0x0102)
 

@@ -1,16 +1,86 @@
 #include <Arduino.h>
-#include <WiFi.h>
+#include "ConfigManager.h"
+#include "Hardware.h"
+#include "NetworkManager.h"
+#include "CryptoLayer.h"
+#include "GosterProtocol.h"
 
-constexpr uint8_t LED_PIN = 8;
+// 闲置超时时间，10 秒无活动则休眠
+#define IDLE_TIMEOUT_MS 10000 
+
+// Modules
+ConfigManager configMgr;
+Hardware      hw;
+NetworkManager netMgr(configMgr);
+CryptoLayer   crypto;
+GosterProtocol protocol(netMgr, crypto, configMgr);
+
+unsigned long lastActivityTime = 0;
+
+// Callback: STM32 Data Received (COBS Decoded)
+void onPacketReceived(const uint8_t* buffer, size_t size) {
+    Serial.printf("收到 STM32 数据: %d 字节\n", size);
+    hw.blinkLed(1, 50);
+    
+    // 转发给服务器
+    protocol.sendMetricReport(buffer, size);
+    
+    // 更新最后活动时间
+    lastActivityTime = millis();
+}
+
+// Callback: Button Long Press -> Factory Reset
+void onFactoryReset(void* param) {
+    Serial.println("!!! 恢复出厂设置已触发 !!!");
+    hw.blinkLed(10, 50); // 快速闪烁
+    netMgr.resetWiFi(); // 清除 WiFi 信息
+    configMgr.clearConfig(); // 清除服务器/Token 信息
+    delay(1000);
+    ESP.restart();
+}
 
 void setup() {
-    pinMode(LED_PIN, OUTPUT);
+    Serial.begin(115200);
+    Serial.println("\n--- Goster-IoT ESP32 网关已启动 ---");
+
+    // 1. 初始化硬件与配置
+    configMgr.begin();
+    hw.begin();
+    hw.setResetCallback(onFactoryReset, nullptr);
+    hw.getPacketSerial().setPacketHandler(&onPacketReceived);
+    
+    // 2. 初始化加密模块
+    if (!crypto.begin()) {
+        Serial.println("加密模块初始化失败!");
+        while(1) hw.blinkLed(1, 500);
+    }
+
+    // 3. 联网
+    netMgr.begin(); 
+
+    // 4. 协议栈启动
+    protocol.begin();
+    
+    lastActivityTime = millis();
 }
 
 void loop() {
-    digitalWrite(LED_PIN, HIGH);
-    delay(1000);
+    // 处理各个模块的轮询
+    hw.update();       
+    netMgr.loop();     
+    protocol.loop();   
+    
+    // 低功耗逻辑：如果 10 秒内没有任何串口数据发送或活动，进入深度睡眠
+    if (millis() - lastActivityTime > IDLE_TIMEOUT_MS) {
+        Serial.println("无活动超时，进入深度睡眠...");
+        Serial.flush();
+        
+        // 关闭 WiFi 射频以省电
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        
+        delay(100);
+        esp_deep_sleep_start();
 
-    digitalWrite(LED_PIN, LOW);
-    delay(1000);
+    }
 }
