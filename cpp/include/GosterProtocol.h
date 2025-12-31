@@ -92,6 +92,5 @@ private:
     // Utils
     uint16_t calculateCRC16(const uint8_t* data, size_t len);
     uint32_t calculateCRC32(const uint8_t* data, size_t len);
-    uint32_t calculateCRC32(const uint8_t* data, size_t len, uint32_t current_crc);
     void generateNonce(uint8_t* nonce_out);
 };
