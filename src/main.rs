@@ -3,7 +3,6 @@
 mod device_meta;
 mod logo;
 mod ntc_sensor;
-mod w25q64;
 mod storage;
 
 use cortex_m_rt::entry;

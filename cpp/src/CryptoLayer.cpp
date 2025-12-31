@@ -14,14 +14,14 @@ CryptoLayer::~CryptoLayer() {
 }
 
 bool CryptoLayer::begin() {
-    const char* pers = "goster_iot";
+    const char *pers = "goster_iot";
     int ret = mbedtls_ctr_drbg_seed(&_ctr_drbg, mbedtls_entropy_func, &_entropy,
-                                    (const unsigned char*)pers, strlen(pers));
+                                    (const unsigned char *) pers, strlen(pers));
     if (ret != 0) {
         Serial.printf("mbedtls_ctr_drbg_seed failed: -0x%04x\n", -ret);
         return false;
     }
-    
+
     // 初始化 ECDH 上下文为 X25519
     ret = mbedtls_ecp_group_load(&_ecdh.grp, MBEDTLS_ECP_DP_CURVE25519);
     if (ret != 0) {
@@ -33,7 +33,7 @@ bool CryptoLayer::begin() {
 }
 
 bool CryptoLayer::generateKeyPair() {
-    int ret = mbedtls_ecdh_gen_public(&_ecdh.grp, &_ecdh.d, &_ecdh.Q, 
+    int ret = mbedtls_ecdh_gen_public(&_ecdh.grp, &_ecdh.d, &_ecdh.Q,
                                       mbedtls_ctr_drbg_random, &_ctr_drbg);
     if (ret != 0) {
         Serial.printf("mbedtls_ecdh_gen_public failed: -0x%04x\n", -ret);
@@ -48,7 +48,7 @@ bool CryptoLayer::generateKeyPair() {
         Serial.printf("Export public key failed: -0x%04x\n", -ret);
         return false;
     }
-    
+
     // 如果生成的公钥不足32字节（前面是0），需要右对齐填充？
     // mbedtls_mpi_write_binary 会自动处理大端/小端吗？
     // mbedtls 使用大端序 (Big Endian)，但 API 文档 (Goster) 要求 Little Endian?
@@ -60,28 +60,28 @@ bool CryptoLayer::generateKeyPair() {
     // 但是 docs/API_SPECIFICATION.md 里说 "所有多字节整数均采用 Little-Endian"。
     // 公钥作为 byte array，通常直接传输。
     // 待定：如果握手失败，检查这里的字节序。
-    
+
     // 反转为 Little Endian (如果你确定对方是 Go/Rust 的 X25519 库，通常是 LE)
-    for(int i=0; i<16; i++) {
+    for (int i = 0; i < 16; i++) {
         uint8_t temp = _my_pubkey[i];
-        _my_pubkey[i] = _my_pubkey[31-i];
-        _my_pubkey[31-i] = temp;
+        _my_pubkey[i] = _my_pubkey[31 - i];
+        _my_pubkey[31 - i] = temp;
     }
 
     return true;
 }
 
-const uint8_t* CryptoLayer::getPublicKey() {
+const uint8_t *CryptoLayer::getPublicKey() {
     return _my_pubkey;
 }
 
-bool CryptoLayer::computeSharedSecret(const uint8_t* peer_pubkey) {
+bool CryptoLayer::computeSharedSecret(const uint8_t *peer_pubkey) {
     int ret;
     mbedtls_mpi_read_binary(&_ecdh.Qp.Z, peer_pubkey, 0); // Z=0 implicitly usually 1
     // 对于 X25519，只使用 X 坐标。mbedtls 需要我们设置 Qp。
     // 先把 peer_pubkey (Little Endian) 转回 mbedtls 需要的 Big Endian
     uint8_t peer_be[32];
-    for(int i=0; i<32; i++) peer_be[i] = peer_pubkey[31-i];
+    for (int i = 0; i < 32; i++) peer_be[i] = peer_pubkey[31 - i];
 
     mbedtls_mpi_read_binary(&_ecdh.Qp.X, peer_be, 32);
     mbedtls_mpi_lset(&_ecdh.Qp.Z, 1); // Z=1
@@ -105,12 +105,13 @@ bool CryptoLayer::computeSharedSecret(const uint8_t* peer_pubkey) {
     // 真正的 X25519 shared secret 是 Little Endian。我们需要反转回来吗？
     // 为了保持一致性，如果公钥反转了，这里计算出的 MPI 也是基于反转输入的。
     // 让我们做一次反转以获取原始 LE 字节流，然后取前 16 字节。
-    
+
     // 反转为 Little Endian 以获取原始字节流
-    for(int i=0; i<16; i++) { // Loop only half the array to swap
+    for (int i = 0; i < 16; i++) {
+        // Loop only half the array to swap
         uint8_t temp = shared_secret[i];
-        shared_secret[i] = shared_secret[31-i];
-        shared_secret[31-i] = temp;
+        shared_secret[i] = shared_secret[31 - i];
+        shared_secret[31 - i] = temp;
     }
 
     memcpy(_session_key, shared_secret, 32); // Use full 32 bytes for AES-256
@@ -118,13 +119,13 @@ bool CryptoLayer::computeSharedSecret(const uint8_t* peer_pubkey) {
     return true;
 }
 
-const uint8_t* CryptoLayer::getSessionKey() {
+const uint8_t *CryptoLayer::getSessionKey() {
     return _session_key;
 }
 
-bool CryptoLayer::encrypt(const uint8_t* input, size_t len, 
-                          const uint8_t* aad, size_t aad_len,
-                          uint8_t* output, uint8_t* tag, const uint8_t* nonce) {
+bool CryptoLayer::encrypt(const uint8_t *input, size_t len,
+                          const uint8_t *aad, size_t aad_len,
+                          uint8_t *output, uint8_t *tag, const uint8_t *nonce) {
     if (!_has_session_key) return false;
 
     mbedtls_gcm_context gcm;
@@ -133,11 +134,18 @@ bool CryptoLayer::encrypt(const uint8_t* input, size_t len,
     // Try AES-256
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, _session_key, 256);
     if (ret == 0) {
+        // Handle empty payload
+        const uint8_t *p_in = input;
+        uint8_t dummy_byte = 0;
+        if (len == 0 || p_in == nullptr) {
+            p_in = &dummy_byte;
+        }
+
         // AES-GCM Encrypt
         ret = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len,
                                         nonce, 12, // Nonce length fixed 12 bytes
                                         aad, aad_len,
-                                        input, output,
+                                        p_in, output,
                                         16, tag); // Tag length fixed 16 bytes
     }
 
@@ -145,9 +153,9 @@ bool CryptoLayer::encrypt(const uint8_t* input, size_t len,
     return (ret == 0);
 }
 
-bool CryptoLayer::decrypt(const uint8_t* input, size_t len,
-                          const uint8_t* aad, size_t aad_len,
-                          uint8_t* output, const uint8_t* tag, const uint8_t* nonce) {
+bool CryptoLayer::decrypt(const uint8_t *input, size_t len,
+                          const uint8_t *aad, size_t aad_len,
+                          uint8_t *output, const uint8_t *tag, const uint8_t *nonce) {
     if (!_has_session_key) return false;
 
     mbedtls_gcm_context gcm;
@@ -156,14 +164,21 @@ bool CryptoLayer::decrypt(const uint8_t* input, size_t len,
     // Try AES-256
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, _session_key, 256);
     if (ret == 0) {
+        // Handle empty payload
+        const uint8_t *p_in = input;
+        uint8_t dummy_byte = 0;
+        if (len == 0 || p_in == nullptr) {
+            p_in = &dummy_byte;
+        }
+
         // AES-GCM Decrypt (Auth Decrypt)
         ret = mbedtls_gcm_auth_decrypt(&gcm, len,
                                        nonce, 12,
                                        aad, aad_len,
                                        tag, 16,
-                                       input, output);
+                                       p_in, output);
     }
-    
+
     mbedtls_gcm_free(&gcm);
     if (ret != 0) {
         Serial.printf("GCM Decrypt failed: -0x%04x\n", -ret);

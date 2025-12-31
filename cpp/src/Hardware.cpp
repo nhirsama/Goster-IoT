@@ -19,12 +19,14 @@ void Hardware::setLed(bool on) {
 
 void Hardware::blinkLed(int times, int delay_ms) {
     for (int i = 0; i < times; i++) {
-        setLed(true); delay(delay_ms);
-        setLed(false); delay(delay_ms);
+        setLed(true);
+        delay(delay_ms);
+        setLed(false);
+        delay(delay_ms);
     }
 }
 
 void Hardware::update() {
-    _btn.tick();           // 处理按键状态机
+    _btn.tick(); // 处理按键状态机
     _packetSerial.update(); // 处理串口接收与解包
 }

@@ -68,7 +68,12 @@ private:
     uint8_t _rx_buffer[1024]; // TCP Receive Buffer
     size_t _rx_len = 0;
     
-    unsigned long _last_heartbeat = 0;
+    // TX Buffer for short-lived connection model
+    uint8_t _tx_buffer[1024];
+    size_t _tx_len = 0;
+    bool _has_pending_tx = false;
+    
+    unsigned long _last_activity = 0;
     uint64_t _tx_sequence = 0; // For Nonce generation
 
     // Internal Helpers

@@ -10,19 +10,19 @@ AppConfig ConfigManager::loadConfig() {
     config.wifi_pass = prefs.getString("pass", "");
     config.server_ip = prefs.getString("srv_ip", "192.168.1.100"); // 默认 IP
     config.server_port = prefs.getUShort("srv_port", 8080);
-    
+
     // Check if token exists to avoid Error Log spam
     if (prefs.isKey("token")) {
         config.device_token = prefs.getString("token", "");
     } else {
         config.device_token = "";
     }
-    
+
     config.is_registered = !config.device_token.isEmpty();
     return config;
 }
 
-void ConfigManager::saveConfig(const AppConfig& config) {
+void ConfigManager::saveConfig(const AppConfig &config) {
     prefs.putString("ssid", config.wifi_ssid);
     prefs.putString("pass", config.wifi_pass);
     prefs.putString("srv_ip", config.server_ip);
@@ -30,7 +30,7 @@ void ConfigManager::saveConfig(const AppConfig& config) {
     // Token 通常单独保存，不随普通配置覆盖
 }
 
-void ConfigManager::saveToken(const String& token) {
+void ConfigManager::saveToken(const String &token) {
     prefs.putString("token", token);
 }
 

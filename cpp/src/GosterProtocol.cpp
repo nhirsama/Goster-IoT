@@ -1,48 +1,71 @@
 #include "GosterProtocol.h"
 
-GosterProtocol::GosterProtocol(NetworkManager& net, CryptoLayer& crypto, ConfigManager& config)
-    : _net(net), _crypto(crypto), _config(config) {}
+GosterProtocol::GosterProtocol(NetworkManager &net, CryptoLayer &crypto, ConfigManager &config)
+    : _net(net), _crypto(crypto), _config(config) {
+}
 
 void GosterProtocol::begin() {
     _state = STATE_DISCONNECTED;
 }
 
 void GosterProtocol::loop() {
-    // 1. Connection Check
+    // 1. WiFi Check
     if (!_net.isConnected()) {
         _state = STATE_DISCONNECTED;
         return;
     }
 
-    // 2. TCP Client Connection
-    if (!_net.getClient()->connected()) {
-        // Only load config when we actually need to connect
+    WiFiClient *client = _net.getClient();
+
+    // 2. Auto-Connect if we have pending data
+    if (!client->connected() && _has_pending_tx) {
         AppConfig cfg = _config.loadConfig();
 
-        // 先检查是否真的连上了互联网
+        // Simple internet check
         if (!_net.checkInternet()) {
             Serial.println("等待网络就绪...");
-            delay(2000); // 稍作等待再重试
+            delay(1000);
             return;
         }
 
-        Serial.printf("正在连接服务器 %s:%d ...\n", cfg.server_ip.c_str(), cfg.server_port);
+        Serial.printf("Connecting to %s:%d for pending task...\n", cfg.server_ip.c_str(), cfg.server_port);
         if (_net.connectServer(cfg.server_ip, cfg.server_port)) {
             Serial.println("TCP 连接成功!");
-            // Reset State to start Handshake
-            _state = STATE_DISCONNECTED; 
+            _state = STATE_DISCONNECTED; // Will trigger Handshake in handleStateLogic
+            _last_activity = millis();
         } else {
-            Serial.println("TCP 连接失败! 3秒后重试...");
-            delay(3000); // 防止刷屏
-            return; // Retry next loop
+            Serial.println("TCP 连接失败! 2秒后重试...");
+            delay(2000);
+            return;
         }
     }
 
-    // 3. State Machine
-    handleStateLogic();
+    // 3. Auto-Disconnect if idle
+    if (client->connected() && _state == STATE_READY && !_has_pending_tx) {
+        if (millis() - _last_activity > 2000) {
+            // 2s Idle Timeout (Quick disconnect)
+            Serial.println("任务完成，主动断开连接.");
+            client->stop();
+            _state = STATE_DISCONNECTED;
+        }
+    }
 
-    // 4. Process Incoming TCP Data
-    processIncomingData();
+    // 4. Protocol Processing
+    if (client->connected()) {
+        handleStateLogic();
+        processIncomingData();
+
+        // Flush Buffer if Ready
+        if (_state == STATE_READY && _has_pending_tx) {
+            // For testing: Send Heartbeat first
+            sendHeartbeat();
+
+            Serial.printf("Flushing buffered metric (%d bytes)\n", _tx_len);
+            sendFrame(CMD_METRICS_REPORT, _tx_buffer, _tx_len, true);
+            _has_pending_tx = false; // Mark as sent
+            _last_activity = millis(); // Refresh activity
+        }
+    }
 }
 
 void GosterProtocol::handleStateLogic() {
@@ -53,33 +76,30 @@ void GosterProtocol::handleStateLogic() {
             sendHandshake();
             _state = STATE_HANDSHAKE_SENT;
             Serial.println("State: HANDSHAKE_SENT");
+            _last_activity = millis();
             break;
-            
+
         case STATE_READY:
-            // Send Heartbeat every 30s
-            if (millis() - _last_heartbeat > 30000) {
-                sendHeartbeat();
-                _last_heartbeat = millis();
-            }
+            // No Heartbeat needed for short-lived connections
             break;
-            
+
         default:
             break;
     }
 }
 
 void GosterProtocol::processIncomingData() {
-    WiFiClient* client = _net.getClient();
+    WiFiClient *client = _net.getClient();
     while (client->available()) {
-        // Simple buffer handling (In production, use a ring buffer)
+        _last_activity = millis(); // Update activity on RX
+
         int r = client->read(_rx_buffer + _rx_len, sizeof(_rx_buffer) - _rx_len);
         if (r > 0) _rx_len += r;
-        
+
         // Try to parse frame
         if (_rx_len >= sizeof(GosterHeader)) {
-            GosterHeader* header = (GosterHeader*)_rx_buffer;
-            
-            // Validate Magic
+            GosterHeader *header = (GosterHeader *) _rx_buffer;
+
             if (header->magic != GOSTER_MAGIC) {
                 Serial.printf("无效 Magic: %04X. 断开连接.\n", header->magic);
                 client->stop();
@@ -87,8 +107,7 @@ void GosterProtocol::processIncomingData() {
                 return;
             }
 
-            // Validate Header CRC16 (Offset 0-27)
-            uint16_t calcCRC = calculateCRC16((uint8_t*)header, 28);
+            uint16_t calcCRC = calculateCRC16((uint8_t *) header, 28);
             if (calcCRC != header->h_crc16) {
                 Serial.printf("Header CRC 错误: 期望 %04X, 实际 %04X\n", header->h_crc16, calcCRC);
                 client->stop();
@@ -97,14 +116,11 @@ void GosterProtocol::processIncomingData() {
             }
 
             uint32_t payload_len = header->length;
-            // +16 Footer (Tag or CRC32)
-            size_t total_frame_size = sizeof(GosterHeader) + payload_len + 16; 
+            size_t total_frame_size = sizeof(GosterHeader) + payload_len + 16;
 
             if (_rx_len >= total_frame_size) {
-                // We have a full frame
                 handlePacket(*header, _rx_buffer + sizeof(GosterHeader), payload_len);
-                
-                // Shift buffer (Remove processed frame)
+
                 size_t remaining = _rx_len - total_frame_size;
                 memmove(_rx_buffer, _rx_buffer + total_frame_size, remaining);
                 _rx_len = remaining;
@@ -112,18 +128,15 @@ void GosterProtocol::processIncomingData() {
         }
     }
 }
-void GosterProtocol::handlePacket(const GosterHeader& header, const uint8_t* payload_in, size_t len) {
+
+void GosterProtocol::handlePacket(const GosterHeader &header, const uint8_t *payload_in, size_t len) {
     bool is_encrypted = header.flags & FLAG_ENCRYPTED;
     uint8_t plain_payload[1024];
-    const uint8_t* process_ptr = payload_in;
-    size_t process_len = len;
+    const uint8_t *process_ptr = payload_in;
 
-    // Decrypt if needed
     if (is_encrypted) {
-        // Tag is in Footer (first 16 bytes after payload)
-        const uint8_t* tag = payload_in + len; 
-        // AAD is first 28 bytes of header
-        if (_crypto.decrypt(payload_in, len, (uint8_t*)&header, 28, plain_payload, tag, header.nonce)) {
+        const uint8_t *tag = payload_in + len;
+        if (_crypto.decrypt(payload_in, len, (uint8_t *) &header, 28, plain_payload, tag, header.nonce)) {
             process_ptr = plain_payload;
         } else {
             Serial.println("Decryption Failed!");
@@ -131,7 +144,6 @@ void GosterProtocol::handlePacket(const GosterHeader& header, const uint8_t* pay
         }
     }
 
-    // Handle Commands
     switch (header.cmd_id) {
         case CMD_HANDSHAKE_RESP:
             Serial.println("RX: Handshake Resp");
@@ -144,19 +156,24 @@ void GosterProtocol::handlePacket(const GosterHeader& header, const uint8_t* pay
 
         case CMD_AUTH_ACK:
             Serial.println("RX: Auth ACK");
-            // Payload[0] is status
             if (process_ptr[0] == 0x00) {
                 Serial.println("Auth Success! Ready.");
                 _state = STATE_READY;
-                // If Token is new, save it (Logic omitted for brevity)
             } else {
                 Serial.printf("Auth Failed: %02X\n", process_ptr[0]);
                 _net.getClient()->stop();
+                // Critical: Stop retrying if Auth failed
+                _has_pending_tx = false;
             }
             break;
-            
+
         case CMD_CONFIG_PUSH:
-            Serial.println("RX: Config Push (TODO)");
+            Serial.println("RX: Config Push");
+            break;
+
+        case CMD_METRICS_REPORT: // ACK for Metrics
+            Serial.println("RX: Metrics ACK");
+            // Transaction complete
             break;
     }
 }
@@ -164,115 +181,91 @@ void GosterProtocol::handlePacket(const GosterHeader& header, const uint8_t* pay
 // --- Senders ---
 
 void GosterProtocol::sendHandshake() {
-    const uint8_t* pub = _crypto.getPublicKey();
+    const uint8_t *pub = _crypto.getPublicKey();
     sendFrame(CMD_HANDSHAKE_INIT, pub, 32, false);
 }
 
 void GosterProtocol::sendAuth() {
     AppConfig cfg = _config.loadConfig();
     if (cfg.is_registered) {
-        // Send Token
-        sendFrame(CMD_AUTH_VERIFY, (uint8_t*)cfg.device_token.c_str(), cfg.device_token.length(), true);
+        sendFrame(CMD_AUTH_VERIFY, (uint8_t *) cfg.device_token.c_str(), cfg.device_token.length(), true);
     } else {
-        // Send Registration
-        // Using string concatenation to prevent "hex escape sequence out of range"
-        // 0x1E is RS (Record Separator)
-        String reg_data = String("ESP32-Device") + "\x1E" + 
-                          "SN123456" + "\x1E" + 
-                          WiFi.macAddress() + "\x1E" + 
-                          "1.0" + "\x1E" + 
-                          "1.0" + "\x1E" + 
+        String reg_data = String("ESP32-Device") + "\x1E" +
+                          "SN123456" + "\x1E" +
+                          WiFi.macAddress() + "\x1E" +
+                          "1.0" + "\x1E" +
+                          "1.0" + "\x1E" +
                           "1";
-        sendFrame(CMD_DEVICE_REGISTER, (uint8_t*)reg_data.c_str(), reg_data.length(), true);
+        sendFrame(CMD_DEVICE_REGISTER, (uint8_t *) reg_data.c_str(), reg_data.length(), true);
     }
 }
 
 void GosterProtocol::sendHeartbeat() {
+    Serial.println("TX: Heartbeat");
     sendFrame(CMD_HEARTBEAT, nullptr, 0, true);
 }
 
-void GosterProtocol::sendMetricReport(const uint8_t* payload, size_t len) {
-    if (_state != STATE_READY) return;
-    Serial.printf("Sending Metric Report (%d bytes)\n", len);
-    sendFrame(CMD_METRICS_REPORT, payload, len, true);
+// Public API: Just buffer the data
+void GosterProtocol::sendMetricReport(const uint8_t *payload, size_t len) {
+    if (len > sizeof(_tx_buffer)) {
+        Serial.println("Error: Metric payload too large");
+        return;
+    }
+    memcpy(_tx_buffer, payload, len);
+    _tx_len = len;
+    _has_pending_tx = true;
+    Serial.println("Metric buffered. Requesting connection...");
 }
 
-// ... (previous code)
-
-void GosterProtocol::sendFrame(uint16_t cmd_id, const uint8_t* data, size_t len, bool encrypted) {
+void GosterProtocol::sendFrame(uint16_t cmd_id, const uint8_t *data, size_t len, bool encrypted) {
     GosterHeader header;
     memset(&header, 0, sizeof(header));
-    
+
     header.magic = GOSTER_MAGIC;
     header.version = GOSTER_VERSION;
-    header.flags = 0; // Request
+    header.flags = 0;
     header.cmd_id = cmd_id;
     header.length = len;
-    
-    // Encrypt Flag
-    if (encrypted) header.flags |= FLAG_ENCRYPTED;
-    
-    // Generate Nonce
-    generateNonce(header.nonce);
-    
-    // Calc Header CRC
-    header.h_crc16 = calculateCRC16((uint8_t*)&header, 28); // Offset 0-27
 
-    WiFiClient* client = _net.getClient();
-    
+    if (encrypted) header.flags |= FLAG_ENCRYPTED;
+
+    generateNonce(header.nonce);
+    header.h_crc16 = calculateCRC16((uint8_t *) &header, 28);
+
+    WiFiClient *client = _net.getClient();
+
     if (encrypted) {
         uint8_t cipher[1024];
         uint8_t tag[16];
-        
-        // 1. 先尝试加密
-        if (!_crypto.encrypt(data, len, (uint8_t*)&header, 28, cipher, tag, header.nonce)) {
+
+        if (!_crypto.encrypt(data, len, (uint8_t *) &header, 28, cipher, tag, header.nonce)) {
             Serial.printf("API: 加密失败 (Cmd: %04X)! 放弃发送。\n", cmd_id);
             return;
         }
 
-        // --- DEBUG HEX DUMP ---
-        Serial.printf("TX Encrypted Frame (Cmd: %04X, Len: %d)\n", cmd_id, len);
-        Serial.print("Nonce: "); 
-        for(int i=0; i<12; i++) Serial.printf("%02X ", header.nonce[i]);
-        Serial.println();
-        Serial.print("Tag: "); 
-        for(int i=0; i<16; i++) Serial.printf("%02X ", tag[i]);
-        Serial.println();
-        // ----------------------
-        
-        // 2. 加密成功后，再一次性发送 Header + Cipher + Tag
-        // 这样保证服务器不会收到半个包
-        client->write((uint8_t*)&header, sizeof(header));
+        client->write((uint8_t *) &header, sizeof(header));
         if (len > 0) client->write(cipher, len);
-        client->write(tag, 16); 
-        
+        client->write(tag, 16);
     } else {
-        // Plain Mode
-        client->write((uint8_t*)&header, sizeof(header));
+        client->write((uint8_t *) &header, sizeof(header));
         if (len > 0) client->write(data, len);
-        
-        // Footer = CRC32 + Padding
-        uint32_t crc = calculateCRC32((uint8_t*)&header, sizeof(header), 0xFFFFFFFF);
-        if (len > 0) {
-            crc = calculateCRC32(data, len, crc);
-        }
-        crc = ~crc; // Final XOR
+
+        uint32_t crc = calculateCRC32((uint8_t *) &header, sizeof(header), 0xFFFFFFFF);
+        if (len > 0) crc = calculateCRC32(data, len, crc);
+        crc = ~crc;
 
         uint8_t footer[16] = {0};
-        memcpy(footer, &crc, 4); // Little Endian
+        memcpy(footer, &crc, 4);
         client->write(footer, 16);
     }
 }
 
-void GosterProtocol::generateNonce(uint8_t* nonce_out) {
-    // Simple nonce: 4 bytes random salt + 8 bytes sequence
-    // Here strictly incrementing for simplicity
+void GosterProtocol::generateNonce(uint8_t *nonce_out) {
     memset(nonce_out, 0, 12);
     _tx_sequence++;
     memcpy(nonce_out + 4, &_tx_sequence, 8);
 }
 
-// CRC16 Modbus Table (Matches Go Server)
 const uint16_t crc16Table[] = {
     0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
     0xC601, 0x06C0, 0x0780, 0xC741, 0x0500, 0xC5C1, 0xC481, 0x0440,
@@ -308,18 +301,16 @@ const uint16_t crc16Table[] = {
     0x8201, 0x42C0, 0x4380, 0x8340, 0x4100, 0x81C1, 0x8081, 0x4040,
 };
 
-uint16_t GosterProtocol::calculateCRC16(const uint8_t* data, size_t len) {
+uint16_t GosterProtocol::calculateCRC16(const uint8_t *data, size_t len) {
     uint16_t crc = 0xFFFF;
     for (size_t i = 0; i < len; i++) {
-        // Match Go: crc = (crc >> 8) ^ crc16Table[(crc ^ byte) & 0xFF]
         crc = (crc >> 8) ^ crc16Table[(crc ^ data[i]) & 0xFF];
     }
     return crc;
 }
 
-// IEEE 802.3 CRC32
-uint32_t GosterProtocol::calculateCRC32(const uint8_t* data, size_t len, uint32_t current_crc) {
-    uint32_t crc = current_crc; // Should init with 0xFFFFFFFF for first block
+uint32_t GosterProtocol::calculateCRC32(const uint8_t *data, size_t len, uint32_t current_crc) {
+    uint32_t crc = current_crc;
     for (size_t i = 0; i < len; i++) {
         crc ^= data[i];
         for (int j = 0; j < 8; j++) {
@@ -327,9 +318,9 @@ uint32_t GosterProtocol::calculateCRC32(const uint8_t* data, size_t len, uint32_
             else crc >>= 1;
         }
     }
-    return crc; // Don't invert here, allow chaining. Invert at end.
+    return crc;
 }
 
-uint32_t GosterProtocol::calculateCRC32(const uint8_t* data, size_t len) {
+uint32_t GosterProtocol::calculateCRC32(const uint8_t *data, size_t len) {
     return ~calculateCRC32(data, len, 0xFFFFFFFF);
 }
