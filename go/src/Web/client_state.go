@@ -22,10 +22,6 @@ func NewSessionStorer(name string, store sessions.Store) *SessionStorer {
 func (s *SessionStorer) ReadState(r *http.Request) (authboss.ClientState, error) {
 	session, err := s.store.Get(r, s.name)
 	if err != nil {
-		// Even on error, we might want to return a wrapper to allow writing (e.g. clearing)
-		// But gorilla/sessions Get usually returns a session even on error (new session).
-		// If it's a hard error, maybe return it.
-		// For now, assume session is usable.
 		if session == nil {
 			return nil, err
 		}
@@ -41,7 +37,6 @@ func (s *SessionStorer) ReadState(r *http.Request) (authboss.ClientState, error)
 func (s *SessionStorer) WriteState(w http.ResponseWriter, state authboss.ClientState, events []authboss.ClientStateEvent) error {
 	st, ok := state.(*SessionState)
 	if !ok {
-		// Should not happen if ReadState returns *SessionState
 		return nil
 	}
 
@@ -52,7 +47,6 @@ func (s *SessionStorer) WriteState(w http.ResponseWriter, state authboss.ClientS
 		case authboss.ClientStateEventDel:
 			delete(st.session.Values, ev.Key)
 		case authboss.ClientStateEventDelAll:
-			// Clear all values
 			st.session.Values = make(map[interface{}]interface{})
 		}
 	}

@@ -54,11 +54,17 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
     -- New Authboss-compatible Schema
     CREATE TABLE IF NOT EXISTS users (
        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-       pid           TEXT UNIQUE NOT NULL,
-       email         TEXT UNIQUE NOT NULL,
-       username      TEXT UNIQUE,
+       email         TEXT,
+       username      TEXT UNIQUE NOT NULL,
        password      TEXT NOT NULL,
        permission    INTEGER DEFAULT 0,
+       
+       oauth2_uid           TEXT,
+       oauth2_provider      TEXT,
+       oauth2_access_token  TEXT,
+       oauth2_refresh_token TEXT,
+       oauth2_expiry        DATETIME,
+       remember_token       TEXT,
        
        recover_token        TEXT,
        recover_token_expiry DATETIME,

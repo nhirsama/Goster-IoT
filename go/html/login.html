@@ -36,20 +36,30 @@
     </style>
 </head>
 <body>
-    <div class="card login-card p-4 fade-in">
-        <div class="card-body">
-            <div class="brand-icon">
-                <i class="fa-solid fa-network-wired fa-2x"></i>
+    <div class="card login-card p-4 fade-in border-0 shadow-lg">
+        <div class="card-body p-sm-4">
+            <div class="text-center mb-4">
+                <div class="brand-icon shadow-sm mb-3">
+                    <i class="fa-solid fa-network-wired fa-2x"></i>
+                </div>
+                <h4 class="fw-bold text-dark mb-1">欢迎回来</h4>
+                <p class="text-muted small">登录 Goster IoT 管理您的设备</p>
             </div>
-            <h4 class="text-center fw-bold mb-4 text-dark">Goster IoT</h4>
             
+            {{if .Success}}
+            <div class="alert alert-success py-2 small text-center mb-4">
+                {{.Success}}
+            </div>
+            {{end}}
+
             {{if .Error}}
             <div class="alert alert-danger py-2 small text-center mb-4">
                 {{.Error}}
             </div>
             {{end}}
 
-            <form action="/login" method="POST">
+            <form action="/auth/login" method="POST">
+                <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
                 <div class="mb-3">
                     <label class="form-label small text-muted fw-bold">用户名</label>
                     <div class="input-group">
@@ -64,10 +74,37 @@
                         <input type="password" name="password" class="form-control bg-light border-start-0 ps-0" placeholder="请输入密码" required>
                     </div>
                 </div>
-                            <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-primary">登录</button>
-                                <a href="/register" class="btn btn-link">注册新账户</a>
-                            </div>
+                
+                <div class="mb-4 d-flex justify-content-between align-items-center">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="rm" id="rememberMe">
+                        <label class="form-check-label small text-muted user-select-none" for="rememberMe">
+                            记住我
+                        </label>
+                    </div>
+                    <a href="/auth/recover" class="text-decoration-none small text-muted">忘记密码?</a>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary">登录</button>
+                </div>
+
+                <div class="d-flex align-items-center mt-4 mb-2">
+                    <hr class="flex-grow-1 border-secondary opacity-10">
+                    <span class="mx-3 text-muted" style="font-size: 0.7rem; letter-spacing: 0.5px;">第三方登录</span>
+                    <hr class="flex-grow-1 border-secondary opacity-10">
+                </div>
+
+                <div class="d-flex justify-content-center">
+                    <a href="/auth/oauth2/github" class="text-dark opacity-75 hover-opacity-100 transition-all">
+                        <i class="fa-brands fa-github fa-2x"></i>
+                    </a>
+                </div>
+
+                <div class="text-center mt-3">
+                    <span class="text-muted small">还没有账户?</span>
+                    <a href="/auth/register" class="text-decoration-none small ms-1">立即注册</a>
+                </div>
                         </form>
 
         </div>

@@ -1,11 +1,9 @@
 package Web
 
 import (
-	"encoding/json"
 	"net/http"
 	"path/filepath"
 
-	"github.com/dchest/captcha"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -13,7 +11,9 @@ import (
 func (ws *webServer) registerRoutes(mux *http.ServeMux) {
 	// Mount Authboss
 	// Note: Authboss router handles /auth/* routes
-	mux.Handle("/auth/", http.StripPrefix("/auth", ws.authboss.Config.Core.Router))
+	// We MUST wrap the router with LoadClientStateMiddleware so it can handle sessions/cookies
+	authHandler := ws.authboss.LoadClientStateMiddleware(ws.authboss.Config.Core.Router)
+	mux.Handle("/auth/", http.StripPrefix("/auth", authHandler))
 
 	// Redirect old routes to new Authboss routes or handle them
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -23,14 +23,8 @@ func (ws *webServer) registerRoutes(mux *http.ServeMux) {
 		http.Redirect(w, r, "/auth/logout", http.StatusFound)
 	})
 
-	// Keep Captcha for other uses if needed
-	mux.Handle("/captcha/", captcha.Server(captcha.StdWidth, captcha.StdHeight))
-	mux.HandleFunc("/api/captcha/new", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"id": captcha.New()})
-	})
-
 	staticPath := filepath.Join(ws.htmlDir, "static")
+
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))))
 
 	// Setup stack for protected routes: LoadClientState -> AuthMiddleware
