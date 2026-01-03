@@ -51,7 +51,11 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 	ab.Config.Storage.CookieState = NewSessionStorer("goster_remember", cookieStore)
 
 	ab.Config.Paths.Mount = "/auth"
-	ab.Config.Paths.RootURL = "http://localhost:8080"
+	ab.Config.Paths.RootURL = os.Getenv("AUTHBOSS_ROOT_URL")
+	if ab.Config.Paths.RootURL == "" {
+		ab.Config.Paths.RootURL = "http://localhost:8080"
+	}
+
 	ab.Config.Paths.RegisterOK = "/auth/login"
 	ab.Config.Paths.LogoutOK = "/auth/login"
 	ab.Config.Paths.OAuth2LoginOK = "/"
