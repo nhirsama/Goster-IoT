@@ -1,15 +1,12 @@
 package Web
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
-
-	"context"
-	"encoding/json"
 	"strconv"
-
-	"fmt"
 
 	"github.com/aarondl/authboss/v3"
 	_ "github.com/aarondl/authboss/v3/auth"
@@ -24,31 +21,31 @@ import (
 	"golang.org/x/oauth2/github"
 )
 
-// SetupAuthboss initializes and configures the Authboss instance
+// SetupAuthboss 初始化并配置 Authboss 实例
 func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, error) {
 	ab := authboss.New()
 
-	// Ensure DataStore implements Authboss ServerStorer
+	// 确保 DataStore 实现了 Authboss ServerStorer
 	storer, ok := db.(authboss.ServerStorer)
 	if !ok {
-		return nil, errors.New("DataStore does not implement Authboss ServerStorer")
+		return nil, errors.New("DataStore 未实现 Authboss ServerStorer 接口")
 	}
 	ab.Config.Storage.Server = storer
 
-	// Session Store (MaxAge = 0, deleted on browser close)
+	// Session Store (MaxAge = 0, 浏览器关闭即删除)
 	sessionStore := sessions.NewCookieStore([]byte("super-secret-key-change-me"))
 	sessionStore.Options.MaxAge = 0
 	sessionStore.Options.HttpOnly = true
-	sessionStore.Options.Secure = false // Localhost dev
+	sessionStore.Options.Secure = false // 本地开发环境设为 false
 	sessionStore.Options.Path = "/"
 	sessionStore.Options.SameSite = http.SameSiteLaxMode
 	ab.Config.Storage.SessionState = NewSessionStorer("goster_session", sessionStore)
 
-	// Cookie Store (Remember Me, MaxAge = 30 days)
+	// Cookie Store (Remember Me, 有效期 30 天)
 	cookieStore := sessions.NewCookieStore([]byte("super-secret-key-change-me"))
 	cookieStore.Options.MaxAge = 86400 * 30
 	cookieStore.Options.HttpOnly = true
-	cookieStore.Options.Secure = false // Localhost dev
+	cookieStore.Options.Secure = false // 本地开发环境设为 false
 	cookieStore.Options.Path = "/"
 	cookieStore.Options.SameSite = http.SameSiteLaxMode
 	ab.Config.Storage.CookieState = NewSessionStorer("goster_remember", cookieStore)
@@ -59,14 +56,14 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 	ab.Config.Paths.LogoutOK = "/auth/login"
 	ab.Config.Paths.OAuth2LoginOK = "/"
 
-	// Basic defaults (No confirm, No lock)
-	// Enable UseUsername (3rd arg = true) for BodyReader
+	// 基础默认配置 (无 Confirm, 无 Lock)
+	// 启用 UseUsername (第3个参数 = true) 以便 BodyReader 读取 username 字段
 	defaults.SetCore(&ab.Config, false, true)
 
-	// Allow GET for logout (convenient for links)
+	// 允许 GET 方法注销 (方便链接跳转)
 	ab.Config.Modules.LogoutMethod = "GET"
 
-	// OAuth2 Providers
+	// OAuth2 提供商配置
 	ab.Config.Modules.OAuth2Providers = map[string]authboss.OAuth2Provider{
 		"github": {
 			OAuth2Config: &oauth2.Config{
@@ -79,7 +76,6 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 				client := cfg.Client(ctx, token)
 				resp, err := client.Get("https://api.github.com/user")
 				if err != nil {
-					fmt.Printf("GitHub API Get Error: %v\n", err)
 					return nil, err
 				}
 				defer resp.Body.Close()
@@ -90,11 +86,8 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 					Login string `json:"login"`
 				}
 				if err := json.NewDecoder(resp.Body).Decode(&ghUser); err != nil {
-					fmt.Printf("GitHub API Decode Error: %v\n", err)
 					return nil, err
 				}
-
-				fmt.Printf("GitHub User Fetched: ID=%d, Email=%s, Login=%s\n", ghUser.ID, ghUser.Email, ghUser.Login)
 
 				return map[string]string{
 					aboauth2.OAuth2UID:   strconv.Itoa(ghUser.ID),
@@ -104,10 +97,10 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 		},
 	}
 
-	// Set HTML Renderer
+	// 设置 HTML 渲染器
 	renderer := NewHTMLRenderer(htmlDir)
 	ab.Config.Core.ViewRenderer = renderer
-	// Re-initialize Responder with the correct renderer
+	// 使用正确的渲染器重新初始化 Responder
 	ab.Config.Core.Responder = defaults.NewResponder(renderer)
 
 	if err := ab.Init(); err != nil {

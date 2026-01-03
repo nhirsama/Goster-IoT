@@ -9,32 +9,32 @@ import (
 	"github.com/aarondl/authboss/v3"
 )
 
-// HTMLRenderer adapts html/template to authboss.Renderer
+// HTMLRenderer 适配 html/template 到 authboss.Renderer 接口
 type HTMLRenderer struct {
 	templates map[string]*template.Template
 	htmlDir   string
 }
 
-// NewHTMLRenderer creates a new renderer
+// NewHTMLRenderer 创建一个新的 HTML 渲染器
 func NewHTMLRenderer(htmlDir string) *HTMLRenderer {
 	return &HTMLRenderer{
-		templates: loadTemplates(htmlDir), // Reuse existing template loader
+		templates: loadTemplates(htmlDir),
 		htmlDir:   htmlDir,
 	}
 }
 
-// Load reloads templates
+// Load 重新加载模板
 func (r *HTMLRenderer) Load(names ...string) error {
 	r.templates = loadTemplates(r.htmlDir)
 	return nil
 }
 
-// Render renders the template
+// Render 渲染指定的模板页面
 func (r *HTMLRenderer) Render(ctx context.Context, page string, data authboss.HTMLData) (output []byte, contentType string, err error) {
 	tplName := page + ".html"
 	t, ok := r.templates[tplName]
 	if !ok {
-		return nil, "text/html", fmt.Errorf("template not found for page: %s", page)
+		return nil, "text/html", fmt.Errorf("模板未找到: %s", page)
 	}
 
 	viewData := make(map[string]interface{})
@@ -42,8 +42,8 @@ func (r *HTMLRenderer) Render(ctx context.Context, page string, data authboss.HT
 		viewData[k] = v
 	}
 
-	// Adapt errors for our simple templates
-	// Authboss puts validation errors in "errors" (map[string][]string)
+	// 适配 Authboss 错误信息到模板
+	// 验证错误通常在 "errors" (map[string][]string)
 	if errs, ok := data["errors"].([]string); ok && len(errs) > 0 {
 		viewData["Error"] = errs[0]
 	} else if errMap, ok := data["errors"].(map[string][]string); ok {
@@ -54,20 +54,19 @@ func (r *HTMLRenderer) Render(ctx context.Context, page string, data authboss.HT
 			}
 		}
 	}
-	// Authboss puts general flash errors in "error" or "flash_error" depending on config
+	// 通用 Flash 错误在 "error" 或 "flash_error"
 	if errStr, ok := data["error"].(string); ok {
 		viewData["Error"] = errStr
 	} else if flashErr, ok := data["flash_error"].(string); ok {
 		viewData["Error"] = flashErr
 	}
 
-	// Flash Success
+	// Flash 成功消息
 	if successMsg, ok := data["flash_success"].(string); ok {
 		viewData["Success"] = successMsg
 	}
 
 	var buf bytes.Buffer
-
 	if err := t.Execute(&buf, viewData); err != nil {
 		return nil, "text/html", err
 	}

@@ -9,13 +9,12 @@ import (
 
 // registerRoutes 注册所有的 HTTP 路由
 func (ws *webServer) registerRoutes(mux *http.ServeMux) {
-	// Mount Authboss
-	// Note: Authboss router handles /auth/* routes
-	// We MUST wrap the router with LoadClientStateMiddleware so it can handle sessions/cookies
+	// 挂载 Authboss 路由
+	// 注意: 必须使用 LoadClientStateMiddleware 包装 Router 以处理 Session/Cookie
 	authHandler := ws.authboss.LoadClientStateMiddleware(ws.authboss.Config.Core.Router)
 	mux.Handle("/auth/", http.StripPrefix("/auth", authHandler))
 
-	// Redirect old routes to new Authboss routes or handle them
+	// 重定向旧的 Auth 路由到新路径
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/login", http.StatusFound)
 	})
@@ -24,23 +23,13 @@ func (ws *webServer) registerRoutes(mux *http.ServeMux) {
 	})
 
 	staticPath := filepath.Join(ws.htmlDir, "static")
-
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))))
 
-	// Setup stack for protected routes: LoadClientState -> AuthMiddleware
-	// We wrap the mux handler or individual handlers?
-	// The best way is to wrap individual handlers because they have different permissions.
-	// BUT, we need LoadClientStateMiddleware to be global or at least before AuthMiddleware.
-
-	// Since we are using standard Mux, we have to wrap each handler manually or wrap the whole mux.
-	// But wrapping the whole mux might interfere with public routes if not careful.
-	// Authboss LoadClientStateMiddleware is safe to run on all routes (it just checks cookies).
-
-	// Helper to chain middlewares
+	// 辅助函数: 链式调用中间件 (AuthMiddleware -> LoadClientStateMiddleware)
 	chain := func(handler http.HandlerFunc, minPerm inter.PermissionType) http.Handler {
-		// 1. AuthMiddleware (checks permission)
+		// 1. AuthMiddleware (检查权限)
 		h := ws.authMiddleware(handler, minPerm)
-		// 2. LoadClientState (loads user from session)
+		// 2. LoadClientState (从 Session 加载用户)
 		return ws.authboss.LoadClientStateMiddleware(h)
 	}
 
@@ -66,16 +55,13 @@ func (ws *webServer) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("/devices/view/blacklist", chain(ws.blacklistPageHandler, inter.PermissionReadOnly))
 }
 
-// handleProtectedWithMux 注册受保护的路由到 mux (Removed in favor of direct mux.Handle with chain)
-
 // authMiddleware 鉴权中间件
 func (ws *webServer) authMiddleware(next http.Handler, minPerm inter.PermissionType) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if user is known
+		// 获取当前用户
 		u, err := ws.authboss.CurrentUser(r)
 		if err != nil {
-			// On error (e.g. database down), what to do?
-			// For now treat as not logged in or error.
+			// 如果出错 (如数据库连接失败)，视为未登录
 			ws.redirectOrHTMX(w, r, "/auth/login")
 			return
 		}
@@ -84,14 +70,14 @@ func (ws *webServer) authMiddleware(next http.Handler, minPerm inter.PermissionT
 			return
 		}
 
-		// Cast to our User type
+		// 类型断言为 inter.SessionUser 接口
 		user, ok := u.(inter.SessionUser)
 		if !ok {
 			http.Error(w, "Internal Server Error: Invalid User Type", http.StatusInternalServerError)
 			return
 		}
 
-		// Check Permission
+		// 检查权限
 		if user.GetPermission() < minPerm {
 			http.Error(w, "Forbidden: Insufficient Permissions (权限不足)", http.StatusForbidden)
 			return
