@@ -4,17 +4,32 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"github.com/aarondl/authboss/v3"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
 // registerRoutes 注册所有的 HTTP 路由
 func (ws *webServer) registerRoutes(mux *http.ServeMux) {
-	// 挂载 Authboss 路由
-	// 注意: 必须使用 LoadClientStateMiddleware 包装 Router 以处理 Session/Cookie
-	authHandler := ws.authboss.LoadClientStateMiddleware(ws.authboss.Config.Core.Router)
-	mux.Handle("/auth/", http.StripPrefix("/auth", authHandler))
+	// 定义内部 Auth 处理器（处理剥离后的相对路径）
+	authLogic := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 此时路径已经是 /register, /login 等
+		if r.URL.Path == "/register" && r.Method == http.MethodPost {
+			if !ws.turnstile.Verify(r) {
+				ws.authboss.Config.Core.Redirector.Redirect(w, r, authboss.RedirectOptions{
+					Code:         http.StatusFound,
+					RedirectPath: "/auth/register",
+					Failure:      "验证码验证失败，请重试",
+				})
+				return
+			}
+		}
+		ws.authboss.Config.Core.Router.ServeHTTP(w, r)
+	})
 
-	// 重定向旧的 Auth 路由到新路径
+	// 挂载逻辑：剥离前缀 -> 加载 Session 环境 -> 执行业务逻辑
+	mux.Handle("/auth/", http.StripPrefix("/auth", ws.authboss.LoadClientStateMiddleware(authLogic)))
+
+	// 重定向旧的 Auth 路由
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/login", http.StatusFound)
 	})
@@ -25,32 +40,26 @@ func (ws *webServer) registerRoutes(mux *http.ServeMux) {
 	staticPath := filepath.Join(ws.htmlDir, "static")
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))))
 
-	// 辅助函数: 链式调用中间件 (AuthMiddleware -> LoadClientStateMiddleware)
+	// 辅助函数: 链式调用中间件
 	chain := func(handler http.HandlerFunc, minPerm inter.PermissionType) http.Handler {
-		// 1. AuthMiddleware (检查权限)
 		h := ws.authMiddleware(handler, minPerm)
-		// 2. LoadClientState (从 Session 加载用户)
 		return ws.authboss.LoadClientStateMiddleware(h)
 	}
 
-	// 受保护的路由
+	// 受保护的业务路由
 	mux.Handle("/", chain(ws.indexHandler, inter.PermissionNone))
 	mux.Handle("/devices", chain(ws.deviceListHandler, inter.PermissionReadOnly))
 	mux.Handle("/devices/pending", chain(ws.pendingListHandler, inter.PermissionReadWrite))
 	mux.Handle("/devices/blacklist", chain(ws.blacklistHandler, inter.PermissionReadOnly))
-
 	mux.Handle("/device/approve", chain(ws.approveHandler, inter.PermissionReadWrite))
 	mux.Handle("/device/revoke", chain(ws.revokeHandler, inter.PermissionReadWrite))
 	mux.Handle("/device/delete", chain(ws.deleteHandler, inter.PermissionReadWrite))
 	mux.Handle("/device/unblock", chain(ws.unblockHandler, inter.PermissionReadWrite))
 	mux.Handle("/device/token/refresh", chain(ws.refreshTokenHandler, inter.PermissionReadWrite))
-
 	mux.Handle("/metrics/", chain(ws.metricsHandler, inter.PermissionReadOnly))
 	mux.Handle("/api/metrics/", chain(ws.apiMetricsHandler, inter.PermissionReadOnly))
-
 	mux.Handle("/users", chain(ws.userListHandler, inter.PermissionAdmin))
 	mux.Handle("/user/permission", chain(ws.updateUserPermissionHandler, inter.PermissionAdmin))
-
 	mux.Handle("/devices/view/pending", chain(ws.pendingPageHandler, inter.PermissionReadWrite))
 	mux.Handle("/devices/view/blacklist", chain(ws.blacklistPageHandler, inter.PermissionReadOnly))
 }
@@ -60,12 +69,7 @@ func (ws *webServer) authMiddleware(next http.Handler, minPerm inter.PermissionT
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 获取当前用户
 		u, err := ws.authboss.CurrentUser(r)
-		if err != nil {
-			// 如果出错 (如数据库连接失败)，视为未登录
-			ws.redirectOrHTMX(w, r, "/auth/login")
-			return
-		}
-		if u == nil {
+		if err != nil || u == nil {
 			ws.redirectOrHTMX(w, r, "/auth/login")
 			return
 		}
@@ -100,7 +104,6 @@ func (ws *webServer) redirectOrHTMX(w http.ResponseWriter, r *http.Request, url 
 // indexHandler 首页处理
 func (ws *webServer) indexHandler(w http.ResponseWriter, r *http.Request) {
 	u, _ := ws.authboss.CurrentUser(r)
-
 	perm := inter.PermissionNone
 	username := "Guest"
 

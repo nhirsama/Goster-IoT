@@ -17,6 +17,7 @@ type webServer struct {
 	templates       map[string]*template.Template
 	htmlDir         string
 	authboss        *authboss.Authboss
+	turnstile       *TurnstileService
 }
 
 // NewWebServer 创建一个新的 Web 服务器实例
@@ -29,6 +30,7 @@ func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityM
 		templates:       loadTemplates(htmlDir),
 		htmlDir:         htmlDir,
 		authboss:        ab,
+		turnstile:       NewTurnstileService(),
 	}
 }
 

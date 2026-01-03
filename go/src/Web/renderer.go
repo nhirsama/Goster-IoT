@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"os"
 
 	"github.com/aarondl/authboss/v3"
 )
@@ -41,6 +42,10 @@ func (r *HTMLRenderer) Render(ctx context.Context, page string, data authboss.HT
 	for k, v := range data {
 		viewData[k] = v
 	}
+
+	// 注入 Turnstile 配置数据
+	viewData["CaptchaProvider"] = os.Getenv("CAPTCHA_PROVIDER")
+	viewData["SiteKey"] = os.Getenv("CF_SITE_KEY")
 
 	// 适配 Authboss 错误信息到模板
 	// 验证错误通常在 "errors" (map[string][]string)

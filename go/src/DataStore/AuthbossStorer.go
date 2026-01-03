@@ -221,13 +221,26 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 
 // NewFromOAuth2 根据 OAuth2 详情创建用户
 func (s *DataStoreSql) NewFromOAuth2(ctx context.Context, provider string, details map[string]string) (authboss.OAuth2User, error) {
+	username := provider + "_" + details["uid"]
+
+	// 尝试加载现有用户以保留权限等字段
+	existingUser, err := s.Load(ctx, username)
+	if err == nil {
+		if u, ok := existingUser.(*AuthUser); ok {
+			u.OAuth2UID = details["uid"]
+			u.OAuth2Provider = provider
+			u.Email = details["email"]
+			return u, nil
+		}
+	}
+
 	u := &AuthUser{
 		OAuth2Provider: provider,
 		OAuth2UID:      details["uid"],
 		Email:          details["email"],
 		// 关键: 必须在此处构造 Username (PID) 以便 Authboss 能够通过 Load() 找到该用户。
 		// 此逻辑需与 Create() 中的生成逻辑保持一致。
-		Username: provider + "_" + details["uid"],
+		Username: username,
 	}
 	return u, nil
 }

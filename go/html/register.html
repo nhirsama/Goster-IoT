@@ -88,6 +88,13 @@
                     </div>
                 </div>
 
+                {{if eq .CaptchaProvider "turnstile"}}
+                <div class="mb-3 d-flex justify-content-center">
+                    <div class="cf-turnstile" data-sitekey="{{.SiteKey}}"></div>
+                </div>
+                <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                {{end}}
+
                 <div class="d-grid gap-2 mt-4">
                     <button type="submit" class="btn btn-success">立即注册</button>
                     <a href="/auth/login" class="btn btn-link text-decoration-none">已有账户？直接登录</a>
