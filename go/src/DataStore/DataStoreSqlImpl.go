@@ -1,10 +1,7 @@
 package DataStore
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -54,12 +51,24 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
     );
     CREATE INDEX IF NOT EXISTS idx_logs_uuid ON logs (uuid);
 
+    -- New Authboss-compatible Schema
     CREATE TABLE IF NOT EXISTS users (
-       username TEXT PRIMARY KEY,
-       password_hash TEXT,
-       salt TEXT,
-       permission INTEGER,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+       id            INTEGER PRIMARY KEY AUTOINCREMENT,
+       pid           TEXT UNIQUE NOT NULL,
+       email         TEXT UNIQUE NOT NULL,
+       username      TEXT UNIQUE,
+       password      TEXT NOT NULL,
+       permission    INTEGER DEFAULT 0,
+       
+       recover_token        TEXT,
+       recover_token_expiry DATETIME,
+       
+       confirm_token        TEXT,
+       confirmed            BOOLEAN DEFAULT FALSE,
+       
+       last_login           DATETIME,
+       created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+       updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     `
 
@@ -276,114 +285,33 @@ func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoin
 
 // [用户管理实现]
 
-// generateSalt 生成随机盐值
-func (s *DataStoreSql) generateSalt() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
-// hashPassword 计算密码哈希：SHA256(password + salt)
-func (s *DataStoreSql) hashPassword(password, salt string) string {
-	hash := sha256.New()
-	hash.Write([]byte(password + salt))
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// RegisterUser 注册新用户
-func (s *DataStoreSql) RegisterUser(username, password string, permission inter.PermissionType) error {
-	// 生成盐
-	salt, err := s.generateSalt()
-	if err != nil {
-		return err
-	}
-
-	// 计算哈希
-	hashed := s.hashPassword(password, salt)
-
-	// 插入数据库
-	_, err = s.db.Exec(`
-		INSERT INTO users (username, password_hash, salt, permission)
-		VALUES (?, ?, ?, ?)`,
-		username, hashed, salt, permission,
-	)
-	if err != nil {
-		// 检查唯一性约束冲突（SQLite error code 19 or generic string check）
-		// 这里简单返回错误，上层可以根据错误信息判断是否是用户名已存在
-		return fmt.Errorf("failed to register user: %w", err)
-	}
-	return nil
-}
-
-// LoginUser 用户登录
-func (s *DataStoreSql) LoginUser(username, password string) (inter.PermissionType, error) {
-	var currentHash, salt string
-	var permission int
-
-	// 查询用户凭证
-	err := s.db.QueryRow("SELECT password_hash, salt, permission FROM users WHERE username = ?", username).Scan(&currentHash, &salt, &permission)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, errors.New("user not found or password incorrect")
-		}
-		return 0, err
-	}
-
-	// 验证密码
-	if s.hashPassword(password, salt) != currentHash {
-		return 0, errors.New("user not found or password incorrect")
-	}
-
-	return inter.PermissionType(permission), nil
-}
-
-// ChangePassword 修改密码
-func (s *DataStoreSql) ChangePassword(username, oldPassword, newPassword string) error {
-	// 查询现有用户的哈希和盐
-	var currentHash, salt string
-	err := s.db.QueryRow("SELECT password_hash, salt FROM users WHERE username = ?", username).Scan(&currentHash, &salt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("user not found")
-		}
-		return err
-	}
-
-	// 验证旧密码
-	if s.hashPassword(oldPassword, salt) != currentHash {
-		return errors.New("invalid old password")
-	}
-
-	// 生成新盐和新哈希
-	newSalt, err := s.generateSalt()
-	if err != nil {
-		return err
-	}
-	newHash := s.hashPassword(newPassword, newSalt)
-	// 更新数据库
-	_, err = s.db.Exec("UPDATE users SET password_hash = ?, salt = ? WHERE username = ?", newHash, newSalt, username)
-	return err
-}
+// GetUserCount 获取注册用户总数
 func (s *DataStoreSql) GetUserCount() (int, error) {
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
 	return count, err
 }
+
+// ListUsers 获取所有用户列表
 func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 	rows, err := s.db.Query("SELECT username, permission, created_at FROM users")
 	if err != nil {
 		return nil, err
-
 	}
 	defer rows.Close()
 	var users []inter.User
 	for rows.Next() {
 		var u inter.User
 		var perm int
-		if err := rows.Scan(&u.Username, &perm, &u.CreatedAt); err != nil {
+		var username sql.NullString
+		// username is nullable in new schema
+		if err := rows.Scan(&username, &perm, &u.CreatedAt); err != nil {
 			continue
+		}
+		if username.Valid {
+			u.Username = username.String
+		} else {
+			u.Username = "Unknown" // or handle empty
 		}
 		u.Permission = inter.PermissionType(perm)
 		users = append(users, u)
@@ -391,6 +319,7 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 	return users, nil
 }
 
+// GetUserPermission 获取指定用户的当前权限 (Using username for legacy support in UI)
 func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType, error) {
 	var perm int
 	err := s.db.QueryRow("SELECT permission FROM users WHERE username = ?", username).Scan(&perm)
@@ -402,6 +331,8 @@ func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType,
 	}
 	return inter.PermissionType(perm), nil
 }
+
+// UpdateUserPermission 更新用户权限
 func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.PermissionType) error {
 	_, err := s.db.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
 	return err

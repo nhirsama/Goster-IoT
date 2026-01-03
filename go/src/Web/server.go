@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/aarondl/authboss/v3"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -17,10 +18,11 @@ type webServer struct {
 	templates       map[string]*template.Template
 	htmlDir         string
 	captcha         CaptchaProvider
+	authboss        *authboss.Authboss
 }
 
 // NewWebServer 创建一个新的 Web 服务器实例
-func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager, api inter.Api, htmlDir string) inter.WebServer {
+func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager, api inter.Api, htmlDir string, ab *authboss.Authboss) inter.WebServer {
 	providerType := os.Getenv("CAPTCHA_PROVIDER")
 	var provider CaptchaProvider
 
@@ -41,12 +43,18 @@ func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityM
 		templates:       loadTemplates(htmlDir),
 		htmlDir:         htmlDir,
 		captcha:         provider,
+		authboss:        ab,
 	}
 }
 
 // Start 启动标准 HTTP 服务器
 func (ws *webServer) Start() {
 	addr := ":8080"
+
+	// Use authboss router? Or standard Mux?
+	// Authboss provides a router or we mount it.
+	// Typically we mount authboss at /auth
+
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 

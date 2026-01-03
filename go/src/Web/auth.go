@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/dchest/captcha"
-	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
 // CaptchaProvider 定义验证码策略接口
@@ -78,84 +77,4 @@ func (c *CloudflareTurnstile) Verify(r *http.Request) bool {
 
 func (c *CloudflareTurnstile) Type() string {
 	return "turnstile"
-}
-
-// loginHandler 登录处理
-func (ws *webServer) loginHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session-name")
-
-	if r.Method == "POST" {
-		username := r.FormValue("username")
-		password := r.FormValue("password")
-
-		perm, err := ws.dataStore.LoginUser(username, password)
-		if err != nil {
-			ws.templates["login.html"].Execute(w, map[string]interface{}{"Error": "用户名或密码错误"})
-			return
-		}
-
-		session.Values["authenticated"] = true
-		session.Values["username"] = username
-		session.Values["permission"] = int(perm)
-		session.Save(r, w)
-		http.Redirect(w, r, "/", http.StatusFound)
-		return
-	}
-
-	ws.templates["login.html"].Execute(w, nil)
-}
-
-// registerHandler 注册处理
-func (ws *webServer) registerHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		if !ws.captcha.Verify(r) {
-			data := ws.captcha.GetTemplateData()
-			data["Error"] = "验证码错误"
-			ws.templates["register.html"].Execute(w, data)
-			return
-		}
-
-		username := r.FormValue("username")
-		password := r.FormValue("password")
-
-		count, err := ws.dataStore.GetUserCount()
-		if err != nil {
-			http.Error(w, "数据库错误", http.StatusInternalServerError)
-			return
-		}
-
-		var perm inter.PermissionType
-		if count == 0 {
-			perm = inter.PermissionAdmin
-		} else {
-			perm = inter.PermissionNone // 默认为无权限
-		}
-
-		err = ws.dataStore.RegisterUser(username, password, perm)
-		if err != nil {
-			data := ws.captcha.GetTemplateData()
-			data["Error"] = "注册失败: " + err.Error()
-			ws.templates["register.html"].Execute(w, data)
-			return
-		}
-
-		http.Redirect(w, r, "/login", http.StatusFound)
-		return
-	}
-
-	if t, ok := ws.templates["register.html"]; ok {
-		t.Execute(w, ws.captcha.GetTemplateData())
-	} else {
-		http.Error(w, "注册模板丢失", http.StatusInternalServerError)
-	}
-}
-
-// logoutHandler 登出处理
-func (ws *webServer) logoutHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session-name")
-	session.Values["authenticated"] = false
-	session.Values["username"] = ""
-	session.Values["permission"] = 0
-	session.Save(r, w)
-	http.Redirect(w, r, "/login", http.StatusFound)
 }
