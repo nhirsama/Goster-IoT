@@ -4,10 +4,8 @@
 #include "NetworkManager.h"
 #include "CryptoLayer.h"
 #include "GosterProtocol.h"
-
 // 闲置超时时间，10 秒无活动则休眠
-#define IDLE_TIMEOUT_MS 10000
-
+constexpr uint16_t IDLE_TIMEOUT_MS = 10000;
 // Modules
 ConfigManager configMgr;
 Hardware hw;
@@ -52,7 +50,7 @@ void setup() {
     // 2. 初始化加密模块
     if (!crypto.begin()) {
         Serial.println("加密模块初始化失败!");
-        while (1) hw.blinkLed(1, 500);
+        while (true) hw.blinkLed(1, 500);
     }
 
     // 3. 联网
@@ -74,7 +72,10 @@ void loop() {
     if (netMgr.getClient()->connected()) {
         lastActivityTime = millis();
     }
-
+    time_t now_time;
+    time(&now_time);
+    Serial.println(now_time);
+    delay(1);
     // 低功耗逻辑：如果 10 秒内没有任何串口数据发送或活动，进入深度睡眠
     if (millis() - lastActivityTime > IDLE_TIMEOUT_MS) {
         Serial.println("无活动超时，进入深度睡眠...");

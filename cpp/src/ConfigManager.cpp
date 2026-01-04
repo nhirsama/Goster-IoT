@@ -9,7 +9,7 @@ AppConfig ConfigManager::loadConfig() {
     config.wifi_ssid = prefs.getString("ssid", "");
     config.wifi_pass = prefs.getString("pass", "");
     config.server_ip = prefs.getString("srv_ip", "192.168.1.100"); // 默认 IP
-    config.server_port = prefs.getUShort("srv_port", 8080);
+    config.server_port = prefs.getUShort("srv_port", 8081);
 
     // Check if token exists to avoid Error Log spam
     if (prefs.isKey("token")) {

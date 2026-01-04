@@ -1,5 +1,8 @@
 #include "NetworkManager.h"
 
+// 记录上次 NTP 同步成功的时间 (保留在 RTC 内存中，深度睡眠不丢失)
+RTC_DATA_ATTR time_t g_last_ntp_sync_time = 0;
+
 // Global flag
 bool shouldSaveConfig = false;
 
@@ -34,7 +37,6 @@ void NetworkManager::begin() {
 )";
     _wm.setCustomHeadElement(custom_css);
 
-    // 3. 定义中文参数
     // id, label, default, length
     WiFiManagerParameter custom_server_addr("server", "服务器地址 (域名或IP)", cfg.server_ip.c_str(), 64);
 
@@ -47,7 +49,6 @@ void NetworkManager::begin() {
     _wm.addParameter(&custom_server_addr);
     _wm.addParameter(&custom_server_port);
 
-    // 界面文本中文化
     _wm.setTitle("Goster 设备配网"); // 页面标题
 
     // 设置菜单内容: 扫描配网, 退出
@@ -83,6 +84,9 @@ void NetworkManager::begin() {
         Serial.println("配网失败或超时，系统将重启...");
         delay(3000);
         ESP.restart();
+    } else {
+        // 连接成功后尝试同步时间
+        syncTime();
     }
 
     // 6. 保存自定义参数
@@ -126,4 +130,58 @@ bool NetworkManager::checkInternet() {
         return true;
     }
     return false;
+}
+
+void NetworkManager::syncTime() {
+    time_t now;
+    time(&now);
+
+    bool needSync = false;
+
+    if (!isTimeValid()) {
+        Serial.println("系统时间无效，发起 NTP 异步同步...");
+        needSync = true;
+    } else {
+        // 检查距离上次同步是否超过 24 小时 (24 * 3600 秒)
+        if (difftime(now, g_last_ntp_sync_time) > (24 * 3600)) {
+            Serial.printf("距离上次同步已过 24h (上次: %ld, 当前: %ld)，准备更新...\n", g_last_ntp_sync_time, now);
+            needSync = true;
+        } else {
+            Serial.println("系统时间有效且未过期，跳过 NTP 同步。");
+        }
+    }
+
+    if (needSync) {
+        // 启动 SNTP 时间同步 (异步，非阻塞)
+        configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER1, NTP_SERVER2, NTP_SERVER3);
+
+        // 只有在时间确实被更新后，才应该更新 g_last_ntp_sync_time
+        // 但由于 configTime 是异步的，这里做一个近似处理：
+        // 如果当前时间已经有效，我们假设这次同步会成功刷新
+        if (isTimeValid()) {
+            time(&g_last_ntp_sync_time);
+        }
+    }
+
+    // 打印当前时间用于确认
+    if (isTimeValid()) {
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo)) {
+            Serial.println(&timeinfo, "当前系统时间: %Y-%m-%d %H:%M:%S");
+        }
+    }
+}
+
+bool NetworkManager::isTimeValid() {
+    time_t now;
+    time(&now);
+    return now > 1667526096;
+}
+
+int64_t NetworkManager::getTimestamp() {
+    if (!isTimeValid()) {
+        return 0; // 时间无效
+    }
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 }
