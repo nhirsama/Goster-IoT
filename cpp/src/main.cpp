@@ -63,6 +63,12 @@ void setup() {
 }
 
 void loop() {
+    // 转发从 STM32 (Serial1) 接收到的原始数据到电脑 (Serial)
+    while (Serial1.available()) {
+        Serial.write(Serial1.read());
+        lastActivityTime = millis(); // 收到数据视为有活动，推迟休眠
+    }
+
     // 处理各个模块的轮询
     hw.update();
     netMgr.loop();
@@ -72,20 +78,26 @@ void loop() {
     if (netMgr.getClient()->connected()) {
         lastActivityTime = millis();
     }
-    time_t now_time;
-    time(&now_time);
-    Serial.println(now_time);
-    delay(1);
-    // 低功耗逻辑：如果 10 秒内没有任何串口数据发送或活动，进入深度睡眠
-    if (millis() - lastActivityTime > IDLE_TIMEOUT_MS) {
-        Serial.println("无活动超时，进入深度睡眠...");
-        Serial.flush();
 
-        // 关闭 WiFi 射频以省电
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
-
-        delay(100);
-        esp_deep_sleep_start();
+    // 每隔 1 秒打印一次当前时间 (非阻塞)
+    static unsigned long lastPrintTime = 0;
+    if (millis() - lastPrintTime >= 1000) {
+        lastPrintTime = millis();
+        time_t now_time;
+        time(&now_time);
+        Serial.println(now_time);
     }
+
+    // 低功耗逻辑：如果 10 秒内没有任何串口数据发送或活动，进入深度睡眠
+    // if (millis() - lastActivityTime > IDLE_TIMEOUT_MS) {
+    //     Serial.println("无活动超时，进入深度睡眠...");
+    //     Serial.flush();
+    //
+    //     // 关闭 WiFi 射频以省电
+    //     WiFi.disconnect(true);
+    //     WiFi.mode(WIFI_OFF);
+    //
+    //     delay(1000);
+    //     esp_deep_sleep_start();
+    // }
 }

@@ -8,11 +8,13 @@ version = "0.1.0"
 dependencies = [
  "cortex-m 0.7.7",
  "cortex-m-rt",
+ "dht-sensor",
  "embedded-graphics",
  "embedded-hal 0.2.7",
  "embedded-storage-async",
  "heapless",
  "micromath 0.5.1",
+ "panic-halt",
  "panic-rtt-target",
  "postcard",
  "rtt-target 0.6.2",
@@ -165,6 +167,15 @@ name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
+name = "dht-sensor"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74d643854f324f02daea7153ebbfec5cfcc2f395faf1c7011be65e543570de28"
+dependencies = [
+ "embedded-hal 0.2.7",
+]
 
 [[package]]
 name = "display-interface"
@@ -343,6 +354,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af2455f757db2b292a9b1768c4b70186d443bcb3b316252d6b540aec1cd89ed"
 dependencies = [
  "hash32",
+ "serde_core",
  "stable_deref_trait",
 ]
 
@@ -381,6 +393,12 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "panic-halt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de96540e0ebde571dc55c73d60ef407c653844e6f9a1e2fdbd40c07b9252d812"
 
 [[package]]
 name = "panic-rtt-target"

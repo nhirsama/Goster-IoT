@@ -4,10 +4,10 @@
 #include <OneButton.h>
 #include <PacketSerial.h>
 
-#define PIN_LED      8
-#define PIN_BUTTON   9
-#define PIN_UART_RX  20
-#define PIN_UART_TX  21
+constexpr uint8_t PIN_LED = 8;
+constexpr uint8_t PIN_BUTTON = 9;
+constexpr uint8_t PIN_UART_RX = 5;
+constexpr uint8_t PIN_UART_TX = 4;
 
 class Hardware {
 public:

@@ -1,7 +1,5 @@
-#![no_std]
-
-use serde::{Serialize, Deserialize};
 use heapless::Vec;
+use serde::{Deserialize, Serialize};
 
 // 假设最大缓存 20 个数据点 (根据内存调整)
 pub const MAX_SAMPLES: usize = 20;
@@ -25,4 +23,12 @@ pub struct MetricReport {
     pub count: u32,
     // 使用 heapless::Vec 在栈/静态内存中存储数据
     pub data_blob: Vec<f32, MAX_SAMPLES>,
+}
+
+// 实时遥测数据包 (STM32 -> ESP32)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SensorPacket {
+    pub temperature: i8, // 摄氏度
+    pub humidity: u8,    // 相对湿度 %
+    pub lux: f32,        // 光照强度
 }
