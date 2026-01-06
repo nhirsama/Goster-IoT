@@ -1,6 +1,5 @@
 #include "GosterProtocol.h"
-#include "CRC16.h"
-#include "CRC32.h"
+#include "ProtocolUtils.h"
 
 GosterProtocol::GosterProtocol(NetworkManager &net, CryptoLayer &crypto, ConfigManager &config)
     : _net(net), _crypto(crypto), _config(config) {
@@ -20,7 +19,7 @@ void GosterProtocol::loop() {
     WiFiClient *client = _net.getClient();
 
     // 2. Auto-Connect if we have pending data
-    if (!client->connected() && _has_pending_tx) {
+    if (!client->connected() && !_tx_queue.empty()) {
         AppConfig cfg = _config.loadConfig();
 
         // Simple internet check
@@ -43,7 +42,7 @@ void GosterProtocol::loop() {
     }
 
     // 3. Auto-Disconnect if idle
-    if (client->connected() && _state == STATE_READY && !_has_pending_tx) {
+    if (client->connected() && _state == STATE_READY && _tx_queue.empty()) {
         if (millis() - _last_activity > 2000) { // 2s Idle Timeout (Quick disconnect)
             Serial.println("任务完成，主动断开连接.");
             client->stop();
@@ -57,10 +56,16 @@ void GosterProtocol::loop() {
         processIncomingData();
 
         // Flush Buffer if Ready
-        if (_state == STATE_READY && _has_pending_tx) {
-            Serial.printf("Flushing buffered metric (%d bytes)\n", _tx_len);
-            sendFrame(CMD_METRICS_REPORT, _tx_buffer, _tx_len, true);
-            _has_pending_tx = false; // Mark as sent
+        if (_state == STATE_READY && !_tx_queue.empty()) {
+            Serial.printf("Flushing queue (Size: %d)\n", _tx_queue.size());
+            
+            // Get the oldest packet
+            const std::vector<uint8_t>& pkt = _tx_queue.front();
+            sendFrame(CMD_METRICS_REPORT, pkt.data(), pkt.size(), true);
+            
+            // Remove sent packet
+            _tx_queue.pop_front();
+            
             _last_activity = millis(); // Refresh activity
         }
     }
@@ -105,7 +110,7 @@ void GosterProtocol::processIncomingData() {
                 return;
             }
 
-            uint16_t calcCRC = calculateCRC16((uint8_t *) header, 28);
+            uint16_t calcCRC = ProtocolUtils::calculateCRC16((uint8_t *) header, 28);
             if (calcCRC != header->h_crc16) {
                 Serial.printf("Header CRC 错误: 期望 %04X, 实际 %04X\n", header->h_crc16, calcCRC);
                 client->stop();
@@ -161,7 +166,7 @@ void GosterProtocol::handlePacket(const GosterHeader &header, const uint8_t *pay
                 Serial.printf("Auth Failed: %02X\n", process_ptr[0]);
                 _net.getClient()->stop();
                 // Critical: Stop retrying if Auth failed
-                _has_pending_tx = false;
+                _tx_queue.clear();
             }
             break;
 
@@ -205,14 +210,19 @@ void GosterProtocol::sendHeartbeat() {
 
 // Public API: Just buffer the data
 void GosterProtocol::sendMetricReport(const uint8_t *payload, size_t len) {
-    if (len > sizeof(_tx_buffer)) {
-        Serial.println("Error: Metric payload too large");
-        return;
+    if (len == 0) return;
+
+    // Check queue limit
+    if (_tx_queue.size() >= MAX_TX_QUEUE_SIZE) {
+        Serial.println("Queue full, dropping oldest packet!");
+        _tx_queue.pop_front();
     }
-    memcpy(_tx_buffer, payload, len);
-    _tx_len = len;
-    _has_pending_tx = true;
-    Serial.println("Metric buffered. Requesting connection...");
+
+    // Push new packet
+    std::vector<uint8_t> pkt(payload, payload + len);
+    _tx_queue.push_back(pkt);
+    
+    Serial.printf("Metric queued. Queue size: %d\n", _tx_queue.size());
 }
 
 void GosterProtocol::sendFrame(uint16_t cmd_id, const uint8_t *data, size_t len, bool encrypted) {
@@ -228,7 +238,7 @@ void GosterProtocol::sendFrame(uint16_t cmd_id, const uint8_t *data, size_t len,
     if (encrypted) header.flags |= FLAG_ENCRYPTED;
 
     generateNonce(header.nonce);
-    header.h_crc16 = calculateCRC16((uint8_t *) &header, 28);
+    header.h_crc16 = ProtocolUtils::calculateCRC16((uint8_t *) &header, 28);
 
     WiFiClient *client = _net.getClient();
 
@@ -272,28 +282,4 @@ void GosterProtocol::generateNonce(uint8_t *nonce_out) {
     memset(nonce_out, 0, 12);
     _tx_sequence++;
     memcpy(nonce_out + 4, &_tx_sequence, 8);
-}
-
-uint16_t GosterProtocol::calculateCRC16(const uint8_t *data, size_t len) {
-    CRC16 crc;
-    crc.setPolynome(0x8005);
-    crc.setInitial(0xFFFF);   
-    crc.setXorOut(0x0000);    
-    crc.setReverseIn(true);
-    crc.setReverseOut(true);
-    crc.restart(); // Apply initial value
-    crc.add(data, len);
-    return crc.calc();        
-}
-
-uint32_t GosterProtocol::calculateCRC32(const uint8_t *data, size_t len) {
-    CRC32 crc;
-    crc.setPolynome(0x04C11DB7);
-    crc.setInitial(0xFFFFFFFF);
-    crc.setXorOut(0xFFFFFFFF);
-    crc.setReverseIn(true);
-    crc.setReverseOut(true);
-    crc.restart();
-    crc.add(data, len);
-    return crc.calc();
 }

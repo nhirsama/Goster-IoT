@@ -30,6 +30,8 @@ postcard = { version = "=1.0.10", default-features = false }
 w25 = "0.6.0"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 dht-sensor = "0.2"
+crc = "3.0"
+nb = "1.1"
 
 # 针对 dev (debug) 模式的优化
 [profile.dev]

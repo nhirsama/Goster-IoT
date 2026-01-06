@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <deque>
+#include <vector>
 #include "NetworkManager.h"
 #include "CryptoLayer.h"
 #include "ConfigManager.h"
@@ -8,6 +10,7 @@
 // Protocol Constants
 #define GOSTER_MAGIC    0x5759
 #define GOSTER_VERSION  0x01
+#define MAX_TX_QUEUE_SIZE 10 // 最大缓存 10 个数据包，满后覆盖旧数据
 
 // Flags
 #define FLAG_ACK        0x01
@@ -23,6 +26,7 @@
 #define CMD_METRICS_REPORT  0x0101
 #define CMD_HEARTBEAT       0x0104
 #define CMD_CONFIG_PUSH     0x0201
+#define CMD_TIME_SYNC       0x0204
 
 // Header Structure (32 Bytes, Packed)
 #pragma pack(push, 1)
@@ -68,10 +72,8 @@ private:
     uint8_t _rx_buffer[1024]; // TCP Receive Buffer
     size_t _rx_len = 0;
     
-    // TX Buffer for short-lived connection model
-    uint8_t _tx_buffer[1024];
-    size_t _tx_len = 0;
-    bool _has_pending_tx = false;
+    // TX Queue for buffering metrics
+    std::deque<std::vector<uint8_t>> _tx_queue;
     
     unsigned long _last_activity = 0;
     uint64_t _tx_sequence = 0; // For Nonce generation
@@ -90,7 +92,5 @@ private:
     void sendFrame(uint16_t cmd_id, const uint8_t* data, size_t len, bool encrypted);
     
     // Utils
-    uint16_t calculateCRC16(const uint8_t* data, size_t len);
-    uint32_t calculateCRC32(const uint8_t* data, size_t len);
     void generateNonce(uint8_t* nonce_out);
 };

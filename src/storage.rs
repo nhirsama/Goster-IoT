@@ -100,8 +100,7 @@ where
 
         match item {
             Some(bytes) => {
-                let decoded_item = V::deserialize_from(bytes)
-                    .map_err(|_| "Deserialize Error")?;
+                let decoded_item = V::deserialize_from(bytes).map_err(|_| "Deserialize Error")?;
 
                 Ok(Some(decoded_item.0)) // 直接返回解析出来的对象
             }
