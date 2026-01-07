@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <OneButton.h>
 #include <PacketSerial.h>
+#include "GosterProtocol.h" // 引入 RX_BUFFER_SIZE 定义
 
 constexpr uint8_t PIN_LED = 8;
 constexpr uint8_t PIN_BUTTON = 9;
@@ -17,8 +18,11 @@ public:
     void setLed(bool on);
     void blinkLed(int times, int delay_ms);
 
-    // 获取 PacketSerial 实例以便在外面绑定回调
-    PacketSerial& getPacketSerial() { return _packetSerial; }
+    // 定义自定义类型的 PacketSerial，指定缓冲区大小
+    using MyPacketSerial = PacketSerial_<COBS, 0, RX_BUFFER_SIZE>;
+
+    // 获取 PacketSerial 实例
+    MyPacketSerial& getPacketSerial() { return _packetSerial; }
 
     // 外部设置长按回调 (用于 Factory Reset)
     void setResetCallback(parameterizedCallbackFunction cb, void* parameter) {
@@ -27,5 +31,7 @@ public:
 
 private:
     OneButton _btn;
-    PacketSerial _packetSerial;
+    
+    // 使用自定义类型
+    MyPacketSerial _packetSerial;
 };

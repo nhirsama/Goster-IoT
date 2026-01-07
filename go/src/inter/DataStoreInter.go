@@ -46,6 +46,7 @@ type DeviceRecord struct {
 type MetricPoint struct {
 	Timestamp int64   `json:"ts"`    // Unix 时间戳
 	Value     float32 `json:"value"` // 物理数值
+	Type      uint8   `json:"type"`  // 数据类型 (1=Temp, 2=Humi, 4=Lux)
 }
 
 // DataStore 定义了底层数据持久化的标准接口，用于管理设备生命周期、配置、时序指标及日志。

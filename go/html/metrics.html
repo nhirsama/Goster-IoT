@@ -156,34 +156,61 @@
         var ctx = document.getElementById('metricsChart');
         if (!ctx) return;
 
-        // Ensure we destroy any existing chart on this canvas ID before creating a new one
-        // Note: HTMX swap might have already removed the old canvas from DOM, 
-        // but window.myMetricsChart might still hold a reference.
         if (window.myMetricsChart instanceof Chart) {
             window.myMetricsChart.destroy();
             window.myMetricsChart = null;
         }
 
-        // Get the computed style for primary color
-        var style = getComputedStyle(document.body);
-        var primaryColor = style.getPropertyValue('--primary-color') || '#4361ee';
+        // Process Data
+        // Type: 1=Temp, 2=Humi, 4=Lux
+        const rawData = [
+            {{range .Metrics}}
+            { t: {{.Timestamp}}, v: {{.Value}}, type: {{.Type}} },
+            {{end}}
+        ];
+
+        const tempData = rawData.filter(d => d.type === 1).map(d => ({ x: d.t, y: d.v }));
+        const humiData = rawData.filter(d => d.type === 2).map(d => ({ x: d.t, y: d.v }));
+        const luxData  = rawData.filter(d => d.type === 4).map(d => ({ x: d.t, y: d.v }));
 
         window.myMetricsChart = new Chart(ctx.getContext('2d'), {
             type: 'line',
             data: {
-                labels: [{{range .Metrics}}{{.Timestamp}} * 1000,{{end}}],
-                datasets: [{
-                    label: '传感器数值',
-                    data: [{{range .Metrics}}{{.Value}},{{end}}],
-                    borderColor: primaryColor, 
-                    backgroundColor: primaryColor + '1A', // 10% opacity
-                    borderWidth: 2,
-                    fill: true,
-                    cubicInterpolationMode: 'monotone',
-                    pointRadius: 0,
-                    pointHoverRadius: 6,
-                    pointHitRadius: 10
-                }]
+                datasets: [
+                    {
+                        label: '温度 (°C)',
+                        data: tempData,
+                        borderColor: '#ff595e', // Red
+                        backgroundColor: '#ff595e1A',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: '湿度 (%)',
+                        data: humiData,
+                        borderColor: '#4361ee', // Blue
+                        backgroundColor: '#4361ee1A',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: '光照 (Lux)',
+                        data: luxData,
+                        borderColor: '#f7b801', // Yellow
+                        backgroundColor: '#f7b8011A',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        yAxisID: 'y1' // Use separate axis for Lux as it has large range
+                    }
+                ]
             },
             options: {
                 responsive: true,
@@ -199,43 +226,37 @@
                                 day: 'MM-dd'
                             }
                         },
-                        grid: {
-                            display: false,
-                            drawBorder: false
-                        },
-                        ticks: {
-                            maxTicksLimit: 8,
-                            color: '#adb5bd'
-                        }
+                        grid: { display: false },
+                        ticks: { color: '#adb5bd', maxTicksLimit: 8 }
                     },
                     y: {
-                        beginAtZero: false,
-                        grid: {
-                            color: '#f1f3f5',
-                            borderDash: [5, 5]
-                        },
-                        ticks: {
-                            color: '#adb5bd'
-                        }
+                        beginAtZero: true,
+                        position: 'left',
+                        title: { display: true, text: '温湿度' },
+                        grid: { color: '#f1f3f5' }
+                    },
+                    y1: {
+                        beginAtZero: true,
+                        position: 'right',
+                        title: { display: true, text: '光照' },
+                        grid: { drawOnChartArea: false } // Avoid grid overlap
                     }
                 },
                 plugins: {
-                    legend: {
-                        display: false
-                    },
+                    legend: { display: true, position: 'top' },
                     tooltip: {
                         mode: 'index',
                         intersect: false,
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        titleColor: '#2b2d42',
-                        bodyColor: '#2b2d42',
-                        borderColor: '#e9ecef',
-                        borderWidth: 1,
-                        padding: 10,
-                        titleFont: { size: 13, weight: 'bold' },
                         callbacks: {
                             label: function(context) {
-                                return '数值: ' + context.parsed.y;
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += context.parsed.y.toFixed(1);
+                                }
+                                return label;
                             }
                         }
                     }
@@ -244,9 +265,6 @@
                     mode: 'nearest',
                     axis: 'x',
                     intersect: false
-                },
-                animation: {
-                    duration: 0 // Disable animation for smoother updates during range switch
                 }
             }
         });

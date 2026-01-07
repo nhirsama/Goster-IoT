@@ -1,5 +1,5 @@
 use crate::goster_serial;
-use crate::protocol_structs::{self, CMD_TIME_SYNC, MetricReport};
+use crate::protocol_structs::{self, CMD_TIME_SYNC, MetricReport, FRAME_BUF_SIZE, PAYLOAD_SIZE};
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::serial::{Read, Write};
 use rtt_target::rprintln;
@@ -14,13 +14,13 @@ use stm32f1xx_hal::{
 
 pub struct EspBridge {
     serial: Serial<USART1, (PA9<Alternate<PushPull>>, PA10<Input<Floating>>)>,
-    rx_buf: [u8; 128],
+    rx_buf: [u8; 128], // RX 主要是控制指令，较短
     rx_idx: usize,
     tx_seq: u64,
-    // 发送缓冲区
-    tx_buf: [u8; 256],
+    // 发送缓冲区 (根据 MAX_SAMPLES 自动计算)
+    tx_buf: [u8; FRAME_BUF_SIZE],
     // 暂存缓冲区
-    scratch_buf: [u8; 256],
+    scratch_buf: [u8; FRAME_BUF_SIZE],
     // ESP32 是否已就绪
     is_ready: bool,
 }
@@ -38,8 +38,8 @@ impl EspBridge {
             rx_buf: [0u8; 128],
             rx_idx: 0,
             tx_seq: 0,
-            tx_buf: [0u8; 256],
-            scratch_buf: [0u8; 256],
+            tx_buf: [0u8; FRAME_BUF_SIZE],
+            scratch_buf: [0u8; FRAME_BUF_SIZE],
             is_ready: false,
         }
     }
@@ -57,9 +57,6 @@ impl EspBridge {
                 // 1. 检查握手信号 'R' (0x52)
                 if byte == 0x52u8 {
                     self.is_ready = true;
-
-                    rprintln!("ESP32 就绪 (收到 'R')");
-
                     return BridgeEvent::EspReady;
                 }
                 // 2. 数据包处理 (COBS 累积)
@@ -153,8 +150,10 @@ impl EspBridge {
         if !self.is_ready {
             return Err(());
         }
+
         // 手动序列化 Payload (C Packed Struct Compatible)
-        let mut payload_buf = [0u8; 128]; // Max 20 floats (80) + Header (17) ~= 97 bytes
+        // 使用动态计算的常量，确保缓冲区永远足够
+        let mut payload_buf = [0u8; PAYLOAD_SIZE]; 
         let mut offset = 0;
         // start_timestamp (u64, 8 bytes)
         payload_buf[offset..offset + 8].copy_from_slice(&report.start_timestamp.to_le_bytes());

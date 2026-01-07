@@ -12,6 +12,25 @@
 #define GOSTER_VERSION  0x01
 #define MAX_TX_QUEUE_SIZE 10 // 最大缓存 10 个数据包，满后覆盖旧数据
 
+// 编译时推导缓冲区大小 (与 Rust 端逻辑保持一致)
+// 1. 定义核心变量
+constexpr size_t MAX_SAMPLES = 128; 
+
+// 2. 计算各部分大小
+constexpr size_t SZ_METRIC_HEADER = 17; // start_ts(8) + interval(4) + type(1) + count(4)
+constexpr size_t SZ_FLOAT = 4;
+constexpr size_t SZ_PAYLOAD = SZ_METRIC_HEADER + (MAX_SAMPLES * SZ_FLOAT);
+
+constexpr size_t SZ_PROTO_HEADER = 32;
+constexpr size_t SZ_PROTO_FOOTER = 16;
+constexpr size_t SZ_RAW_FRAME = SZ_PROTO_HEADER + SZ_PAYLOAD + SZ_PROTO_FOOTER;
+
+// 3. 计算 COBS 编码最大膨胀 (每 254 字节增加 1 字节 overhead，加上首尾 0x00)
+constexpr size_t COBS_OVERHEAD = (SZ_RAW_FRAME / 254) + 2;
+
+// 4. 最终推导出的接收缓冲区大小 (留少量余量对齐)
+constexpr size_t RX_BUFFER_SIZE = SZ_RAW_FRAME + COBS_OVERHEAD + 16; 
+
 // Flags
 #define FLAG_ACK        0x01
 #define FLAG_ENCRYPTED  0x02

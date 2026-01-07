@@ -38,9 +38,11 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
     CREATE TABLE IF NOT EXISTS metrics (
        uuid TEXT,
        ts BIGINT,
-       value REAL
+       value REAL,
+       type INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_metrics_query ON metrics (uuid, ts);
+    CREATE INDEX IF NOT EXISTS idx_metrics_type ON metrics (uuid, type, ts);
 
     CREATE TABLE IF NOT EXISTS logs (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +84,11 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 		db.Close()
 		return nil, err
 	}
+
+    // Migration: Ensure 'type' column exists for existing databases
+    // SQLite allows adding columns. Ignore error if column already exists (duplicate column name).
+    db.Exec("ALTER TABLE metrics ADD COLUMN type INTEGER DEFAULT 0")
+
 	return &DataStoreSql{db: db}, nil
 }
 
@@ -123,13 +130,13 @@ func (s *DataStoreSql) SaveMetadata(uuid string, meta inter.DeviceMetadata) erro
 
 // AppendMetric 插入传感器采样点
 func (s *DataStoreSql) AppendMetric(uuid string, points inter.MetricPoint) error {
-	_, err := s.db.Exec("INSERT INTO metrics (uuid, ts, value) VALUES (?, ?, ?)", uuid, points.Timestamp, points.Value)
+	_, err := s.db.Exec("INSERT INTO metrics (uuid, ts, value, type) VALUES (?, ?, ?, ?)", uuid, points.Timestamp, points.Value, points.Type)
 	return err
 }
 
 func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.MetricPoint, error) {
 	rows, err := s.db.Query(
-		"SELECT ts, value FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
+		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
 		uuid, start, end,
 	)
 	if err != nil {
@@ -140,7 +147,7 @@ func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.Metr
 	var points []inter.MetricPoint
 	for rows.Next() {
 		var p inter.MetricPoint
-		rows.Scan(&p.Timestamp, &p.Value)
+		rows.Scan(&p.Timestamp, &p.Value, &p.Type)
 		points = append(points, p)
 	}
 	return points, nil
@@ -272,7 +279,7 @@ func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoin
 	defer tx.Rollback()
 
 	// 预编译 SQL 语句 (极大地提升循环插入的性能)
-	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, ts, value) VALUES (?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, ts, value, type) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -280,7 +287,7 @@ func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoin
 
 	// 在内存中执行循环插入
 	for _, p := range points {
-		if _, err := stmt.Exec(uuid, p.Timestamp, p.Value); err != nil {
+		if _, err := stmt.Exec(uuid, p.Timestamp, p.Value, p.Type); err != nil {
 			return err // 只要有一条失败，直接返回错误，defer 会触发 Rollback
 		}
 	}

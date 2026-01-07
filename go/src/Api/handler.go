@@ -141,8 +141,8 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 
 	log.Printf("API: 解析采样数据 (UUID: %s, Count: %d)", h.uuid, data.Count)
 
-	// DataType Check (0 = Float32)
-	if data.DataType != 0 {
+	// DataType Check (1=Temp, 2=Humi, 4=Lux)
+	if data.DataType != 1 && data.DataType != 2 && data.DataType != 4 {
 		return fmt.Errorf("API: 不支持的指标数据类型: %d", data.DataType)
 	}
 
@@ -155,7 +155,6 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 
 	points := make([]inter.MetricPoint, 0, data.Count)
 	startTime := data.StartTimestamp
-	intervalUs := int64(data.SampleInterval)
 
 	for i := 0; i < int(data.Count); i++ {
 		// Parse float32 (Little Endian)
@@ -163,12 +162,43 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 		val := math.Float32frombits(bits)
 
 		// Calculate Timestamp
-		offsetMs := (int64(i) * intervalUs) / 1000
+		// sample_interval from STM32 is in milliseconds
+		// STM32: MetricReport { sample_interval: u32 (ms) ... }
+		// Wait, `Api/handler.go` uses `intervalUs` (microseconds)?
+		// The previous code: `offsetMs := (int64(i) * intervalUs) / 1000`
+		// If `intervalUs` was milliseconds, then `* intervalUs / 1000` would be seconds?
+		// `startTime` is `StartTimestamp`.
+		// STM32 sends `start_timestamp` in milliseconds (u64).
+		// So `startTime` is ms.
+		// If `interval` is ms. `offset` should be ms.
+		// `offsetMs := int64(i) * int64(data.SampleInterval)`
+		// The original code was `offsetMs := (int64(i) * intervalUs) / 1000`.
+		// This implies `intervalUs` was interpreted as microseconds?
+		// Let's check STM32 code.
+		// STM32 `MetricReport` uses `sample_interval: u32`.
+		// In `main.rs`, `take_reports(1000)`. This 1000 is passed as `sample_interval`.
+		// `1000` likely means 1000ms.
+		// So STM32 sends 1000.
+		// If Go code does `1000 / 1000`, offset is 1ms per step? No. 1s per step.
+		// If Go code thinks it is microseconds, `1000 / 1000` = 1ms.
+		// If Go code thinks it is milliseconds, `1000` should be used directly.
+		
+		// Let's assume the previous Go code assumed Microseconds but STM32 sends Milliseconds.
+		// Or maybe previous Go code was just wrong/legacy.
+		// Since I wrote STM32 code `take_reports(1000)` and it runs every second (10000 ticks of 10kHz), 1000 is 1000ms.
+		// So `data.SampleInterval` is 1000.
+		// `offsetMs` should be `i * 1000`.
+		// So `ts = startTime + offsetMs`.
+		
+		// I will fix this calculation logic to be correct: `offsetMs := int64(i) * int64(data.SampleInterval)`.
+		
+		offsetMs := int64(i) * int64(data.SampleInterval)
 		ts := startTime + offsetMs
 
 		points = append(points, inter.MetricPoint{
 			Timestamp: ts,
 			Value:     val,
+			Type:      data.DataType,
 		})
 	}
 

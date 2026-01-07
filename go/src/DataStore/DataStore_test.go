@@ -150,7 +150,7 @@ func TestMetricsManagement(t *testing.T) {
 			// 模拟每秒一个点，值随机
 			ts := baseTime + int64(i)
 			val := rand.Float32() * 100
-			err := store.AppendMetric(uuid, inter.MetricPoint{ts, val})
+			err := store.AppendMetric(uuid, inter.MetricPoint{Timestamp: ts, Value: val, Type: 0})
 			if err != nil {
 				t.Fatalf("AppendMetric failed at index %d: %v", i, err)
 			}
@@ -403,7 +403,7 @@ func BenchmarkAppendMetric(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = store.AppendMetric(uuid, inter.MetricPoint{ts + int64(i), rand.Float32()})
+		_ = store.AppendMetric(uuid, inter.MetricPoint{Timestamp: ts + int64(i), Value: rand.Float32(), Type: 0})
 	}
 }
 
@@ -439,7 +439,7 @@ func BenchmarkQueryMetrics_Parallel(b *testing.B) {
 	base := time.Now().Unix()
 	for i := 0; i < 5000; i++ {
 		// 忽略插入错误，这里只管造数据
-		_ = store.AppendMetric(uuid, inter.MetricPoint{base + int64(i), float32(i)})
+		_ = store.AppendMetric(uuid, inter.MetricPoint{Timestamp: base + int64(i), Value: float32(i), Type: 0})
 	}
 
 	// 2. 重置计时器，开始测试
@@ -498,7 +498,7 @@ func BenchmarkDeviceIngestion_Parallel(b *testing.B) {
 			var tim = time.Now().UnixNano()
 			for i := 0; i < batchSize; i++ {
 				tim += 1
-				point[i] = inter.MetricPoint{Timestamp: tim, Value: 123.45}
+				point[i] = inter.MetricPoint{Timestamp: tim, Value: 123.45, Type: 0}
 			}
 			store.BatchAppendMetrics(uuid, point)
 

@@ -8,7 +8,6 @@ mod goster_serial;
 mod mh_sensor;
 mod protocol_structs;
 mod sensor_manager;
-mod storage;
 
 use cortex_m_rt::entry;
 use nb;
@@ -62,12 +61,7 @@ fn main() -> ! {
     let mut pwr = dp.PWR;
     let mut backup = rcc.bkp.constrain(dp.BKP, &mut pwr);
     let mut rtc = Rtc::new(dp.RTC, &mut backup);
-
-    // 如果 RTC 时间戳异常(比如未初始化)，重置为 0
-    if rtc.current_time() > 2000000000 {
-        rtc.set_time(0);
-    }
-
+    rtc.set_time(0);
     // UART
     let serial = Serial::new(
         dp.USART1,
@@ -102,7 +96,7 @@ fn main() -> ! {
                 // 收到时间同步，说明链路已通，无需额外操作，bridge.is_ready 已为 true
             }
             BridgeEvent::EspReady => {
-                // 日志已在 bridge 内部打印
+                rprintln!("ESP32 就绪 (收到 'R')");
             }
             BridgeEvent::None => {}
         }
@@ -112,15 +106,21 @@ fn main() -> ! {
             if bridge.is_ready() {
                 rprintln!("桥接器就绪，开始发送 {} 条报告...", reports.len());
                 let mut success = true;
-                for report in reports {
+                for (i, report) in reports.iter().enumerate() {
+                    rprintln!(
+                        "正在发送第 {}/{} 个报告 (Type: {})",
+                        i + 1,
+                        reports.len(),
+                        report.data_type
+                    );
                     if bridge.send_batch(report).is_err() {
+                        rprintln!("发送失败!");
                         success = false;
                         break;
                     }
-                    // 给一点点间隙让 ESP32 处理（虽然已经移除了字节间延时，但包间延时有益）
-                    delay.delay_ms(10u32);
+                    // 增加到 200ms，确保接收端 PacketSerial 彻底处理完上一包并重置状态
+                    delay.delay_ms(50u32);
                 }
-
                 if success {
                     rprintln!("发送完成，重置状态。");
                     bridge.reset_ready_state();
@@ -130,7 +130,7 @@ fn main() -> ! {
             } else {
                 // 未就绪，请求唤醒
                 wakeup_retry_counter += 1;
-                if wakeup_retry_counter > 100000 {
+                if wakeup_retry_counter > 200000 {
                     // 约每秒触发一次 (取决于主循环速度)
                     rprintln!("请求唤醒...");
                     bridge.request_wakeup();
@@ -144,11 +144,9 @@ fn main() -> ! {
             Ok(_) => {
                 // 打印 Tick 以验证定时器准确性
                 let current_time = rtc.current_time();
-                // rprintln!("Tick (RTC: {})", current_time); // 减少刷屏
 
                 // 执行采样
                 manager.do_sample(&mut delay, current_time);
-                push_pull1.toggle();
 
                 // 缓冲区达到 75% 阈值时触发发送
                 if manager.is_almost_full() && pending_reports.is_none() {
@@ -156,7 +154,6 @@ fn main() -> ! {
                     pending_reports = Some(manager.take_reports(1000));
                     // 立即触发一次唤醒请求
                     bridge.request_wakeup();
-                    wakeup_retry_counter = 0;
                 }
             }
             Err(nb::Error::WouldBlock) => {

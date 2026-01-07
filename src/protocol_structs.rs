@@ -2,7 +2,15 @@ use heapless::Vec;
 use serde::{Deserialize, Serialize};
 
 // 假设最大缓存 20 个数据点
-pub const MAX_SAMPLES: usize = 20;
+pub const MAX_SAMPLES: usize = 64;
+
+// 根据 MAX_SAMPLES 自动计算缓冲区大小
+// MetricReportHeader (17 bytes) + Data (4 bytes/sample)
+pub const PAYLOAD_SIZE: usize = 17 + MAX_SAMPLES * 4;
+
+// GosterHeader(32) + Payload + Footer(16) + COBS Overhead
+// Overhead 最坏情况是每 254 字节增加 1 字节，加上首尾 0x00，预留 32 字节非常充足
+pub const FRAME_BUF_SIZE: usize = 32 + PAYLOAD_SIZE + 16 + 32;
 
 // 传感器类型常量
 pub const SENSOR_TYPE_TEMP: u8 = 0x01;

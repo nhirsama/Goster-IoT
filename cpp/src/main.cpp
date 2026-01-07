@@ -6,8 +6,7 @@
 #include "GosterProtocol.h"
 #include "SerialBridge.h"
 
-// 闲置超时时间，5 秒无活动则休眠
-constexpr uint16_t IDLE_TIMEOUT_MS = 5000;
+constexpr uint16_t IDLE_TIMEOUT_MS = 2000;
 // Modules
 ConfigManager configMgr;
 Hardware hw;
@@ -191,6 +190,25 @@ void setup() {
     lastActivityTime = millis();
 }
 
+void deep_sleep_start() {
+    Serial.println("无活动超时，进入深度睡眠...");
+    Serial.flush();
+    Serial1.flush(); // 确保数据发完
+
+    // 关闭 WiFi 射频以省电 (Deep Sleep 会自动关闭，但显式调用更安全)
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+
+    // 配置 GPIO 唤醒 (GPIO 5 = RX)
+    // 唤醒电平: LOW (因为 STM32 发送 0x00 起始位是低电平)
+    esp_deep_sleep_enable_gpio_wakeup(1ULL << PIN_UART_RX, ESP_GPIO_WAKEUP_GPIO_LOW);
+
+    Serial.println("已配置 GPIO 5 低电平唤醒，Zzz...");
+    delay(100); // 等待打印完成
+
+    esp_deep_sleep_start();
+}
+
 void loop() {
     // 处理各个模块的轮询
     hw.update();
@@ -216,23 +234,7 @@ void loop() {
             g_timeSynced = true;
         }
     }
-    // 低功耗逻辑：如果 10 秒内没有任何串口数据发送或活动，进入深度睡眠
     if (millis() - lastActivityTime > IDLE_TIMEOUT_MS) {
-        Serial.println("无活动超时，进入深度睡眠...");
-        Serial.flush();
-        Serial1.flush(); // 确保数据发完
-
-        // 关闭 WiFi 射频以省电 (Deep Sleep 会自动关闭，但显式调用更安全)
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
-
-        // 配置 GPIO 唤醒 (GPIO 5 = RX)
-        // 唤醒电平: LOW (因为 STM32 发送 0x00 起始位是低电平)
-        esp_deep_sleep_enable_gpio_wakeup(1ULL << PIN_UART_RX, ESP_GPIO_WAKEUP_GPIO_LOW);
-
-        Serial.println("已配置 GPIO 5 低电平唤醒，Zzz...");
-        delay(100); // 等待打印完成
-
-        esp_deep_sleep_start();
+        deep_sleep_start();
     }
 }

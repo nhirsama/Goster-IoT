@@ -38,12 +38,17 @@ func (ws *webServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 		rangeParam = "1h"
 	}
 
-	var duration time.Duration
 	var start int64
-	end := time.Now().Unix()
+	var duration time.Duration
+	// 使用毫秒级时间戳 (UnixMilli)
+	end := time.Now().UnixMilli()
+
+	// 最小有效时间戳：2023-01-01 00:00:00 UTC (1672531200000 ms)
+	// 用于过滤 STM32 RTC 未同步时产生的 1970 年脏数据
+	const minValidTimestamp int64 = 1672531200000
 
 	if rangeParam == "all" {
-		start = 0
+		start = minValidTimestamp
 	} else {
 		switch rangeParam {
 		case "1h":
@@ -58,7 +63,13 @@ func (ws *webServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 			rangeParam = "1h"
 			duration = time.Hour
 		}
-		start = time.Now().Add(-duration).Unix()
+		// 计算毫秒级起始时间
+		start = time.Now().Add(-duration).UnixMilli()
+	}
+
+	// 再次确保 start 不小于最小有效时间（防止 range 计算出的时间包含脏数据区间）
+	if start < minValidTimestamp {
+		start = minValidTimestamp
 	}
 
 	metrics, err := ws.dataStore.QueryMetrics(uuid, start, end)
@@ -82,8 +93,9 @@ func (ws *webServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 func (ws *webServer) apiMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Path[len("/api/metrics/"):]
 
-	end := time.Now().Unix()
-	start := end - 3600
+	// 使用毫秒
+	end := time.Now().UnixMilli()
+	start := end - 3600*1000 // 最近 1 小时
 
 	metrics, err := ws.dataStore.QueryMetrics(uuid, start, end)
 	if err != nil {
