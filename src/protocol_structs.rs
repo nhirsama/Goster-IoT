@@ -8,7 +8,7 @@ pub const MAX_SAMPLES: usize = 20;
 pub const SENSOR_TYPE_TEMP: u8 = 0x01;
 pub const SENSOR_TYPE_HUMI: u8 = 0x02;
 pub const SENSOR_TYPE_PM25: u8 = 0x03;
-pub const SENSOR_TYPE_LUX: u8  = 0x04;
+pub const SENSOR_TYPE_LUX: u8 = 0x04;
 
 // 批量上传的数据包结构 (匹配 API 文档 3.1)
 #[derive(Serialize, Deserialize)]
@@ -35,7 +35,7 @@ pub const CMD_METRICS_REPORT: u16 = 0x0101;
 pub const CMD_HEARTBEAT: u16 = 0x0104;
 pub const CMD_TIME_SYNC: u16 = 0x0204;
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct GosterHeader {
     pub magic: u16,      // 0-1

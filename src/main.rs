@@ -32,8 +32,10 @@ fn main() -> ! {
     let dp = pac::Peripherals::take().unwrap();
 
     let mut flash = dp.FLASH.constrain();
-    let mut rcc = dp.RCC.constrain();
+    let rcc = dp.RCC.constrain();
 
+    // 使用 HSE (外部高速时钟 8MHz) 并倍频到 72MHz
+    // 这是 STM32F103 的标准高性能配置
     let clocks = rcc
         .cfgr
         .use_hse(8.MHz())
@@ -56,9 +58,15 @@ fn main() -> ! {
     let mut manager = SensorManager::new(dht_sensor, mh_sensor);
 
     // RTC (Real Time Clock)
+    // 使用默认配置 (尝试 LSE 32.768kHz)
     let mut pwr = dp.PWR;
     let mut backup = rcc.bkp.constrain(dp.BKP, &mut pwr);
     let mut rtc = Rtc::new(dp.RTC, &mut backup);
+
+    // 如果 RTC 时间戳异常(比如未初始化)，重置为 0
+    if rtc.current_time() > 2000000000 {
+        rtc.set_time(0);
+    }
 
     // UART
     let serial = Serial::new(
@@ -74,11 +82,16 @@ fn main() -> ! {
     let mut bridge = EspBridge::new(serial);
 
     // 采样定时器 (TIM2, 设定 1Hz 即 1秒触发一次)
-    // 使用 10kHz 基频 (PSC=7199)，1秒=10000计数 (ARR=9999)，均在 16位范围内
     let mut sample_timer = dp.TIM2.counter::<10_000>(&clocks);
     sample_timer.start(1.secs()).unwrap();
 
-    rprintln!("系统启动，进入任务循环...");
+    // 状态机变量
+    use crate::protocol_structs::{MAX_SAMPLES, MetricReport};
+
+    rprintln!("系统启动 (Clock: HSE 72MHz, LSE RTC)，进入任务循环...");
+
+    let mut pending_reports: Option<[MetricReport; 3]> = None;
+    let mut wakeup_retry_counter = 0u32;
 
     loop {
         // 1. 串口轮询 (处理 TimeSync 和其他指令)
@@ -86,39 +99,67 @@ fn main() -> ! {
             BridgeEvent::TimeSync(server_ts) => {
                 rprintln!("同步时间: {}", server_ts);
                 rtc.set_time(server_ts as u32);
+                // 收到时间同步，说明链路已通，无需额外操作，bridge.is_ready 已为 true
             }
             BridgeEvent::EspReady => {
-                // 日志已在 bridge 内部打印，这里无需操作，状态已更新
+                // 日志已在 bridge 内部打印
             }
             BridgeEvent::None => {}
         }
 
-        // 2. 检查定时器 (采样任务)
+        // 2. 发送逻辑 (状态机)
+        if let Some(reports) = &pending_reports {
+            if bridge.is_ready() {
+                rprintln!("桥接器就绪，开始发送 {} 条报告...", reports.len());
+                let mut success = true;
+                for report in reports {
+                    if bridge.send_batch(report).is_err() {
+                        success = false;
+                        break;
+                    }
+                    // 给一点点间隙让 ESP32 处理（虽然已经移除了字节间延时，但包间延时有益）
+                    delay.delay_ms(10u32);
+                }
+
+                if success {
+                    rprintln!("发送完成，重置状态。");
+                    bridge.reset_ready_state();
+                    pending_reports = None; // 清空待发送队列
+                    push_pull2.toggle();
+                }
+            } else {
+                // 未就绪，请求唤醒
+                wakeup_retry_counter += 1;
+                if wakeup_retry_counter > 100000 {
+                    // 约每秒触发一次 (取决于主循环速度)
+                    rprintln!("请求唤醒...");
+                    bridge.request_wakeup();
+                    wakeup_retry_counter = 0;
+                }
+            }
+        }
+
+        // 3. 检查定时器 (采样任务)
         match sample_timer.wait() {
             Ok(_) => {
-                                                // 执行采样
-                                                let current_time = rtc.current_time();
-                                                manager.do_sample(&mut delay, current_time);
-                                                push_pull1.toggle();
-                                
-                                                                // 缓冲区达到 75% 阈值时触发发送
-                                                                if manager.is_almost_full() {
-                                                                    rprintln!("达到 75% 阈值，准备唤醒并发送...");
-                                                                    
-                                                                    // 获取当前所有缓存的数据                                                    let reports = manager.take_reports(1000); 
-                                                    
-                                                    for report in reports.iter() {
-                                                        if report.count > 0 {
-                                                            // send_batch 内部会处理 0x00 唤醒和等待 'R' 信号
-                                                            bridge.send_batch(report, &mut delay);
-                                                        }
-                                                    }
-                                                    
-                                                    // 发送完毕，重置桥接器状态
-                                                    bridge.reset_ready_state();
-                                                    push_pull2.toggle();
-                                                }
-                                            }            Err(nb::Error::WouldBlock) => {
+                // 打印 Tick 以验证定时器准确性
+                let current_time = rtc.current_time();
+                // rprintln!("Tick (RTC: {})", current_time); // 减少刷屏
+
+                // 执行采样
+                manager.do_sample(&mut delay, current_time);
+                push_pull1.toggle();
+
+                // 缓冲区达到 75% 阈值时触发发送
+                if manager.is_almost_full() && pending_reports.is_none() {
+                    rprintln!("达到 75% 阈值，加入发送队列...");
+                    pending_reports = Some(manager.take_reports(1000));
+                    // 立即触发一次唤醒请求
+                    bridge.request_wakeup();
+                    wakeup_retry_counter = 0;
+                }
+            }
+            Err(nb::Error::WouldBlock) => {
                 // 等待中...
             }
             Err(_) => {}

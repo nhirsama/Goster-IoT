@@ -44,19 +44,6 @@ impl EspBridge {
         }
     }
 
-    /// 发送唤醒信号 (非阻塞)
-    pub fn wake_up(&mut self) {
-        if !self.is_ready {
-            rprintln!("预唤醒 ESP32...");
-            // 清空 RX
-            loop {
-                let res: nb::Result<u8, _> = self.serial.read();
-                if res.is_err() { break; }
-            }
-            let _ = self.serial.write(0x00u8);
-        }
-    }
-
     /// 检查是否就绪
     pub fn is_ready(&self) -> bool {
         self.is_ready
@@ -70,11 +57,12 @@ impl EspBridge {
                 // 1. 检查握手信号 'R' (0x52)
                 if byte == 0x52u8 {
                     self.is_ready = true;
-                    rprintln!("ESP32 就绪 (异步通知)");
+
+                    rprintln!("ESP32 就绪 (收到 'R')");
+
                     return BridgeEvent::EspReady;
                 }
-
-                // 2. 数据包处理
+                // 2. 数据包处理 (COBS 累积)
                 if self.rx_idx < self.rx_buf.len() {
                     self.rx_buf[self.rx_idx] = byte;
                     self.rx_idx += 1;
@@ -83,13 +71,23 @@ impl EspBridge {
                 if byte == 0x00 {
                     let result = self.process_frame();
                     self.rx_idx = 0;
+                    // 优化：如果收到了有效的时间同步包，也认为 ESP32 已经唤醒并就绪
+                    if let BridgeEvent::TimeSync(_) = result {
+                        self.is_ready = true;
+                        rprintln!("ESP32 就绪 (收到 TimeSync)");
+                    }
                     return result;
                 }
             }
             Err(nb::Error::WouldBlock) => {}
             Err(nb::Error::Other(_)) => {
-                // 仅清除错误
-                unsafe { let _ = core::ptr::read_volatile(0x40013804 as *const u32); }
+                // 清除 ORE 错误
+
+                unsafe {
+                    let _ = core::ptr::read_volatile(0x40013800 as *const u32);
+
+                    let _ = core::ptr::read_volatile(0x40013804 as *const u32);
+                }
             }
         }
         BridgeEvent::None
@@ -103,10 +101,10 @@ impl EspBridge {
         let mut decode_buf = [0u8; 128];
         match goster_serial::cobs_decode(&self.rx_buf[0..self.rx_idx - 1], &mut decode_buf) {
             Ok(len) => {
-                if len >= 48 {
+                if len >= 32 {
                     let cmd_id = u16::from_le_bytes([decode_buf[6], decode_buf[7]]);
                     if cmd_id == CMD_TIME_SYNC {
-                        if len >= 32 + 8 + 16 {
+                        if len >= 32 + 8 {
                             let ts_bytes = [
                                 decode_buf[32],
                                 decode_buf[33],
@@ -130,82 +128,81 @@ impl EspBridge {
         BridgeEvent::None
     }
 
-    /// 发送批量报告
-    pub fn send_batch<D>(&mut self, report: &MetricReport, delay: &mut D)
-    where
-        D: DelayMs<u32>,
-    {
-                if !self.is_ready {
-                    rprintln!("ESP32 未就绪，执行阻塞唤醒...");
-                    
-                    // 1. 清空 RX FIFO，防止积压数据或噪声干扰
-                    loop {
-                        let res: nb::Result<u8, _> = self.serial.read();
-                        if res.is_err() { break; }
-                    }
-                    
-                    // 2. 发送唤醒信号
-                    let _ = self.serial.write(0x00u8);
-                    
-                    let mut ready = false;            for i in 0..5000 {
-            let result: nb::Result<u8, _> = self.serial.read();
-            match result {
-                Ok(byte) => {
-                    if byte == 0x52u8 {
-                        ready = true;
-                        self.is_ready = true;
-                        // rprintln!("ESP32 已唤醒"); // 可选保留
-                        break;
-                    }
-                }
-                Err(nb::Error::WouldBlock) => {}
-                Err(nb::Error::Other(_)) => {
-                    // 发生错误时尝试清除 ORE，但不打印刷屏
-                    unsafe { let _ = core::ptr::read_volatile(0x40013804 as *const u32); }
+    /// 请求唤醒 (非阻塞)
+    /// 如果未就绪，发送 0x00 信号
+    pub fn request_wakeup(&mut self) {
+        if !self.is_ready {
+            // 清空 RX 以防有积压数据
+            loop {
+                let res: nb::Result<u8, _> = self.serial.read();
+                if res.is_err() {
+                    break;
                 }
             }
-            
-            delay.delay_ms(1u32);
-                if i > 0 && i % 500 == 0 {
-                    rprintln!("重发唤醒信号...");
-                    let _ = self.serial.write(0x00u8);
-                }
-            }
-
-            if !ready {
-                rprintln!("严重错误: ESP32 唤醒超时,放弃发送!");
-                return;
-            }
-        } else {
-            rprintln!("ESP32 已就绪,直接发送!");
-        }
-
-        // 发送数据
-        // 使用结构体内部缓冲区，避免栈溢出
-        match goster_serial::encode_goster_frame(
-            protocol_structs::CMD_METRICS_REPORT, 
-            report, 
-            self.tx_seq, 
-            &mut self.tx_buf,
-            &mut self.scratch_buf
-        ) {
-            Ok(len) => {
-                for i in 0..len {
-                    let _ = self.serial.write(self.tx_buf[i]);
-                    // 每发送一个字节延时一下，防止 ESP32 接收溢出
-                    if i % 16 == 0 { delay.delay_ms(1u32); }
-                }
-                rprintln!(
-                    "已发送批量报告 (Seq: {}, Type: {})",
-                    self.tx_seq,
-                    report.data_type
-                );
-                self.tx_seq = self.tx_seq.wrapping_add(1);
-            }
-            Err(_) => rprintln!("编码错误"),
+            // 发送唤醒信号
+            let _ = nb::block!(self.serial.write(0x00u8));
+            rprintln!("已发送唤醒请求...");
         }
     }
 
+    /// 发送批量报告 (非阻塞尝试)
+    /// 返回 Ok(()) 表示发送成功
+    /// 返回 Err(()) 表示未就绪 (调用者应继续 poll)
+
+    pub fn send_batch(&mut self, report: &MetricReport) -> Result<(), ()> {
+        if !self.is_ready {
+            return Err(());
+        }
+        // 手动序列化 Payload (C Packed Struct Compatible)
+        let mut payload_buf = [0u8; 128]; // Max 20 floats (80) + Header (17) ~= 97 bytes
+        let mut offset = 0;
+        // start_timestamp (u64, 8 bytes)
+        payload_buf[offset..offset + 8].copy_from_slice(&report.start_timestamp.to_le_bytes());
+        offset += 8;
+        // sample_interval (u32, 4 bytes)
+        payload_buf[offset..offset + 4].copy_from_slice(&report.sample_interval.to_le_bytes());
+        offset += 4;
+        // data_type (u8, 1 byte)
+        payload_buf[offset] = report.data_type;
+        offset += 1;
+        // count (u32, 4 bytes)
+        payload_buf[offset..offset + 4].copy_from_slice(&report.count.to_le_bytes());
+        offset += 4;
+        // data_blob (f32[], count * 4 bytes)
+        for sample in &report.data_blob {
+            if offset + 4 <= payload_buf.len() {
+                payload_buf[offset..offset + 4].copy_from_slice(&sample.to_le_bytes());
+                offset += 4;
+            }
+        }
+        let payload_slice = &payload_buf[0..offset];
+        // 发送数据
+        match goster_serial::encode_goster_frame(
+            protocol_structs::CMD_METRICS_REPORT,
+            payload_slice,
+            self.tx_seq,
+            &mut self.tx_buf,
+            &mut self.scratch_buf,
+        ) {
+            Ok(len) => {
+                for i in 0..len {
+                    let _ = nb::block!(self.serial.write(self.tx_buf[i]));
+                }
+                rprintln!(
+                    "已发送批量报告 (Seq: {}, Type: {}, Len: {})",
+                    self.tx_seq,
+                    report.data_type,
+                    len
+                );
+                self.tx_seq = self.tx_seq.wrapping_add(1);
+                Ok(())
+            }
+            Err(_) => {
+                rprintln!("编码错误");
+                Ok(()) // 即使编码错误也视为处理完毕，避免死循环重试
+            }
+        }
+    }
     /// 重置就绪状态
     pub fn reset_ready_state(&mut self) {
         self.is_ready = false;
