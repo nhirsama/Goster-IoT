@@ -21,12 +21,10 @@ type MetricsPageData struct {
 func (ws *webServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Path[len("/metrics/"):]
 
-	session, _ := store.Get(r, "session-name")
-	username, _ := session.Values["username"].(string)
-
-	perm, err := ws.dataStore.GetUserPermission(username)
-	if err != nil {
-		perm = inter.PermissionNone
+	u, _ := ws.authboss.CurrentUser(r)
+	var perm inter.PermissionType
+	if user, ok := u.(inter.SessionUser); ok {
+		perm = user.GetPermission()
 	}
 
 	meta, err := ws.dataStore.LoadConfig(uuid)

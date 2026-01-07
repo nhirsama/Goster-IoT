@@ -107,18 +107,6 @@ type DataStore interface {
 
 	// [用户管理]
 
-	// RegisterUser 注册一个新用户。
-	// username 为用户名（唯一），password 为明文密码，permission 为权限字段。
-	RegisterUser(username, password string, permission PermissionType) error
-
-	// LoginUser 用户登录验证。
-	// 验证成功返回用户的权限级别，失败返回错误。
-	LoginUser(username, password string) (PermissionType, error)
-
-	// ChangePassword 修改用户密码。
-	// 需要验证 oldPassword 是否正确，如果正确则更新为 newPassword。
-	ChangePassword(username, oldPassword, newPassword string) error
-
 	// GetUserCount 获取注册用户总数
 	GetUserCount() (int, error)
 
@@ -137,4 +125,13 @@ type User struct {
 	Username   string         `json:"username"`
 	Permission PermissionType `json:"permission"`
 	CreatedAt  time.Time      `json:"created_at"`
+}
+
+// SessionUser 定义了 Web 层访问当前登录用户所需的接口
+// 解耦 Web 层与 DataStore 的具体实现
+type SessionUser interface {
+	GetPID() string
+	GetEmail() string
+	GetUsername() string
+	GetPermission() PermissionType
 }

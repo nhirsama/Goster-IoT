@@ -4,8 +4,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"os"
 
+	"github.com/aarondl/authboss/v3"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -16,23 +16,12 @@ type webServer struct {
 	api             inter.Api
 	templates       map[string]*template.Template
 	htmlDir         string
-	captcha         CaptchaProvider
+	authboss        *authboss.Authboss
+	turnstile       *TurnstileService
 }
 
 // NewWebServer 创建一个新的 Web 服务器实例
-func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager, api inter.Api, htmlDir string) inter.WebServer {
-	providerType := os.Getenv("CAPTCHA_PROVIDER")
-	var provider CaptchaProvider
-
-	if providerType == "turnstile" {
-		provider = &CloudflareTurnstile{
-			SiteKey:   os.Getenv("CF_SITE_KEY"),
-			SecretKey: os.Getenv("CF_SECRET_KEY"),
-		}
-	} else {
-		provider = &LocalCaptcha{}
-	}
-
+func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager, api inter.Api, htmlDir string, ab *authboss.Authboss) inter.WebServer {
 	return &webServer{
 		dataStore:       ds,
 		deviceManager:   dm,
@@ -40,13 +29,15 @@ func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityM
 		api:             api,
 		templates:       loadTemplates(htmlDir),
 		htmlDir:         htmlDir,
-		captcha:         provider,
+		authboss:        ab,
+		turnstile:       NewTurnstileService(),
 	}
 }
 
 // Start 启动标准 HTTP 服务器
 func (ws *webServer) Start() {
 	addr := ":8080"
+
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 

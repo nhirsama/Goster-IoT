@@ -34,16 +34,24 @@ func start(ctx context.Context) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	im := IdentityManager.NewIdentityManager(db)
-	dm := DeviceManager.NewDeviceManager(db, im)
-
-	api := Api.NewApi(db, dm, im)
 
 	htmlDir := os.Getenv("HTML_DIR")
 	if htmlDir == "" {
 		htmlDir = "html"
 	}
-	web := Web.NewWebServer(db, dm, im, api, htmlDir)
+
+	// Initialize Authboss (Encapsulated in Web package)
+	ab, err := Web.SetupAuthboss(db, htmlDir)
+	if err != nil {
+		log.Fatalf("Failed to setup Authboss: %v", err)
+	}
+
+	im := IdentityManager.NewIdentityManager(db)
+	dm := DeviceManager.NewDeviceManager(db, im)
+
+	api := Api.NewApi(db, dm, im)
+
+	web := Web.NewWebServer(db, dm, im, api, htmlDir, ab)
 	go web.Start()
 	go api.Start()
 	select {
