@@ -128,8 +128,8 @@ type User struct {
 	CreatedAt  time.Time      `json:"created_at"`
 }
 
-// SessionUser 定义了 Web 层访问当前登录用户所需的接口
-// 解耦 Web 层与 DataStore 的具体实现
+// SessionUser 定义了 web 层访问当前登录用户所需的接口
+// 解耦 web 层与 DataStore 的具体实现
 type SessionUser interface {
 	GetPID() string
 	GetEmail() string

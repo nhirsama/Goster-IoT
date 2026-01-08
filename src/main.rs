@@ -34,7 +34,6 @@ fn main() -> ! {
     let rcc = dp.RCC.constrain();
 
     // 使用 HSE (外部高速时钟 8MHz) 并倍频到 72MHz
-    // 这是 STM32F103 的标准高性能配置
     let clocks = rcc
         .cfgr
         .use_hse(8.MHz())
@@ -118,7 +117,7 @@ fn main() -> ! {
                         success = false;
                         break;
                     }
-                    // 增加到 200ms，确保接收端 PacketSerial 彻底处理完上一包并重置状态
+                    // 增加到 50ms，确保接收端 PacketSerial 彻底处理完上一包并重置状态
                     delay.delay_ms(50u32);
                 }
                 if success {

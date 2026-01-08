@@ -1,6 +1,6 @@
 package inter
 
-// Api 定义了设备接入服务（Goster-WY 协议）的接口
+// api 定义了设备接入服务（Goster-WY 协议）的接口
 // 它负责启动 TCP 监听，并处理所有设备侧的请求
 
 // MetricsUploadData 对应协议中的 Payload 结构

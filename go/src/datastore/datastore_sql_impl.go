@@ -1,4 +1,4 @@
-package DataStore
+package datastore
 
 import (
 	"database/sql"
@@ -85,45 +85,71 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 		return nil, err
 	}
 
-    // Migration: Ensure 'type' column exists for existing databases
-    // SQLite allows adding columns. Ignore error if column already exists (duplicate column name).
-    db.Exec("ALTER TABLE metrics ADD COLUMN type INTEGER DEFAULT 0")
+	// Migration: Ensure 'type' column exists for existing databases
+	// SQLite allows adding columns. Ignore error if column already exists (duplicate column name).
+	db.Exec("ALTER TABLE metrics ADD COLUMN type INTEGER DEFAULT 0")
 
 	return &DataStoreSql{db: db}, nil
 }
 
 // InitDevice 将结构体字段拆解为 SQL 参数插入
 func (s *DataStoreSql) InitDevice(uuid string, meta inter.DeviceMetadata) error {
+	// 处理 Token：空字符串转为 NULL，避免违反 UNIQUE 约束
+	var tokenParam interface{}
+	if meta.Token == "" {
+		tokenParam = nil
+	} else {
+		tokenParam = meta.Token
+	}
+
 	_, err := s.db.Exec(`
 		INSERT INTO devices (uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		uuid, meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
-		meta.SerialNumber, meta.MACAddress, time.Now(), meta.Token, meta.AuthenticateStatus,
+		meta.SerialNumber, meta.MACAddress, time.Now(), tokenParam, meta.AuthenticateStatus,
 	)
 	return err
 }
 
 // LoadConfig 从独立列中读取数据并组装回结构体
 func (s *DataStoreSql) LoadConfig(uuid string) (out inter.DeviceMetadata, err error) {
+	var token sql.NullString // 使用 NullString 接收数据库中的 NULL 值
+
 	err = s.db.QueryRow(`
 		SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status 
 		FROM devices WHERE uuid = ?`, uuid).Scan(
 		&out.Name, &out.HWVersion, &out.SWVersion, &out.ConfigVersion,
-		&out.SerialNumber, &out.MACAddress, &out.CreatedAt, &out.Token, &out.AuthenticateStatus,
+		&out.SerialNumber, &out.MACAddress, &out.CreatedAt, &token, &out.AuthenticateStatus,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, errors.New("device not found")
 	}
+
+	// 如果数据库是 NULL，则 meta.Token 赋值为 "" (Go 零值)
+	if token.Valid {
+		out.Token = token.String
+	} else {
+		out.Token = ""
+	}
+
 	return out, err
 }
 
 func (s *DataStoreSql) SaveMetadata(uuid string, meta inter.DeviceMetadata) error {
+	// 处理 Token：空字符串转为数据库 NULL
+	var tokenParam interface{}
+	if meta.Token == "" {
+		tokenParam = nil
+	} else {
+		tokenParam = meta.Token
+	}
+
 	_, err := s.db.Exec(`
 		UPDATE devices SET 
-			name=?, hw_version=?, sw_version=?, config_version=?, sn=?, mac=?, auth_status=?
+			name=?, hw_version=?, sw_version=?, config_version=?, sn=?, mac=?, auth_status=?, token=?
 		WHERE uuid=?`,
 		meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
-		meta.SerialNumber, meta.MACAddress, meta.AuthenticateStatus, uuid,
+		meta.SerialNumber, meta.MACAddress, meta.AuthenticateStatus, tokenParam, uuid,
 	)
 	return err
 }

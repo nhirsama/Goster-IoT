@@ -1,4 +1,4 @@
-package Web
+package web
 
 import (
 	"net/http"
@@ -114,7 +114,7 @@ func (ws *webServer) blacklistPageHandler(w http.ResponseWriter, r *http.Request
 // unblockHandler 解除屏蔽操作处理
 func (ws *webServer) unblockHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Query().Get("uuid")
-	err := ws.identityManager.UnblockDevice(uuid)
+	err := ws.deviceManager.UnblockDevice(uuid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -130,7 +130,7 @@ func (ws *webServer) unblockHandler(w http.ResponseWriter, r *http.Request) {
 // approveHandler 通过审核操作处理
 func (ws *webServer) approveHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Query().Get("uuid")
-	err := ws.identityManager.ApproveDevice(uuid)
+	err := ws.deviceManager.ApproveDevice(uuid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -146,7 +146,7 @@ func (ws *webServer) approveHandler(w http.ResponseWriter, r *http.Request) {
 // revokeHandler 拒绝/吊销操作处理
 func (ws *webServer) revokeHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Query().Get("uuid")
-	err := ws.identityManager.RejectDevice(uuid)
+	err := ws.deviceManager.RejectDevice(uuid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -162,7 +162,7 @@ func (ws *webServer) revokeHandler(w http.ResponseWriter, r *http.Request) {
 // deleteHandler 删除设备操作处理
 func (ws *webServer) deleteHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Query().Get("uuid")
-	ws.identityManager.DeleteDevice(uuid)
+	ws.deviceManager.DeleteDevice(uuid)
 
 	w.Header().Set("HX-Location", "/")
 }
@@ -170,7 +170,7 @@ func (ws *webServer) deleteHandler(w http.ResponseWriter, r *http.Request) {
 // refreshTokenHandler 刷新 Token 操作处理
 func (ws *webServer) refreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.URL.Query().Get("uuid")
-	_, err := ws.identityManager.RefreshToken(uuid)
+	_, err := ws.deviceManager.RefreshToken(uuid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

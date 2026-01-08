@@ -8,11 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nhirsama/Goster-IoT/src/Api"
-	"github.com/nhirsama/Goster-IoT/src/DataStore"
-	"github.com/nhirsama/Goster-IoT/src/DeviceManager"
-	"github.com/nhirsama/Goster-IoT/src/IdentityManager"
-	"github.com/nhirsama/Goster-IoT/src/Web"
+	"github.com/nhirsama/Goster-IoT/src/api"
+	"github.com/nhirsama/Goster-IoT/src/datastore"
+	"github.com/nhirsama/Goster-IoT/src/device_manager"
+	"github.com/nhirsama/Goster-IoT/src/web"
 )
 
 func Run() {
@@ -30,7 +29,7 @@ func start(ctx context.Context) {
 	if dbPath == "" {
 		dbPath = "./data.db"
 	}
-	db, err := DataStore.NewDataStoreSql(dbPath)
+	db, err := datastore.NewDataStoreSql(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -40,18 +39,17 @@ func start(ctx context.Context) {
 		htmlDir = "html"
 	}
 
-	// Initialize Authboss (Encapsulated in Web package)
-	ab, err := Web.SetupAuthboss(db, htmlDir)
+	// Initialize Authboss (Encapsulated in web package)
+	ab, err := web.SetupAuthboss(db, htmlDir)
 	if err != nil {
 		log.Fatalf("Failed to setup Authboss: %v", err)
 	}
 
-	im := IdentityManager.NewIdentityManager(db)
-	dm := DeviceManager.NewDeviceManager(db, im)
+	dm := device_manager.NewDeviceManager(db)
 
-	api := Api.NewApi(db, dm, im)
+	api := api.NewApi(db, dm)
 
-	web := Web.NewWebServer(db, dm, im, api, htmlDir, ab)
+	web := web.NewWebServer(db, dm, api, htmlDir, ab)
 	go web.Start()
 	go api.Start()
 	select {

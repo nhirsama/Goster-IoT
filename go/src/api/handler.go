@@ -1,4 +1,4 @@
-package Api
+package api
 
 import (
 	"encoding/binary"
@@ -13,9 +13,8 @@ import (
 
 // BusinessHandler 处理应用层业务逻辑 (Per Session)
 type BusinessHandler struct {
-	dataStore       inter.DataStore
-	deviceManager   inter.DeviceManager
-	identityManager inter.IdentityManager
+	dataStore     inter.DataStore
+	deviceManager inter.DeviceManager
 
 	// Session State
 	uuid          string
@@ -23,12 +22,11 @@ type BusinessHandler struct {
 }
 
 // NewBusinessHandler 创建业务逻辑处理器
-func NewBusinessHandler(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager) *BusinessHandler {
+func NewBusinessHandler(ds inter.DataStore, dm inter.DeviceManager) *BusinessHandler {
 	return &BusinessHandler{
-		dataStore:       ds,
-		deviceManager:   dm,
-		identityManager: im,
-		authenticated:   false,
+		dataStore:     ds,
+		deviceManager: dm,
+		authenticated: false,
 	}
 }
 
@@ -44,7 +42,7 @@ func (h *BusinessHandler) GetUUID() string {
 
 // Authenticate 处理 Token 鉴权 (Cmd: 0x0003)
 func (h *BusinessHandler) Authenticate(token string) (byte, []byte, error) {
-	uuid, err := h.identityManager.Authenticate(token)
+	uuid, err := h.deviceManager.Authenticate(token)
 	if err != nil {
 		// 鉴权失败，返回 0x01 (Fail)
 		return 0x01, nil, err
@@ -70,11 +68,11 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 		SWVersion:     parts[4],
 		ConfigVersion: parts[5],
 		// Token: 尚未生成
-		// CreatedAt: 将由 DataStore 处理
+		// CreatedAt: 将由 datastore 处理
 	}
 
 	// 1. 生成/计算 UUID
-	uuid := h.identityManager.GenerateUUID(meta)
+	uuid := h.deviceManager.GenerateUUID(meta)
 
 	// 2. 查询设备状态
 	existingMeta, err := h.dataStore.LoadConfig(uuid)
@@ -83,7 +81,7 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 		// 设备不存在 -> 首次注册
 		log.Printf("API: 新设备注册申请 (UUID: %s, SN: %s)", uuid, meta.SerialNumber)
 
-		if err := h.identityManager.RegisterDevice(meta); err != nil {
+		if err := h.deviceManager.RegisterDevice(meta); err != nil {
 			return 0x01, nil, fmt.Errorf("init device failed: %w", err)
 		}
 
@@ -164,7 +162,7 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 		// Calculate Timestamp
 		// sample_interval from STM32 is in milliseconds
 		// STM32: MetricReport { sample_interval: u32 (ms) ... }
-		// Wait, `Api/handler.go` uses `intervalUs` (microseconds)?
+		// Wait, `api/handler.go` uses `intervalUs` (microseconds)?
 		// The previous code: `offsetMs := (int64(i) * intervalUs) / 1000`
 		// If `intervalUs` was milliseconds, then `* intervalUs / 1000` would be seconds?
 		// `startTime` is `StartTimestamp`.
@@ -182,16 +180,16 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 		// If Go code does `1000 / 1000`, offset is 1ms per step? No. 1s per step.
 		// If Go code thinks it is microseconds, `1000 / 1000` = 1ms.
 		// If Go code thinks it is milliseconds, `1000` should be used directly.
-		
+
 		// Let's assume the previous Go code assumed Microseconds but STM32 sends Milliseconds.
 		// Or maybe previous Go code was just wrong/legacy.
 		// Since I wrote STM32 code `take_reports(1000)` and it runs every second (10000 ticks of 10kHz), 1000 is 1000ms.
 		// So `data.SampleInterval` is 1000.
 		// `offsetMs` should be `i * 1000`.
 		// So `ts = startTime + offsetMs`.
-		
+
 		// I will fix this calculation logic to be correct: `offsetMs := int64(i) * int64(data.SampleInterval)`.
-		
+
 		offsetMs := int64(i) * int64(data.SampleInterval)
 		ts := startTime + offsetMs
 

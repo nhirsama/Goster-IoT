@@ -1,7 +1,8 @@
-package Web
+package web
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -21,19 +22,31 @@ import (
 	"golang.org/x/oauth2/github"
 )
 
+// generateRandomKey 生成指定长度的随机字节切片
+func generateRandomKey(length int) []byte {
+	k := make([]byte, length)
+	if _, err := rand.Read(k); err != nil {
+		// 如果随机源失败，panic 是合理的，因为无法保证安全
+		panic("failed to generate random key: " + err.Error())
+	}
+	return k
+}
+
 // SetupAuthboss 初始化并配置 Authboss 实例
 func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, error) {
 	ab := authboss.New()
 
-	// 确保 DataStore 实现了 Authboss ServerStorer
+	// 确保 datastore 实现了 Authboss ServerStorer
 	storer, ok := db.(authboss.ServerStorer)
 	if !ok {
-		return nil, errors.New("DataStore 未实现 Authboss ServerStorer 接口")
+		return nil, errors.New("datastore 未实现 Authboss ServerStorer 接口")
 	}
 	ab.Config.Storage.Server = storer
 
 	// Session Store (MaxAge = 0, 浏览器关闭即删除)
-	sessionStore := sessions.NewCookieStore([]byte("super-secret-key-change-me"))
+	// 使用随机密钥：重启后 Session 失效，但安全性更高
+	sessionKey := generateRandomKey(64)
+	sessionStore := sessions.NewCookieStore(sessionKey)
 	sessionStore.Options.MaxAge = 0
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.Secure = false // 本地开发环境设为 false
@@ -42,7 +55,9 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 	ab.Config.Storage.SessionState = NewSessionStorer("goster_session", sessionStore)
 
 	// Cookie Store (Remember Me, 有效期 30 天)
-	cookieStore := sessions.NewCookieStore([]byte("super-secret-key-change-me"))
+	// 使用独立的随机密钥
+	cookieKey := generateRandomKey(64)
+	cookieStore := sessions.NewCookieStore(cookieKey)
 	cookieStore.Options.MaxAge = 86400 * 30
 	cookieStore.Options.HttpOnly = true
 	cookieStore.Options.Secure = false // 本地开发环境设为 false

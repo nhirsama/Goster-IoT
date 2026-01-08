@@ -1,4 +1,4 @@
-package Api
+package api
 
 import (
 	"crypto/ecdh"
@@ -15,15 +15,14 @@ import (
 )
 
 type apiImpl struct {
-	dataStore       inter.DataStore
-	deviceManager   inter.DeviceManager
-	identityManager inter.IdentityManager
-	protocol        inter.ProtocolCodec
-	privateKey      *ecdh.PrivateKey // X25519 私钥
+	dataStore     inter.DataStore
+	deviceManager inter.DeviceManager
+	protocol      inter.ProtocolCodec
+	privateKey    *ecdh.PrivateKey // X25519 私钥
 }
 
 // NewApi 创建 API 服务实例
-func NewApi(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager) inter.Api {
+func NewApi(ds inter.DataStore, dm inter.DeviceManager) inter.Api {
 	privKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		log.Fatalf("API: 生成 X25519 密钥对失败: %v", err)
@@ -32,11 +31,10 @@ func NewApi(ds inter.DataStore, dm inter.DeviceManager, im inter.IdentityManager
 	log.Printf("API: 初始化 X25519 密钥成功, 公钥: %s", hex.EncodeToString(privKey.PublicKey().Bytes()))
 
 	return &apiImpl{
-		dataStore:       ds,
-		deviceManager:   dm,
-		identityManager: im,
-		protocol:        protocol.NewGosterCodec(),
-		privateKey:      privKey,
+		dataStore:     ds,
+		deviceManager: dm,
+		protocol:      protocol.NewGosterCodec(),
+		privateKey:    privKey,
 	}
 }
 
@@ -73,7 +71,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	// 为当前会话创建独立的业务逻辑处理器 (Application Layer)
-	handler := NewBusinessHandler(a.dataStore, a.deviceManager, a.identityManager)
+	handler := NewBusinessHandler(a.dataStore, a.deviceManager)
 
 	var sessionKey []byte
 	var writeSeq uint64 = 0

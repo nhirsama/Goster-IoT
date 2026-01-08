@@ -1,4 +1,4 @@
-package Api
+package api
 
 import (
 	"crypto/ecdh"
@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nhirsama/Goster-IoT/src/DataStore"
-	"github.com/nhirsama/Goster-IoT/src/DeviceManager"
 	"github.com/nhirsama/Goster-IoT/src/IdentityManager"
+	"github.com/nhirsama/Goster-IoT/src/datastore"
+	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/protocol"
 	"github.com/stretchr/testify/assert"
@@ -38,10 +38,10 @@ func TestComprehensiveFlow(t *testing.T) {
 	os.Remove(dbFile)
 	defer os.Remove(dbFile)
 
-	ds, err := DataStore.NewDataStoreSql(dbFile)
+	ds, err := datastore.NewDataStoreSql(dbFile)
 	require.NoError(t, err)
 	im := IdentityManager.NewIdentityManager(ds)
-	dm := DeviceManager.NewDeviceManager(ds, im)
+	dm := device_manager.NewDeviceManager(ds, im)
 	api := NewApi(ds, dm, im)
 
 	// 2. Start Server

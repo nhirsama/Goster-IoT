@@ -1,4 +1,4 @@
-package Web
+package web
 
 import (
 	"fmt"
@@ -11,9 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nhirsama/Goster-IoT/src/DataStore"
-	"github.com/nhirsama/Goster-IoT/src/DeviceManager"
-	"github.com/nhirsama/Goster-IoT/src/IdentityManager"
+	"github.com/nhirsama/Goster-IoT/src/datastore"
+	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -28,7 +27,7 @@ func (m *MockApi) UploadLog(uuid, level, message string) error                  
 func (m *MockApi) GetMessages(uuid string) ([]interface{}, error)                { return nil, nil }
 
 // TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
-// Run with: go test -v ./go/src/Web -run TestRunServerAndStressTest
+// Run with: go test -v ./go/src/web -run TestRunServerAndStressTest
 func TestRunServerAndStressTest(t *testing.T) {
 	// 1. Change to project root so "go/html/..." paths work
 	// Adjust this depending on where you run the test from.
@@ -38,13 +37,13 @@ func TestRunServerAndStressTest(t *testing.T) {
 	fmt.Println("Starting Test in:", wd)
 
 	// Try to locate 'go/html'
-	htmlDir := "../../html" // Relative from go/src/Web
+	htmlDir := "../../html" // Relative from go/src/web
 	if _, err := os.Stat(htmlDir); os.IsNotExist(err) {
 		// Try absolute path if known, or fail
 		t.Logf("Warning: Could not find html dir at %s, trying absolute path logic or skipping template loading checks if flexible.", htmlDir)
 	}
 
-	// 2. Setup Temporary DataStore
+	// 2. Setup Temporary datastore
 	tempDir, err := os.MkdirTemp("", "goster_test_db")
 	if err != nil {
 		t.Fatal(err)
@@ -52,24 +51,29 @@ func TestRunServerAndStressTest(t *testing.T) {
 	defer os.RemoveAll(tempDir) // Clean up after test
 	dbPath := filepath.Join(tempDir, "test_data.db")
 
-	ds, err := DataStore.NewDataStoreSql(dbPath)
+	ds, err := datastore.NewDataStoreSql(dbPath)
 	if err != nil {
-		t.Fatalf("Failed to open DataStore at %s: %v", dbPath, err)
+		t.Fatalf("Failed to open datastore at %s: %v", dbPath, err)
 	}
 	fmt.Printf("Using temporary database: %s\n", dbPath)
 
 	// 3. Setup Managers
-	im := IdentityManager.NewIdentityManager(ds)
-	dm := DeviceManager.NewDeviceManager(ds, im)
+	dm := device_manager.NewDeviceManager(ds)
 	api := &MockApi{}
 
-	// Hack: Set DeathLine on DeviceManager implementation manually
-	if impl, ok := dm.(*DeviceManager.DeviceManager); ok {
+	// Hack: Set DeathLine on device_manager implementation manually
+	if impl, ok := dm.(*device_manager.DeviceManager); ok {
 		impl.DeathLine = 5 * time.Second // Shorten for test
 	}
 
+	// Setup Authboss
+	ab, err := SetupAuthboss(ds, htmlDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// 4. Create WebServer
-	ws := NewWebServer(ds, dm, api, htmlDir)
+	ws := NewWebServer(ds, dm, api, htmlDir, ab)
 
 	// 5. Populate Data
 	populateData(t, ds, dm)
@@ -81,7 +85,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	fmt.Println("------------------------------------------------")
-	fmt.Println("Web Server running on :8080 backed by Temp DB")
+	fmt.Println("web Server running on :8080 backed by Temp DB")
 	fmt.Println("Starting Stress Test...")
 	fmt.Println("------------------------------------------------")
 
@@ -94,8 +98,8 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
 	// Users
-	ds.RegisterUser("admin", "admin123", inter.PermissionAdmin)
-	ds.RegisterUser("viewer", "view123", inter.PermissionReadOnly)
+	// ds.RegisterUser("admin", "admin123", inter.PermissionAdmin)
+	// ds.RegisterUser("viewer", "view123", inter.PermissionReadOnly)
 
 	// Devices
 	// 50 Online

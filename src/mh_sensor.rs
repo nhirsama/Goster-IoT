@@ -31,13 +31,10 @@ where
         if raw < 10.0 { return 0.0; } 
         if raw > 4085.0 { return 0.0; }
 
-        // 假设电路：VCC(3.3V) -> 10k Resistor -> Output -> LDR -> GND
-        // 这种连接下：光照越强 -> LDR 阻值越小 -> Output 电压越低 (ADC 值小)
+        // 电路：VCC(3.3V) -> 10k Resistor -> Output -> LDR -> GND
         // V_out = V_cc * R_ldr / (R_10k + R_ldr)
         // 变形得 R_ldr = R_10k * V_out / (V_cc - V_out)
         // 代入 ADC 值: R_ldr = 10000 * raw / (4095 - raw)
-        
-        // 如果你的模块是光线越强电压越高，这个计算出的 R_ldr 会相反，导致 Lux 趋势反向。
         let r_ldr = 10000.0 * raw / (4095.0 - raw);
 
         // GL5528 特性参数 (近似值)
