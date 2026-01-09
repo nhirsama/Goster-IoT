@@ -1,6 +1,5 @@
 use crate::goster_serial;
-use crate::protocol_structs::{self, CMD_TIME_SYNC, MetricReport, FRAME_BUF_SIZE, PAYLOAD_SIZE};
-use embedded_hal::blocking::delay::DelayMs;
+use crate::protocol_structs::{self, CMD_TIME_SYNC, FRAME_BUF_SIZE, MetricReport, PAYLOAD_SIZE};
 use embedded_hal::serial::{Read, Write};
 use rtt_target::rprintln;
 use stm32f1xx_hal::{
@@ -153,7 +152,7 @@ impl EspBridge {
 
         // 手动序列化 Payload (C Packed Struct Compatible)
         // 使用动态计算的常量，确保缓冲区永远足够
-        let mut payload_buf = [0u8; PAYLOAD_SIZE]; 
+        let mut payload_buf = [0u8; PAYLOAD_SIZE];
         let mut offset = 0;
         // start_timestamp (u64, 8 bytes)
         payload_buf[offset..offset + 8].copy_from_slice(&report.start_timestamp.to_le_bytes());

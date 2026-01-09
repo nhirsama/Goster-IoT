@@ -15,7 +15,8 @@ type DataStoreSql struct {
 }
 
 func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// 强制指定 _loc=Local，确保 DATETIME 字段按本地时区读写，防止时区转换偏移
+	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
 	if err != nil {
 		return nil, err
 	}

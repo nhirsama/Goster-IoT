@@ -43,7 +43,7 @@ fn main() -> ! {
     let mut gpiob = dp.GPIOB.split();
     let mut afio = dp.AFIO.constrain();
 
-    // --- 1. 硬件外设初始化 ---
+    //  硬件外设初始化
     let mut delay = cp.SYST.delay(&clocks);
     let mut push_pull1 = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
     let mut push_pull2 = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
@@ -130,7 +130,6 @@ fn main() -> ! {
                 // 未就绪，请求唤醒
                 wakeup_retry_counter += 1;
                 if wakeup_retry_counter > 200000 {
-                    // 约每秒触发一次 (取决于主循环速度)
                     rprintln!("请求唤醒...");
                     bridge.request_wakeup();
                     wakeup_retry_counter = 0;
@@ -141,7 +140,6 @@ fn main() -> ! {
         // 3. 检查定时器 (采样任务)
         match sample_timer.wait() {
             Ok(_) => {
-                // 打印 Tick 以验证定时器准确性
                 let current_time = rtc.current_time();
 
                 // 执行采样

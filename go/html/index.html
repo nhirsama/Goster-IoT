@@ -273,37 +273,32 @@
             }
         }
 
-        // Timezone Conversion Logic
-        document.addEventListener("DOMContentLoaded", function() {
-            function convertTimes() {
-                const regex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/;
-                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-                let node;
-                while (node = walker.nextNode()) {
-                    const text = node.nodeValue.trim();
-                    if (regex.test(text)) {
-                        // Assume UTC if it matches this format (Go default)
-                        const date = new Date(text + "Z"); // Append Z to force UTC parsing
-                        if (!isNaN(date.getTime())) {
-                            // Format to local
-                            const local = date.toLocaleString('zh-CN', { 
-                                year: 'numeric', month: '2-digit', day: '2-digit', 
-                                hour: '2-digit', minute: '2-digit', second: '2-digit',
-                                hour12: false 
-                            }).replace(/\//g, '-');
-                            node.nodeValue = local;
-                        }
-                    }
+        // 正确的前端时区转换逻辑
+        function initTimeConversion() {
+            document.querySelectorAll('.utc-time').forEach(function(el) {
+                const isoTime = el.innerText.trim();
+                const date = new Date(isoTime);
+                if (!isNaN(date.getTime())) {
+                    // 转换为浏览器本地时间
+                    const localTime = date.toLocaleString('zh-CN', { 
+                        year: 'numeric', month: '2-digit', day: '2-digit', 
+                        hour: '2-digit', minute: '2-digit', second: '2-digit',
+                        hour12: false 
+                    }).replace(/\//g, '-');
+                    
+                    el.innerText = localTime;
+                    // 移除 class 防止重复转换
+                    el.classList.remove('utc-time');
                 }
-            }
-
-            // Run on load
-            convertTimes();
-
-            // Run on HTMX updates
-            document.body.addEventListener('htmx:afterSwap', function() {
-                convertTimes();
             });
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            initTimeConversion();
+        });
+
+        document.body.addEventListener('htmx:afterSwap', function() {
+            initTimeConversion();
         });
     </script>
     {{end}}

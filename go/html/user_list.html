@@ -25,7 +25,7 @@
                         <span class="fw-bold text-dark">{{.Username}}</span>
                     </div>
                 </td>
-                <td class="text-muted small">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                <td class="text-muted small"><span class="utc-time">{{.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}</span></td>
                 <td>
                     {{if eq .Permission 0}}<span class="badge bg-secondary">零权限</span>
                     {{else if eq .Permission 1}}<span class="badge bg-info">只读</span>
@@ -65,7 +65,7 @@
                     </div>
                     <div>
                         <div class="fw-bold text-dark">{{.Username}}</div>
-                        <div class="small text-muted" style="font-size: 0.75rem;">{{.CreatedAt.Format "2006-01-02"}}</div>
+                        <div class="small text-muted" style="font-size: 0.75rem;"><span class="utc-time">{{.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}</span></div>
                     </div>
                 </div>
                 <div>
