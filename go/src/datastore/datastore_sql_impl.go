@@ -247,14 +247,20 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 	var records []inter.DeviceRecord
 	for rows.Next() {
 		var r inter.DeviceRecord
+		var token sql.NullString
 		// 逐个字段 Scan 到结构体中
 		err := rows.Scan(
 			&r.UUID, &r.Meta.Name, &r.Meta.HWVersion, &r.Meta.SWVersion,
 			&r.Meta.ConfigVersion, &r.Meta.SerialNumber, &r.Meta.MACAddress,
-			&r.Meta.CreatedAt, &r.Meta.Token, &r.Meta.AuthenticateStatus,
+			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
 		)
 		if err != nil {
 			continue
+		}
+		if token.Valid {
+			r.Meta.Token = token.String
+		} else {
+			r.Meta.Token = ""
 		}
 		records = append(records, r)
 	}
@@ -275,13 +281,19 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 	var records []inter.DeviceRecord
 	for rows.Next() {
 		var r inter.DeviceRecord
+		var token sql.NullString
 		err := rows.Scan(
 			&r.UUID, &r.Meta.Name, &r.Meta.HWVersion, &r.Meta.SWVersion,
 			&r.Meta.ConfigVersion, &r.Meta.SerialNumber, &r.Meta.MACAddress,
-			&r.Meta.CreatedAt, &r.Meta.Token, &r.Meta.AuthenticateStatus,
+			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
 		)
 		if err != nil {
 			continue
+		}
+		if token.Valid {
+			r.Meta.Token = token.String
+		} else {
+			r.Meta.Token = ""
 		}
 		records = append(records, r)
 	}
