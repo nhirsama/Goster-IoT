@@ -18,14 +18,14 @@ bool CryptoLayer::begin() {
     int ret = mbedtls_ctr_drbg_seed(&_ctr_drbg, mbedtls_entropy_func, &_entropy,
                                     (const unsigned char *) pers, strlen(pers));
     if (ret != 0) {
-        Serial.printf("mbedtls_ctr_drbg_seed failed: -0x%04x\n", -ret);
+        Serial.printf("mbedtls_ctr_drbg_seed 失败: -0x%04x\n", -ret);
         return false;
     }
 
     // 初始化 ECDH 上下文为 X25519
     ret = mbedtls_ecp_group_load(&_ecdh.grp, MBEDTLS_ECP_DP_CURVE25519);
     if (ret != 0) {
-        Serial.printf("mbedtls_ecp_group_load failed: -0x%04x\n", -ret);
+        Serial.printf("mbedtls_ecp_group_load 失败: -0x%04x\n", -ret);
         return false;
     }
 
@@ -36,7 +36,7 @@ bool CryptoLayer::generateKeyPair() {
     int ret = mbedtls_ecdh_gen_public(&_ecdh.grp, &_ecdh.d, &_ecdh.Q,
                                       mbedtls_ctr_drbg_random, &_ctr_drbg);
     if (ret != 0) {
-        Serial.printf("mbedtls_ecdh_gen_public failed: -0x%04x\n", -ret);
+        Serial.printf("mbedtls_ecdh_gen_public 失败: -0x%04x\n", -ret);
         return false;
     }
 
@@ -45,7 +45,7 @@ bool CryptoLayer::generateKeyPair() {
     size_t olen;
     ret = mbedtls_mpi_write_binary(&_ecdh.Q.X, _my_pubkey, 32);
     if (ret != 0) {
-        Serial.printf("Export public key failed: -0x%04x\n", -ret);
+        Serial.printf("导出公钥失败: -0x%04x\n", -ret);
         return false;
     }
 
@@ -77,7 +77,7 @@ const uint8_t *CryptoLayer::getPublicKey() {
 
 bool CryptoLayer::computeSharedSecret(const uint8_t *peer_pubkey) {
     int ret;
-    mbedtls_mpi_read_binary(&_ecdh.Qp.Z, peer_pubkey, 0); // Z=0 implicitly usually 1
+    mbedtls_mpi_read_binary(&_ecdh.Qp.Z, peer_pubkey, 0); // Z=0 隐式通常为 1
     // 对于 X25519，只使用 X 坐标。mbedtls 需要我们设置 Qp。
     // 先把 peer_pubkey (Little Endian) 转回 mbedtls 需要的 Big Endian
     uint8_t peer_be[32];
@@ -90,7 +90,7 @@ bool CryptoLayer::computeSharedSecret(const uint8_t *peer_pubkey) {
     ret = mbedtls_ecdh_compute_shared(&_ecdh.grp, &_ecdh.z, &_ecdh.Qp, &_ecdh.d,
                                       mbedtls_ctr_drbg_random, &_ctr_drbg);
     if (ret != 0) {
-        Serial.printf("Compute shared secret failed: -0x%04x\n", -ret);
+        Serial.printf("计算共享密钥失败: -0x%04x\n", -ret);
         return false;
     }
 
@@ -108,13 +108,13 @@ bool CryptoLayer::computeSharedSecret(const uint8_t *peer_pubkey) {
 
     // 反转为 Little Endian 以获取原始字节流
     for (int i = 0; i < 16; i++) {
-        // Loop only half the array to swap
+        // 循环一半数组进行交换
         uint8_t temp = shared_secret[i];
         shared_secret[i] = shared_secret[31 - i];
         shared_secret[31 - i] = temp;
     }
 
-    memcpy(_session_key, shared_secret, 32); // Use full 32 bytes for AES-256
+    memcpy(_session_key, shared_secret, 32); // AES-256 使用全部 32 字节
     _has_session_key = true;
     return true;
 }
@@ -131,22 +131,22 @@ bool CryptoLayer::encrypt(const uint8_t *input, size_t len,
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
 
-    // Try AES-256
+    // 尝试 AES-256
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, _session_key, 256);
     if (ret == 0) {
-        // Handle empty payload
+        // 处理空负载
         const uint8_t *p_in = input;
         uint8_t dummy_byte = 0;
         if (len == 0 || p_in == nullptr) {
             p_in = &dummy_byte;
         }
 
-        // AES-GCM Encrypt
+        // AES-GCM 加密
         ret = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, len,
-                                        nonce, 12, // Nonce length fixed 12 bytes
+                                        nonce, 12, // Nonce 长度固定为 12 字节
                                         aad, aad_len,
                                         p_in, output,
-                                        16, tag); // Tag length fixed 16 bytes
+                                        16, tag); // Tag 长度固定为 16 字节
     }
 
     mbedtls_gcm_free(&gcm);
@@ -161,17 +161,17 @@ bool CryptoLayer::decrypt(const uint8_t *input, size_t len,
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
 
-    // Try AES-256
+    // 尝试 AES-256
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, _session_key, 256);
     if (ret == 0) {
-        // Handle empty payload
+        // 处理空负载
         const uint8_t *p_in = input;
         uint8_t dummy_byte = 0;
         if (len == 0 || p_in == nullptr) {
             p_in = &dummy_byte;
         }
 
-        // AES-GCM Decrypt (Auth Decrypt)
+        // AES-GCM 解密 (认证解密)
         ret = mbedtls_gcm_auth_decrypt(&gcm, len,
                                        nonce, 12,
                                        aad, aad_len,
@@ -181,7 +181,7 @@ bool CryptoLayer::decrypt(const uint8_t *input, size_t len,
 
     mbedtls_gcm_free(&gcm);
     if (ret != 0) {
-        Serial.printf("GCM Decrypt failed: -0x%04x\n", -ret);
+        Serial.printf("GCM 解密失败: -0x%04x\n", -ret);
     }
     return (ret == 0);
 }

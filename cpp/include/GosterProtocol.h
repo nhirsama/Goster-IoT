@@ -95,6 +95,7 @@ private:
     std::deque<std::vector<uint8_t>> _tx_queue;
     
     unsigned long _last_activity = 0;
+    unsigned long _last_rx_activity = 0; // 上次接收到串口包的时间
     uint64_t _tx_sequence = 0; // For Nonce generation
 
     // Internal Helpers

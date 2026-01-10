@@ -3,7 +3,7 @@
 // 记录上次 NTP 同步成功的时间 (保留在 RTC 内存中，深度睡眠不丢失)
 RTC_DATA_ATTR time_t g_last_ntp_sync_time = 0;
 
-// Global flag
+// 全局标志
 bool shouldSaveConfig = false;
 
 void saveConfigCallback() {
@@ -29,7 +29,7 @@ void NetworkManager::begin() {
   input:focus { border-color: #1a73e8; outline: none; }
   button { width: 100%; padding: 12px; margin-top: 15px; background-color: #1a73e8; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; transition: background 0.3s; }
   button:hover { background-color: #1557b0; }
-  .q { float: right; font-size: 12px; color: #888; } /* Signal quality */
+  .q { float: right; font-size: 12px; color: #888; } /* 信号质量 */
   div, form { text-align: left; }
   .btn { display: block; text-decoration: none; padding: 12px; background: #e8f0fe; color: #1a73e8; border-radius: 6px; margin-bottom: 10px; text-align: center; font-weight: 500; }
   .btn:hover { background: #d2e3fc; }
@@ -65,26 +65,62 @@ void NetworkManager::begin() {
     _wm.setConfigPortalTimeout(180);
 
     // 5. 启动配网逻辑
-    // 检查：如果服务器 IP 是默认值，说明从未配置过（或者被重置了）
-    // 此时强制进入 AP 模式，让用户配置服务器信息
-    bool is_default_config = (cfg.server_ip == "192.168.1.100" || cfg.server_ip.isEmpty());
+    // 检查是否需要进入配网模式：
+    // 条件1: 服务器IP未配置 (默认值或空)
+    // 条件2: 没有保存的 WiFi 凭据 (通过检查 SDK 内部存储的 SSID)
+    // WiFi.begin() 会尝试读取持久化存储，如果 SSID 为空说明未配置。
+    // 注意：ESP32 启动时 WiFi 不一定立即初始化，但读取配置通常没问题。
+    
+    // 预先初始化 WiFi 以读取保存的配置
+    WiFi.mode(WIFI_STA); 
+    
+    bool is_default_server = (cfg.server_ip == "192.168.1.100" || cfg.server_ip.isEmpty());
+    // 检查 ConfigManager 中是否有保存的 WiFi SSID
+    bool has_wifi_creds = !cfg.wifi_ssid.isEmpty();
 
     bool connected = false;
 
-    if (is_default_config) {
-        Serial.println("检测到未配置服务器信息，强制进入 AP 配网模式...");
+    if (is_default_server || !has_wifi_creds) {
+        Serial.println("检测到未配置服务器或 WiFi，强制进入 AP 配网模式...");
         // startConfigPortal 是阻塞的，直到用户保存配置或超时
+        if (!has_wifi_creds) {
+             Serial.println("原因: 无 WiFi 凭据");
+        } else {
+             Serial.println("原因: 服务器地址未配置");
+        }
+        
         connected = _wm.startConfigPortal("Goster-Setup");
+        
+        if (!connected) {
+            Serial.println("配网超时或失败，系统将重启...");
+            delay(3000);
+            ESP.restart();
+        }
     } else {
-        // 正常尝试自动连接
-        connected = _wm.autoConnect("Goster-Setup");
+        // 已有配置，尝试直接连接，不启动 AP
+        Serial.printf("发现已保存的配置 (SSID: %s)，正在连接...\n", cfg.wifi_ssid.c_str());
+        WiFi.begin(cfg.wifi_ssid.c_str(), cfg.wifi_pass.c_str()); // 使用保存的凭据连接
+
+        // 等待连接，但这不应该是死循环阻塞，可以给一点时间尝试
+        // 如果失败，就让 loop() 去处理重连，而不是开 AP
+        int retry = 0;
+        while (WiFi.status() != WL_CONNECTED && retry < 20) { // 等待约 10 秒
+            delay(500);
+            Serial.print(".");
+            retry++;
+        }
+        Serial.println();
+
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("WiFi 连接成功!");
+            connected = true;
+        } else {
+            Serial.println("WiFi 连接超时，将在后台继续尝试...");
+            // 不设置 connected = true，但也不重启，让系统在 loop 中运行
+        }
     }
 
-    if (!connected) {
-        Serial.println("配网失败或超时，系统将重启...");
-        delay(3000);
-        ESP.restart();
-    } else {
+    if (connected) {
         // 连接成功后尝试同步时间
         syncTime();
     }
@@ -108,18 +144,32 @@ void NetworkManager::startConfigPortal() {
 }
 
 void NetworkManager::loop() {
-    // WiFiManager handles reconnection internally
+    // WiFiManager 内部处理重连 (如果使用了 autoConnect)，但现在我们手动管理
+    // 如果 WiFi 断开，ESP32 SDK 也会尝试重连
+    static unsigned long last_check = 0;
+    if (millis() - last_check > 5000) {
+        last_check = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            // Serial.println("WiFi 未连接，正在尝试重连..."); 
+            // WiFi.reconnect(); // 通常不需要频繁调用，SDK 会自动处理
+        }
+    }
 }
 
 bool NetworkManager::connectServer(const String &ip, uint16_t port) {
     if (_client.connected()) return true;
     if (!isConnected()) return false;
 
+    _client.setTimeout(5); // 设置超时为 5 秒
+    Serial.printf("[Net] 正在连接 TCP 到 %s:%d ...\n", ip.c_str(), port);
+
     int ret = _client.connect(ip.c_str(), port);
     if (ret == 1) {
+        _client.setNoDelay(true); // 禁用 Nagle 算法，减少延迟
+        Serial.println("[Net] TCP 连接成功");
         return true;
     } else {
-        Serial.printf("Client Connect Failed. Ret: %d\n", ret);
+        Serial.printf("[Net] TCP 连接失败。返回值: %d\n", ret);
         return false;
     }
 }

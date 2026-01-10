@@ -6,8 +6,8 @@
 #include "GosterProtocol.h"
 #include "SerialBridge.h"
 
-constexpr uint16_t IDLE_TIMEOUT_MS = 2000;
-// Modules
+constexpr uint16_t IDLE_TIMEOUT_MS = 5000;
+// 模块
 ConfigManager configMgr;
 Hardware hw;
 NetworkManager netMgr(configMgr);
@@ -15,7 +15,7 @@ CryptoLayer crypto;
 GosterProtocol protocol(netMgr, crypto, configMgr);
 SerialBridge serialBridge;
 
-// Global Flags
+// 全局标志
 bool g_timeSynced = false;
 
 unsigned long lastActivityTime = 0;
@@ -32,53 +32,50 @@ void sendTimeSyncToSTM32() {
     int64_t ts = NetworkManager::getTimestamp();
     if (ts == 0) return;
 
-    // Payload: 8 bytes timestamp (Little Endian)
+    // 负载: 8 字节时间戳 (小端序)
     uint8_t payload[8];
-    memcpy(payload, &ts, 8); // ESP32 is Little Endian usually, but confirm. 
-    // NetworkManager::getTimestamp returns int64_t.
-    // Let's ensure LE explicitly if needed, but memcpy is fine for same-endian archs.
-    // ESP32 is LE.
+    memcpy(payload, &ts, 8); // ESP32 通常是小端序
 
-    // Construct Frame
-    // 1. Header
+    // 构建帧
+    // 1. 头部
     GosterHeader header;
     memset(&header, 0, sizeof(header));
     header.magic = GOSTER_MAGIC;
     header.version = GOSTER_VERSION;
     header.cmd_id = CMD_TIME_SYNC;
-    header.length = 8; // payload len
+    header.length = 8; // 负载长度
 
-    // Nonce/Seq: Just use a static or random for Serial? 
-    // Serial link security is relaxed (unencrypted).
-    // Just zero is fine or increment a local counter.
+    // Nonce/Seq: 串口使用静态或随机数? 
+    // 串口链路安全性较低 (未加密)。
+    // 仅需确保不重复即可。
     static uint64_t serial_seq = 0;
     serial_seq++;
     memcpy(header.nonce + 4, &serial_seq, 8);
 
-    // Header CRC16
+    // 头部 CRC16
     header.h_crc16 = ProtocolUtils::calculateCRC16((uint8_t *) &header, 28);
 
-    // 2. Footer (CRC32 of Header + Payload)
+    // 2. 尾部 (CRC32 覆盖 Header + Payload)
     uint32_t crc32 = ProtocolUtils::calculateCRC32((uint8_t *) &header, sizeof(header));
-    // ProtocolUtils::calculateCRC32 doesn't support continue.
-    // We need to concat or modify ProtocolUtils. 
-    // Since we can't easily modify ProtocolUtils (User restriction), let's copy to a temp buffer.
-    uint8_t frameBuf[32 + 8 + 16]; // 56 bytes
+    // ProtocolUtils::calculateCRC32 不支持连续计算。
+    // 我们需要拼接或修改 ProtocolUtils。
+    // 由于我们不能轻易修改 ProtocolUtils，我们拷贝到临时缓冲区。
+    uint8_t frameBuf[32 + 8 + 16]; // 56 字节
     memcpy(frameBuf, &header, 32);
     memcpy(frameBuf + 32, payload, 8);
 
-    // Recalculate CRC32 on the contiguous buffer [Header + Payload]
+    // 重新计算连续缓冲区 [Header + Payload] 的 CRC32
     crc32 = ProtocolUtils::calculateCRC32(frameBuf, 32 + 8);
 
-    // Footer
+    // 尾部
     uint8_t footer[16] = {0};
     memcpy(footer, &crc32, 4);
     memcpy(frameBuf + 40, footer, 16);
 
-    // 3. Send via PacketSerial (Handles COBS encoding)
-    // PacketSerial::send(buffer, size) wraps it in 0x00 and escapes bytes.
+    // 3. 通过 PacketSerial 发送 (处理 COBS 编码)
+    // PacketSerial::send(buffer, size) 会将其包装在 0x00 中并转义字节。
     hw.getPacketSerial().send(frameBuf, 56);
-    Serial.printf("[TimeSync] Sent Timestamp: %lld to STM32\n", ts);
+    Serial.printf("[TimeSync] 已向 STM32 发送时间戳: %lld\n", ts);
 }
 
 // 对应 Rust 端 MetricReport 的 Payload 结构 (紧凑布局)
@@ -89,7 +86,7 @@ struct __attribute__((packed)) MetricReportHeader {
     uint32_t count;
 };
 
-// Callback: Validated Packet from SerialBridge
+// 回调: 来自 SerialBridge 的已验证数据包
 void onValidPacket(uint16_t cmdId, const uint8_t *payload, size_t len) {
     switch (cmdId) {
         case 0x0101: {
@@ -130,7 +127,7 @@ void onValidPacket(uint16_t cmdId, const uint8_t *payload, size_t len) {
     }
 }
 
-// Callback: STM32 Data Received (COBS Decoded) -> Feed to Bridge
+// 回调: 收到 STM32 数据 (COBS 解码后) -> 喂给 Bridge
 void onPacketReceived(const uint8_t *buffer, size_t size) {
     if (size == 0) {
         // 收到空包 (0x00)，视为唤醒信号
@@ -149,7 +146,7 @@ void onPacketReceived(const uint8_t *buffer, size_t size) {
     serialBridge.processFrame(buffer, size);
 }
 
-// Callback: Button Long Press -> Factory Reset
+// 回调: 按钮长按 -> 恢复出厂设置
 void onFactoryReset(void *param) {
     Serial.println("!!! 恢复出厂设置已触发 !!!");
     hw.blinkLed(10, 50); // 快速闪烁
@@ -172,7 +169,7 @@ void setup() {
     hw.setResetCallback(onFactoryReset, nullptr);
     hw.getPacketSerial().setPacketHandler(&onPacketReceived);
 
-    // Init Serial Bridge
+    // 初始化 Serial Bridge
     serialBridge.begin(onValidPacket);
 
     // 2. 初始化加密模块

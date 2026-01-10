@@ -1,7 +1,6 @@
 /target
 .idea
 *.db
-*.typ
 .pio
 goster-iot.tar
 /cpp/src/CMakeLists.txt

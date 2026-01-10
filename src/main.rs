@@ -117,8 +117,8 @@ fn main() -> ! {
                         success = false;
                         break;
                     }
-                    // 增加到 50ms，确保接收端 PacketSerial 彻底处理完上一包并重置状态
-                    delay.delay_ms(50u32);
+                    // 增加到 200ms，确保接收端 PacketSerial 彻底处理完上一包并重置状态
+                    delay.delay_ms(200u32);
                 }
                 if success {
                     rprintln!("发送完成，重置状态。");

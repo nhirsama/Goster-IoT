@@ -4,11 +4,12 @@ void Hardware::begin() {
     pinMode(PIN_LED, OUTPUT);
     setLed(false);
 
-    // 初始化按钮 (GPIO 9, Active Low, Internal Pullup)
+    // 初始化按钮 (GPIO 9, 低电平有效, 内部上拉)
     _btn = OneButton(PIN_BUTTON, true, true);
     _btn.setPressMs(5000); // 设置长按触发时间为 5s
 
     // 初始化与 STM32 的串口 (UART 1)
+    Serial1.setRxBufferSize(2048);
     Serial1.begin(115200, SERIAL_8N1, PIN_UART_RX, PIN_UART_TX);
     _packetSerial.setStream(&Serial1);
 }

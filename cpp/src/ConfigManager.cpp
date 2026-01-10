@@ -1,7 +1,7 @@
 #include "ConfigManager.h"
 
 void ConfigManager::begin() {
-    prefs.begin(NS, false); // false = R/W mode
+    prefs.begin(NS, false); // false = 读写模式
 }
 
 AppConfig ConfigManager::loadConfig() {
@@ -11,7 +11,7 @@ AppConfig ConfigManager::loadConfig() {
     config.server_ip = prefs.getString("srv_ip", "192.168.1.100"); // 默认 IP
     config.server_port = prefs.getUShort("srv_port", 8081);
 
-    // Check if token exists to avoid Error Log spam
+    // 检查 Token 是否存在以避免 Error Log 刷屏
     if (prefs.isKey("token")) {
         config.device_token = prefs.getString("token", "");
     } else {
@@ -35,6 +35,6 @@ void ConfigManager::saveToken(const String &token) {
 }
 
 void ConfigManager::clearConfig() {
-    Serial.println("Clearing NVS config...");
-    prefs.clear(); // This wipes everything in the "goster" namespace
+    Serial.println("正在清除 NVS 配置...");
+    prefs.clear(); // 这将清除 "goster" 命名空间下的所有内容
 }

@@ -10,7 +10,7 @@ void GosterProtocol::begin() {
 }
 
 void GosterProtocol::loop() {
-    // 1. WiFi Check
+    // 1. WiFi 检查
     if (!_net.isConnected()) {
         _state = STATE_DISCONNECTED;
         return;
@@ -18,21 +18,28 @@ void GosterProtocol::loop() {
 
     WiFiClient *client = _net.getClient();
 
-    // 2. Auto-Connect if we have pending data
+    // 2. 如果有待发送数据且串口空闲超过500ms，自动建立连接
     if (!client->connected() && !_tx_queue.empty()) {
+        if (millis() - _last_rx_activity < 500) {
+            // 还在接收数据，等待...
+            return;
+        }
+        
+        Serial.println("串口接收空闲，开始连接发送...");
+        
         AppConfig cfg = _config.loadConfig();
 
-        // Simple internet check
+        // 简单的互联网连接检查
         if (!_net.checkInternet()) {
             Serial.println("等待网络就绪...");
             delay(1000);
             return;
         }
 
-        Serial.printf("Connecting to %s:%d for pending task...\n", cfg.server_ip.c_str(), cfg.server_port);
+        Serial.printf("正在连接到 %s:%d 以处理待发送任务...\n", cfg.server_ip.c_str(), cfg.server_port);
         if (_net.connectServer(cfg.server_ip, cfg.server_port)) {
             Serial.println("TCP 连接成功!");
-            _state = STATE_DISCONNECTED; // Will trigger Handshake in handleStateLogic
+            _state = STATE_DISCONNECTED; // 将在 handleStateLogic 中触发握手
             _last_activity = millis();
         } else {
             Serial.println("TCP 连接失败! 2秒后重试...");
@@ -41,32 +48,32 @@ void GosterProtocol::loop() {
         }
     }
 
-    // 3. Auto-Disconnect if idle
+    // 3. 空闲自动断开连接
     if (client->connected() && _state == STATE_READY && _tx_queue.empty()) {
-        if (millis() - _last_activity > 2000) { // 2s Idle Timeout (Quick disconnect)
+        if (millis() - _last_activity > 2000) { // 2秒空闲超时 (快速断开)
             Serial.println("任务完成，主动断开连接.");
             client->stop();
             _state = STATE_DISCONNECTED;
         }
     }
 
-    // 4. Protocol Processing
+    // 4. 协议处理
     if (client->connected()) {
         handleStateLogic();
         processIncomingData();
 
-        // Flush Buffer if Ready
+        // 如果就绪，刷新缓冲区
         if (_state == STATE_READY && !_tx_queue.empty()) {
-            Serial.printf("Flushing queue (Size: %d)\n", _tx_queue.size());
+            Serial.printf("刷新队列 (大小: %d)\n", _tx_queue.size());
             
-            // Get the oldest packet
+            // 获取最旧的数据包
             const std::vector<uint8_t>& pkt = _tx_queue.front();
             sendFrame(CMD_METRICS_REPORT, pkt.data(), pkt.size(), true);
             
-            // Remove sent packet
+            // 移除已发送的数据包
             _tx_queue.pop_front();
             
-            _last_activity = millis(); // Refresh activity
+            _last_activity = millis(); // 刷新活动时间
         }
     }
 }
@@ -74,16 +81,20 @@ void GosterProtocol::loop() {
 void GosterProtocol::handleStateLogic() {
     switch (_state) {
         case STATE_DISCONNECTED:
-            // Initiate Handshake immediately after TCP connect
-            _crypto.generateKeyPair(); // Regen keys for new session
+            // TCP 连接后立即发起握手
+            if (!_crypto.generateKeyPair()) {
+                Serial.println("密钥生成失败! 断开连接。");
+                _net.getClient()->stop();
+                return;
+            } // 为新会话重新生成密钥
             sendHandshake();
             _state = STATE_HANDSHAKE_SENT;
-            Serial.println("State: HANDSHAKE_SENT");
+            Serial.println("状态: 已发送握手 (HANDSHAKE_SENT)");
             _last_activity = millis();
             break;
 
         case STATE_READY:
-            // No Heartbeat needed for short-lived connections
+            // 短连接无需心跳
             break;
 
         default:
@@ -94,12 +105,12 @@ void GosterProtocol::handleStateLogic() {
 void GosterProtocol::processIncomingData() {
     WiFiClient *client = _net.getClient();
     while (client->available()) {
-        _last_activity = millis(); // Update activity on RX
+        _last_activity = millis(); // 接收数据时更新活动状态
 
         int r = client->read(_rx_buffer + _rx_len, sizeof(_rx_buffer) - _rx_len);
         if (r > 0) _rx_len += r;
 
-        // Try to parse frame
+        // 尝试解析帧
         if (_rx_len >= sizeof(GosterHeader)) {
             GosterHeader *header = (GosterHeader *) _rx_buffer;
 
@@ -142,46 +153,46 @@ void GosterProtocol::handlePacket(const GosterHeader &header, const uint8_t *pay
         if (_crypto.decrypt(payload_in, len, (uint8_t *) &header, 28, plain_payload, tag, header.nonce)) {
             process_ptr = plain_payload;
         } else {
-            Serial.println("Decryption Failed!");
+            Serial.println("解密失败!");
             return;
         }
     }
 
     switch (header.cmd_id) {
         case CMD_HANDSHAKE_RESP:
-            Serial.println("RX: Handshake Resp");
+            Serial.println("RX: 握手响应 (Handshake Resp)");
             if (_crypto.computeSharedSecret(process_ptr)) {
-                Serial.println("Shared Key Computed.");
+                Serial.println("共享密钥计算完成。");
                 sendAuth();
                 _state = STATE_AUTH_SENT;
             }
             break;
 
         case CMD_AUTH_ACK:
-            Serial.println("RX: Auth ACK");
+            Serial.println("RX: 认证确认 (Auth ACK)");
             if (process_ptr[0] == 0x00) {
-                Serial.println("Auth Success! Ready.");
+                Serial.println("认证成功! 就绪。");
                 _state = STATE_READY;
             } else {
-                Serial.printf("Auth Failed: %02X\n", process_ptr[0]);
+                Serial.printf("认证失败: %02X\n", process_ptr[0]);
                 _net.getClient()->stop();
-                // Critical: Stop retrying if Auth failed
+                // 关键: 如果认证失败，停止重试
                 _tx_queue.clear();
             }
             break;
 
         case CMD_CONFIG_PUSH:
-            Serial.println("RX: Config Push");
+            Serial.println("RX: 配置推送 (Config Push)");
             break;
             
-        case CMD_METRICS_REPORT: // ACK for Metrics
-            Serial.println("RX: Metrics ACK");
-            // Transaction complete
+        case CMD_METRICS_REPORT: // 指标上报确认
+            Serial.println("RX: 指标确认 (Metrics ACK)");
+            // 事务完成
             break;
     }
 }
 
-// --- Senders ---
+// --- 发送函数 ---
 
 void GosterProtocol::sendHandshake() {
     const uint8_t *pub = _crypto.getPublicKey();
@@ -204,25 +215,26 @@ void GosterProtocol::sendAuth() {
 }
 
 void GosterProtocol::sendHeartbeat() {
-    Serial.println("TX: Heartbeat");
+    Serial.println("TX: 心跳 (Heartbeat)");
     sendFrame(CMD_HEARTBEAT, nullptr, 0, true);
 }
 
-// Public API: Just buffer the data
+// 公共 API: 仅缓冲数据
 void GosterProtocol::sendMetricReport(const uint8_t *payload, size_t len) {
     if (len == 0) return;
 
-    // Check queue limit
+    // 检查队列限制
     if (_tx_queue.size() >= MAX_TX_QUEUE_SIZE) {
-        Serial.println("Queue full, dropping oldest packet!");
+        Serial.println("队列已满，丢弃最旧的数据包!");
         _tx_queue.pop_front();
     }
 
-    // Push new packet
+    // 推入新数据包
     std::vector<uint8_t> pkt(payload, payload + len);
     _tx_queue.push_back(pkt);
     
-    Serial.printf("Metric queued. Queue size: %d\n", _tx_queue.size());
+    _last_rx_activity = millis(); // 更新接收活动时间
+    Serial.printf("指标已入队。队列大小: %d\n", _tx_queue.size());
 }
 
 void GosterProtocol::sendFrame(uint16_t cmd_id, const uint8_t *data, size_t len, bool encrypted) {
@@ -258,11 +270,11 @@ void GosterProtocol::sendFrame(uint16_t cmd_id, const uint8_t *data, size_t len,
         client->write((uint8_t *) &header, sizeof(header));
         if (len > 0) client->write(data, len);
 
-        // Calculate CRC32 (Header + Payload) using single pass
+        // 计算 CRC32 (Header + Payload) 单次通过
         CRC32 crc;
         crc.setPolynome(0x04C11DB7);
         crc.setInitial(0xFFFFFFFF);
-        crc.setXorOut(0xFFFFFFFF); // Standard IEEE 802.3
+        crc.setXorOut(0xFFFFFFFF); // 标准 IEEE 802.3
         crc.setReverseIn(true);
         crc.setReverseOut(true);
         crc.restart();
