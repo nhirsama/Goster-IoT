@@ -75,8 +75,9 @@ fn main() -> ! {
     let mut bridge = EspBridge::new(serial);
 
     // 采样定时器 (TIM2, 设定 1Hz 即 1秒触发一次)
+    let sample_interval = 5;
     let mut sample_timer = dp.TIM2.counter::<10_000>(&clocks);
-    sample_timer.start(1.secs()).unwrap();
+    sample_timer.start(sample_interval.secs()).unwrap();
 
     // 状态机变量
     use crate::protocol_structs::{MAX_SAMPLES, MetricReport};
@@ -148,7 +149,7 @@ fn main() -> ! {
                 // 缓冲区达到 75% 阈值时触发发送
                 if manager.is_almost_full() && pending_reports.is_none() {
                     rprintln!("达到 75% 阈值，加入发送队列...");
-                    pending_reports = Some(manager.take_reports(1000));
+                    pending_reports = Some(manager.take_reports(sample_interval * 1000));
                     // 立即触发一次唤醒请求
                     bridge.request_wakeup();
                 }
