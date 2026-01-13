@@ -49,19 +49,8 @@ bool CryptoLayer::generateKeyPair() {
         return false;
     }
 
-    // 如果生成的公钥不足32字节（前面是0），需要右对齐填充？
-    // mbedtls_mpi_write_binary 会自动处理大端/小端吗？
-    // mbedtls 使用大端序 (Big Endian)，但 API 文档 (Goster) 要求 Little Endian?
-    // 通常 X25519 都是 Little Endian。我们需要确认 mbedtls 的输出。
-    // 这里先假设 mbedtls 输出为 Big Endian，可能需要反转。
-    // 但 Curve25519 的标准 RFC7748 定义是 Little Endian。
-    // 为了简单，我们先按照 standard bytes 处理。
-    // 注意：mbedtls_mpi_write_binary 输出是大端序。我们需要反转它以符合 X25519 常规 (Little Endian)。
-    // 但是 docs/API_SPECIFICATION.md 里说 "所有多字节整数均采用 Little-Endian"。
-    // 公钥作为 byte array，通常直接传输。
-    // 待定：如果握手失败，检查这里的字节序。
 
-    // 反转为 Little Endian (如果你确定对方是 Go/Rust 的 X25519 库，通常是 LE)
+    // 反转为 Little Endian
     for (int i = 0; i < 16; i++) {
         uint8_t temp = _my_pubkey[i];
         _my_pubkey[i] = _my_pubkey[31 - i];
@@ -97,14 +86,6 @@ bool CryptoLayer::computeSharedSecret(const uint8_t *peer_pubkey) {
     // 导出共享密钥 (Big Endian)
     uint8_t shared_secret[32];
     mbedtls_mpi_write_binary(&_ecdh.z, shared_secret, 32);
-
-    // 通常使用 SHA256 或直接截取作为 Session Key。
-    // 假设直接使用前 16 字节作为 AES-128 Key? 还是整个 32 字节作为 AES-256?
-    // 文档说是 AES-128-GCM，所以只取前 16 字节。
-    // 注意：这里的 shared_secret 是 mbedtls (Big Endian) 的结果。
-    // 真正的 X25519 shared secret 是 Little Endian。我们需要反转回来吗？
-    // 为了保持一致性，如果公钥反转了，这里计算出的 MPI 也是基于反转输入的。
-    // 让我们做一次反转以获取原始 LE 字节流，然后取前 16 字节。
 
     // 反转为 Little Endian 以获取原始字节流
     for (int i = 0; i < 16; i++) {

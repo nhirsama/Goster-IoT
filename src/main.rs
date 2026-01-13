@@ -137,10 +137,11 @@ fn main() -> ! {
                 }
             }
         }
-
         // 3. 检查定时器 (采样任务)
         match sample_timer.wait() {
             Ok(_) => {
+                push_pull1.toggle();
+
                 let current_time = rtc.current_time();
 
                 // 执行采样
