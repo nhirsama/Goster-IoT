@@ -105,7 +105,7 @@ func (ws *webServer) apiMiddleware(next http.Handler) http.Handler {
 		}
 
 		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+			ws.apiNoContent(w, r)
 			return
 		}
 
@@ -466,7 +466,7 @@ func (ws *webServer) apiLogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	authboss.DelKnownSession(w)
 	authboss.DelKnownCookie(w)
-	w.WriteHeader(http.StatusNoContent)
+	ws.apiNoContent(w, r)
 }
 
 func (ws *webServer) apiMeHandler(w http.ResponseWriter, r *http.Request) {
@@ -612,7 +612,7 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 					&apiErrorDetail{Type: "internal_error"})
 				return
 			}
-			w.WriteHeader(http.StatusNoContent)
+			ws.apiNoContent(w, r)
 		default:
 			ws.apiMethodNotAllowed(w, r)
 		}
@@ -1015,7 +1015,15 @@ func (ws *webServer) apiMethodNotAllowed(w http.ResponseWriter, r *http.Request)
 		&apiErrorDetail{Type: "method_not_allowed"})
 }
 
+func (ws *webServer) apiNoContent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Request-Id", ws.getRequestID(r))
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (ws *webServer) apiWrite(w http.ResponseWriter, status int, payload apiEnvelope) {
+	if payload.RequestID != "" {
+		w.Header().Set("X-Request-Id", payload.RequestID)
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
