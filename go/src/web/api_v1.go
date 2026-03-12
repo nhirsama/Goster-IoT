@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -28,6 +30,7 @@ const (
 const (
 	minValidMetricsTimestampMs int64 = 1672531200000
 	maxAPIBodyBytes            int64 = 1 << 20
+	maxDevicePageSize                = 1000
 
 	defaultAPICORSAllowedOrigins = "http://localhost:5173,http://127.0.0.1:5173"
 )
@@ -502,8 +505,26 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := parsePositiveIntOrDefault(r.URL.Query().Get("page"), 1)
-	size := parsePositiveIntOrDefault(r.URL.Query().Get("size"), 100)
+	page, err := parsePositiveIntQuery(r.URL.Query().Get("page"), 1, 0)
+	if err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40012, "invalid page",
+			&apiErrorDetail{
+				Type:   "validation_error",
+				Field:  "page",
+				Reason: err.Error(),
+			})
+		return
+	}
+	size, err := parsePositiveIntQuery(r.URL.Query().Get("size"), 100, maxDevicePageSize)
+	if err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40013, "invalid size",
+			&apiErrorDetail{
+				Type:   "validation_error",
+				Field:  "size",
+				Reason: err.Error(),
+			})
+		return
+	}
 
 	devices, err := ws.deviceManager.ListDevices(statusPtr, page, size)
 	if err != nil {
@@ -562,7 +583,12 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			&apiErrorDetail{Type: "not_found", Field: "uuid"})
 		return
 	}
-	uuid := parts[0]
+	uuid, err := url.PathUnescape(parts[0])
+	if err != nil || uuid == "" {
+		ws.apiError(w, r, http.StatusBadRequest, 40021, "invalid uuid",
+			&apiErrorDetail{Type: "validation_error", Field: "uuid"})
+		return
+	}
 
 	// /api/v1/devices/{uuid}
 	if len(parts) == 1 {
@@ -780,7 +806,12 @@ func (ws *webServer) apiUserPermissionHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	username := parts[0]
+	username, err := url.PathUnescape(parts[0])
+	if err != nil || strings.TrimSpace(username) == "" {
+		ws.apiError(w, r, http.StatusBadRequest, 40043, "invalid username",
+			&apiErrorDetail{Type: "validation_error", Field: "username"})
+		return
+	}
 	var req struct {
 		Permission int `json:"permission"`
 	}
@@ -889,15 +920,21 @@ func parseDeviceStatusFilter(raw string) (string, *inter.AuthenticateStatusType,
 	}
 }
 
-func parsePositiveIntOrDefault(raw string, fallback int) int {
+func parsePositiveIntQuery(raw string, fallback int, max int) (int, error) {
 	if raw == "" {
-		return fallback
+		return fallback, nil
 	}
 	v, err := strconv.Atoi(raw)
-	if err != nil || v <= 0 {
-		return fallback
+	if err != nil {
+		return 0, errors.New("must be an integer")
 	}
-	return v
+	if v <= 0 {
+		return 0, errors.New("must be greater than 0")
+	}
+	if max > 0 && v > max {
+		return 0, fmt.Errorf("must be less than or equal to %d", max)
+	}
+	return v, nil
 }
 
 func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel string, err error) {
@@ -909,17 +946,20 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 
 	startRaw := r.URL.Query().Get("start_ms")
 	endRaw := r.URL.Query().Get("end_ms")
+	if (startRaw == "") != (endRaw == "") {
+		return 0, 0, "", errors.New("start_ms and end_ms must be provided together")
+	}
 	if startRaw != "" && endRaw != "" {
 		start, err = strconv.ParseInt(startRaw, 10, 64)
 		if err != nil {
-			return 0, 0, "", err
+			return 0, 0, "", errors.New("start_ms must be int64")
 		}
 		end, err = strconv.ParseInt(endRaw, 10, 64)
 		if err != nil {
-			return 0, 0, "", err
+			return 0, 0, "", errors.New("end_ms must be int64")
 		}
 		if start > end {
-			return 0, 0, "", strconv.ErrRange
+			return 0, 0, "", errors.New("start_ms must be less than or equal to end_ms")
 		}
 		if start < minValidMetricsTimestampMs {
 			start = minValidMetricsTimestampMs
@@ -939,7 +979,7 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 	case "7d":
 		start = time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
 	default:
-		return 0, 0, "", strconv.ErrSyntax
+		return 0, 0, "", errors.New("range must be one of 1h, 6h, 24h, 7d, all")
 	}
 
 	if start < minValidMetricsTimestampMs {
