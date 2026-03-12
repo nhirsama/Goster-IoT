@@ -1,0 +1,903 @@
+openapi: 3.1.0
+info:
+  title: Goster IoT Management API
+  version: 0.4.0
+  summary: Frontend-Backend contract for current implemented management capabilities.
+  description: |
+    This contract is based on the current system behavior and data model.
+    It defines a stable `/api/v1` namespace for frontend-backend separation,
+    while preserving compatibility expectations from the existing management logic.
+
+    Design principles:
+    - Contract-first
+    - Backward-safe evolution
+    - Extensible payloads via `extensions` and `meta`
+  x-current-logic:
+    metrics_default_range: 1h
+    metrics_min_valid_timestamp_ms: 1672531200000
+    auth_primary_mode: cookie_session
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Auth
+  - name: Device
+  - name: Metrics
+  - name: User
+
+security:
+  - CookieSession: []
+  - BearerAuth: []
+
+paths:
+  /api/v1/auth/captcha/config:
+    get:
+      tags: [Auth]
+      operationId: getCaptchaConfig
+      summary: Get captcha provider config for frontend.
+      security: []
+      responses:
+        '200':
+          description: Captcha configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptchaConfigResponse'
+
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Register user account.
+      description: |
+        Mirrors existing register behavior:
+        - First registered user gets `Admin` permission.
+        - Later users default to `None` permission.
+      x-legacy-endpoint: /auth/register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registered successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Login and create authenticated session.
+      x-legacy-endpoint: /auth/login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in successfully.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Session cookie set by server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Logout current session.
+      x-legacy-endpoint: /auth/logout
+      responses:
+        '204':
+          description: Logged out.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Get current authenticated user profile.
+      responses:
+        '200':
+          description: Current user info.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/devices:
+    get:
+      tags: [Device]
+      operationId: listDevices
+      summary: List devices by auth status.
+      parameters:
+        - $ref: '#/components/parameters/DeviceStatusFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Device list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/devices/{uuid}:
+    get:
+      tags: [Device]
+      operationId: getDevice
+      summary: Get device details.
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '200':
+          description: Device detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Device]
+      operationId: deleteDevice
+      summary: Permanently delete device and related data.
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/devices/{uuid}/approve:
+    post:
+      tags: [Device]
+      operationId: approveDevice
+      summary: Approve pending device.
+      x-legacy-endpoint: /device/approve?uuid={uuid}
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '200':
+          description: Approved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/devices/{uuid}/revoke:
+    post:
+      tags: [Device]
+      operationId: revokeDevice
+      summary: Reject pending device or revoke authorized device.
+      x-legacy-endpoint: /device/revoke?uuid={uuid}
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '200':
+          description: Revoked/Rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/devices/{uuid}/unblock:
+    post:
+      tags: [Device]
+      operationId: unblockDevice
+      summary: Move device from refused/revoked to pending.
+      x-legacy-endpoint: /device/unblock?uuid={uuid}
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '200':
+          description: Unblocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/devices/{uuid}/token/refresh:
+    post:
+      tags: [Device]
+      operationId: refreshDeviceToken
+      summary: Refresh device token.
+      x-legacy-endpoint: /device/token/refresh?uuid={uuid}
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '200':
+          description: Token refreshed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/metrics/{uuid}:
+    get:
+      tags: [Metrics]
+      operationId: getMetrics
+      summary: Query metric points for a device.
+      x-legacy-endpoint: /api/metrics/{uuid}
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+        - $ref: '#/components/parameters/MetricsRange'
+        - $ref: '#/components/parameters/StartMs'
+        - $ref: '#/components/parameters/EndMs'
+      responses:
+        '200':
+          description: Metric points.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/users:
+    get:
+      tags: [User]
+      operationId: listUsers
+      summary: List system users.
+      responses:
+        '200':
+          description: User list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/users/{username}/permission:
+    post:
+      tags: [User]
+      operationId: updateUserPermission
+      summary: Update user permission level.
+      x-legacy-endpoint: /user/permission
+      parameters:
+        - $ref: '#/components/parameters/Username'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePermissionRequest'
+      responses:
+        '200':
+          description: Permission updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    CookieSession:
+      type: apiKey
+      in: cookie
+      name: goster_session
+      description: Current primary auth method.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Reserved for future token-based auth.
+
+  parameters:
+    DeviceUUID:
+      name: uuid
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+
+    Username:
+      name: username
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+
+    DeviceStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [all, authenticated, pending, refused, revoked]
+        default: authenticated
+      description: |
+        Auth status filter:
+        - authenticated -> `AuthenticateStatus=0`
+        - refused -> `AuthenticateStatus=1`
+        - pending -> `AuthenticateStatus=2`
+        - revoked -> `AuthenticateStatus=4`
+        - all -> no filter
+
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Size:
+      name: size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+
+    MetricsRange:
+      name: range
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [1h, 6h, 24h, 7d, all]
+        default: 1h
+
+    StartMs:
+      name: start_ms
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+      description: Explicit start timestamp in milliseconds. Overrides range when paired with end_ms.
+
+    EndMs:
+      name: end_ms
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+      description: Explicit end timestamp in milliseconds. Overrides range when paired with start_ms.
+
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Authentication required or session expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Permission denied.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Conflict:
+      description: Resource already exists or state conflict.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ApiResponseBase:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: integer
+          description: 0 means success, non-zero means error.
+          example: 0
+        message:
+          type: string
+          example: ok
+        request_id:
+          type: string
+          description: Correlation id for tracing.
+          example: req_20260312_abcdef
+        meta:
+          type: object
+          additionalProperties: true
+          description: Extensible metadata.
+
+    ErrorDetail:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          example: validation_error
+        field:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        details:
+          type: object
+          additionalProperties: true
+
+    ErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [error]
+          properties:
+            data:
+              type: 'null'
+            error:
+              $ref: '#/components/schemas/ErrorDetail'
+
+    PermissionType:
+      type: integer
+      enum: [0, 1, 2, 3]
+      description: |
+        0=None, 1=ReadOnly, 2=ReadWrite, 3=Admin
+      x-enumNames: [None, ReadOnly, ReadWrite, Admin]
+
+    AuthStatusType:
+      type: integer
+      enum: [0, 1, 2, 3, 4]
+      description: |
+        0=Authenticated, 1=Refused, 2=Pending, 3=Unknown, 4=Revoked
+      x-enumNames: [Authenticated, Refused, Pending, Unknown, Revoked]
+
+    DeviceRuntimeStatus:
+      type: integer
+      enum: [0, 1, 2]
+      description: 0=Offline, 1=Online, 2=Delayed
+      x-enumNames: [Offline, Online, Delayed]
+
+    MetricType:
+      type: integer
+      enum: [1, 2, 4]
+      description: 1=Temperature, 2=Humidity, 4=Lux
+      x-enumNames: [Temperature, Humidity, Lux]
+
+    CaptchaConfig:
+      type: object
+      required: [provider, enabled]
+      properties:
+        provider:
+          type: string
+          enum: [none, turnstile]
+        enabled:
+          type: boolean
+        site_key:
+          type: string
+          nullable: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    CaptchaConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/CaptchaConfig'
+
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 64
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        email:
+          type: string
+          format: email
+          nullable: true
+        captcha_token:
+          type: string
+          nullable: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        remember_me:
+          type: boolean
+          default: false
+        captcha_token:
+          type: string
+          nullable: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    AuthSession:
+      type: object
+      required: [username, permission]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          nullable: true
+        permission:
+          $ref: '#/components/schemas/PermissionType'
+        authenticated:
+          type: boolean
+          default: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    AuthSessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthSession'
+
+    DeviceMetadata:
+      type: object
+      required: [name, hw_version, sw_version, config_version, sn, mac, created_at, authenticate_status]
+      properties:
+        name:
+          type: string
+        hw_version:
+          type: string
+        sw_version:
+          type: string
+        config_version:
+          type: string
+        sn:
+          type: string
+        mac:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        token:
+          type: string
+          nullable: true
+        authenticate_status:
+          $ref: '#/components/schemas/AuthStatusType'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    DeviceRuntime:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/DeviceRuntimeStatus'
+        status_text:
+          type: string
+          enum: [offline, online, delayed]
+        last_seen_ms:
+          type: integer
+          format: int64
+          nullable: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    DeviceRecord:
+      type: object
+      required: [uuid, meta]
+      properties:
+        uuid:
+          type: string
+        meta:
+          $ref: '#/components/schemas/DeviceMetadata'
+        runtime:
+          $ref: '#/components/schemas/DeviceRuntime'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    PageMeta:
+      type: object
+      required: [page, size, returned]
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        returned:
+          type: integer
+        total:
+          type: integer
+          nullable: true
+        has_next:
+          type: boolean
+          nullable: true
+
+    DeviceListData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceRecord'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    DeviceListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceListData'
+
+    DeviceDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceRecord'
+
+    ActionResult:
+      type: object
+      required: [action, target]
+      properties:
+        action:
+          type: string
+          example: approve_device
+        target:
+          type: string
+          example: 07f5e...
+        success:
+          type: boolean
+          default: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    ActionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ActionResult'
+
+    RefreshTokenData:
+      type: object
+      required: [uuid, token]
+      properties:
+        uuid:
+          type: string
+        token:
+          type: string
+        rotated_at:
+          type: string
+          format: date-time
+          nullable: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    RefreshTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/RefreshTokenData'
+
+    MetricPoint:
+      type: object
+      required: [ts, value, type]
+      properties:
+        ts:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds.
+        value:
+          type: number
+          format: float
+        type:
+          $ref: '#/components/schemas/MetricType'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    MetricsData:
+      type: object
+      required: [uuid, points]
+      properties:
+        uuid:
+          type: string
+        range:
+          type: string
+          nullable: true
+          enum: [1h, 6h, 24h, 7d, all]
+        start_ms:
+          type: integer
+          format: int64
+          nullable: true
+        end_ms:
+          type: integer
+          format: int64
+          nullable: true
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricPoint'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    MetricsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/MetricsData'
+
+    User:
+      type: object
+      required: [username, permission, created_at]
+      properties:
+        username:
+          type: string
+        permission:
+          $ref: '#/components/schemas/PermissionType'
+        created_at:
+          type: string
+          format: date-time
+        extensions:
+          type: object
+          additionalProperties: true
+
+    UserListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    UserListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/UserListData'
+
+    UpdatePermissionRequest:
+      type: object
+      required: [permission]
+      properties:
+        permission:
+          $ref: '#/components/schemas/PermissionType'
+        extensions:
+          type: object
+          additionalProperties: true
