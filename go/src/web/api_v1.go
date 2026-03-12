@@ -140,7 +140,12 @@ func isSameOriginRequest(r *http.Request, origin string) bool {
 	if err != nil {
 		return false
 	}
-	if !strings.EqualFold(u.Host, r.Host) {
+
+	host := r.Host
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		host = strings.TrimSpace(strings.Split(forwardedHost, ",")[0])
+	}
+	if !strings.EqualFold(u.Host, host) {
 		return false
 	}
 
