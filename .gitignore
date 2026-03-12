@@ -5,3 +5,4 @@
 goster-iot.tar
 /cpp/src/CMakeLists.txt
 /go/docs.md
+/go/.gocache
