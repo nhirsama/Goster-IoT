@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 // TurnstileService 管理 Cloudflare Turnstile 验证
@@ -39,9 +40,18 @@ func (s *TurnstileService) Verify(r *http.Request) bool {
 		log.Println("Turnstile 验证失败: 提交的 cf-turnstile-response 为空")
 		return false
 	}
-	ip := r.Header.Get("X-Forwarded-For")
-	if ip == "" {
-		ip = r.RemoteAddr
+
+	return s.VerifyToken(token, clientIPFromRequest(r))
+}
+
+// VerifyToken 使用给定 token 和客户端 IP 进行验证
+func (s *TurnstileService) VerifyToken(token string, ip string) bool {
+	if !s.Enabled {
+		return true
+	}
+	if strings.TrimSpace(token) == "" {
+		log.Println("Turnstile 验证失败: token 为空")
+		return false
 	}
 
 	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", map[string][]string{
@@ -65,4 +75,17 @@ func (s *TurnstileService) Verify(r *http.Request) bool {
 		log.Println("Turnstile 验证失败: 验证码服务返回 Success=false")
 	}
 	return result.Success
+}
+
+func clientIPFromRequest(r *http.Request) string {
+	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
+		parts := strings.Split(forwardedFor, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+		return realIP
+	}
+	return r.RemoteAddr
 }
