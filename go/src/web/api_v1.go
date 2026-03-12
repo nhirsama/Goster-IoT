@@ -573,7 +573,15 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 				return
 			}
+			if !ws.apiEnsureDeviceExists(w, r, uuid) {
+				return
+			}
 			if err := ws.deviceManager.DeleteDevice(uuid); err != nil {
+				if isNotFoundError(err) {
+					ws.apiError(w, r, http.StatusNotFound, 40422, "device not found",
+						&apiErrorDetail{Type: "not_found", Field: "uuid"})
+					return
+				}
 				ws.apiError(w, r, http.StatusInternalServerError, 50021, err.Error(),
 					&apiErrorDetail{Type: "internal_error"})
 				return
@@ -609,6 +617,11 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if err != nil {
+			if isNotFoundError(err) {
+				ws.apiError(w, r, http.StatusNotFound, 40423, "device not found",
+					&apiErrorDetail{Type: "not_found", Field: "uuid"})
+				return
+			}
 			ws.apiError(w, r, http.StatusInternalServerError, 50022, err.Error(),
 				&apiErrorDetail{Type: "internal_error"})
 			return
@@ -631,9 +644,17 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 		if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 			return
 		}
+		if !ws.apiEnsureDeviceExists(w, r, uuid) {
+			return
+		}
 
 		token, err := ws.deviceManager.RefreshToken(uuid)
 		if err != nil {
+			if isNotFoundError(err) {
+				ws.apiError(w, r, http.StatusNotFound, 40424, "device not found",
+					&apiErrorDetail{Type: "not_found", Field: "uuid"})
+				return
+			}
 			ws.apiError(w, r, http.StatusInternalServerError, 50023, err.Error(),
 				&apiErrorDetail{Type: "internal_error"})
 			return
@@ -699,6 +720,9 @@ func (ws *webServer) apiMetricsV1Handler(w http.ResponseWriter, r *http.Request)
 	if uuid == "" {
 		ws.apiError(w, r, http.StatusNotFound, 40431, "device not found",
 			&apiErrorDetail{Type: "not_found", Field: "uuid"})
+		return
+	}
+	if !ws.apiEnsureDeviceExists(w, r, uuid) {
 		return
 	}
 
@@ -770,6 +794,16 @@ func (ws *webServer) apiUserPermissionHandler(w http.ResponseWriter, r *http.Req
 			&apiErrorDetail{Type: "validation_error", Field: "permission"})
 		return
 	}
+	if _, err := ws.dataStore.GetUserPermission(username); err != nil {
+		if isNotFoundError(err) {
+			ws.apiError(w, r, http.StatusNotFound, 40442, "user not found",
+				&apiErrorDetail{Type: "not_found", Field: "username"})
+			return
+		}
+		ws.apiError(w, r, http.StatusInternalServerError, 50043, err.Error(),
+			&apiErrorDetail{Type: "internal_error"})
+		return
+	}
 
 	if err := ws.dataStore.UpdateUserPermission(username, inter.PermissionType(req.Permission)); err != nil {
 		ws.apiError(w, r, http.StatusInternalServerError, 50042, err.Error(),
@@ -792,6 +826,27 @@ func (ws *webServer) ensureAPIPerm(w http.ResponseWriter, r *http.Request, minPe
 		return false
 	}
 	return true
+}
+
+func (ws *webServer) apiEnsureDeviceExists(w http.ResponseWriter, r *http.Request, uuid string) bool {
+	if _, err := ws.deviceManager.GetDeviceMetadata(uuid); err != nil {
+		if isNotFoundError(err) {
+			ws.apiError(w, r, http.StatusNotFound, 40421, "device not found",
+				&apiErrorDetail{Type: "not_found", Field: "uuid"})
+			return false
+		}
+		ws.apiError(w, r, http.StatusInternalServerError, 50024, err.Error(),
+			&apiErrorDetail{Type: "internal_error"})
+		return false
+	}
+	return true
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
 func decodeAPIBody(r *http.Request, out interface{}) error {
