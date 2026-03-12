@@ -130,10 +130,12 @@ export default function UserManagementPage() {
                       </TableCell>
                       <TableCell className="text-right pr-6">
                         <Dialog>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="rounded-xl border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all font-bold" disabled={u.username === currentUser.username}>
-                              <UserCog className="h-4 w-4 mr-2" />
-                              更改权限
+                          <DialogTrigger>
+                            <Button variant="outline" size="sm" className="rounded-xl border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all font-bold" disabled={u.username === currentUser.username} asChild>
+                              <div>
+                                <UserCog className="h-4 w-4 mr-2" />
+                                更改权限
+                              </div>
                             </Button>
                           </DialogTrigger>
                           <DialogContent className="rounded-3xl border-none shadow-2xl">
