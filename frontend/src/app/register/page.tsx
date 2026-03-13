@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { Turnstile } from "@marsidev/react-turnstile";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,8 +18,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import { UserPlus, User, Mail, Lock } from "lucide-react";
+import { components } from "@/lib/api-types";
 
 const registerSchema = z.object({
   username: z.string().min(3, "用户名至少需要 3 个字符"),
@@ -27,30 +29,59 @@ const registerSchema = z.object({
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
+type CaptchaConfig = components["schemas"]["CaptchaConfig"];
 
 export default function RegisterPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [captchaConfig, setCaptchaConfig] = useState<CaptchaConfig | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
   });
 
+  useEffect(() => {
+    // 获取后端的验证码配置
+    api.get("/api/v1/auth/captcha/config").then((res: any) => {
+      setCaptchaConfig(res);
+    }).catch(console.error);
+  }, []);
+
   const onSubmit = async (data: RegisterFormValues) => {
+    if (captchaConfig?.enabled && !captchaToken) {
+      setGlobalError("请先完成人机验证");
+      return;
+    }
+
     setLoading(true);
-    setError(null);
+    setGlobalError(null);
     try {
-      await api.post("/api/v1/auth/register", data);
+      await api.post("/api/v1/auth/register", {
+        ...data,
+        captcha_token: captchaToken || undefined,
+      });
       queryClient.invalidateQueries({ queryKey: ["auth-me"] });
       router.push("/");
     } catch (err: any) {
-      setError(err.message || "注册失败，用户名可能已存在");
+      // 1:1 复刻：工程化错误处理，支持字段级别的精确报错
+      if (err instanceof ApiError && err.errorDetail) {
+        const { field, reason, type } = err.errorDetail;
+        if (field && (field === "username" || field === "password" || field === "email")) {
+          setError(field as any, { type: "server", message: reason || "校验失败" });
+        } else {
+          setGlobalError(reason || err.message || "注册失败，请检查输入");
+        }
+      } else {
+        setGlobalError(err.message || "系统内部错误，请稍后再试");
+      }
     } finally {
       setLoading(false);
     }
@@ -74,10 +105,10 @@ export default function RegisterPage() {
         </CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
           <CardContent className="space-y-5">
-            {error && (
+            {globalError && (
               <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm border border-red-100 flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-600"></span>
-                {error}
+                {globalError}
               </div>
             )}
             <div className="space-y-2">
@@ -87,13 +118,16 @@ export default function RegisterPage() {
               <div className="relative">
                 <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <Input
-                  className="pl-10 h-11 border-slate-200 focus:ring-blue-500 rounded-xl transition-all"
+                  className={`pl-10 h-11 focus:ring-blue-500 rounded-xl transition-all ${errors.username ? 'border-red-300 bg-red-50/50' : 'border-slate-200'}`}
                   placeholder="请输入您的用户名"
                   {...register("username")}
                 />
               </div>
               {errors.username && (
-                <p className="text-xs text-red-500 mt-1">{errors.username.message}</p>
+                <p className="text-xs text-red-500 mt-1 font-medium flex items-center gap-1 animate-in fade-in">
+                  <span className="h-1 w-1 rounded-full bg-red-500 inline-block"></span>
+                  {errors.username.message}
+                </p>
               )}
             </div>
             <div className="space-y-2">
@@ -103,14 +137,17 @@ export default function RegisterPage() {
               <div className="relative">
                 <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <Input
-                  className="pl-10 h-11 border-slate-200 focus:ring-blue-500 rounded-xl transition-all"
+                  className={`pl-10 h-11 focus:ring-blue-500 rounded-xl transition-all ${errors.email ? 'border-red-300 bg-red-50/50' : 'border-slate-200'}`}
                   type="email"
                   placeholder="john@example.com"
                   {...register("email")}
                 />
               </div>
               {errors.email && (
-                <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>
+                <p className="text-xs text-red-500 mt-1 font-medium flex items-center gap-1 animate-in fade-in">
+                  <span className="h-1 w-1 rounded-full bg-red-500 inline-block"></span>
+                  {errors.email.message}
+                </p>
               )}
             </div>
             <div className="space-y-2">
@@ -120,16 +157,33 @@ export default function RegisterPage() {
               <div className="relative">
                 <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <Input
-                  className="pl-10 h-11 border-slate-200 focus:ring-blue-500 rounded-xl transition-all"
+                  className={`pl-10 h-11 focus:ring-blue-500 rounded-xl transition-all ${errors.password ? 'border-red-300 bg-red-50/50' : 'border-slate-200'}`}
                   type="password"
                   placeholder="请输入至少 8 位密码"
                   {...register("password")}
                 />
               </div>
               {errors.password && (
-                <p className="text-xs text-red-500 mt-1">{errors.password.message}</p>
+                <p className="text-xs text-red-500 mt-1 font-medium flex items-center gap-1 animate-in fade-in">
+                  <span className="h-1 w-1 rounded-full bg-red-500 inline-block"></span>
+                  {errors.password.message}
+                </p>
               )}
             </div>
+            
+            {/* 1:1 复刻：基于后端配置的 Turnstile 验证码 */}
+            {captchaConfig?.enabled && captchaConfig.provider === "turnstile" && captchaConfig.site_key && (
+              <div className="flex justify-center mt-2">
+                <Turnstile 
+                  siteKey={captchaConfig.site_key} 
+                  onSuccess={(token) => {
+                    setCaptchaToken(token);
+                    if (globalError === "请先完成人机验证") setGlobalError(null);
+                  }}
+                />
+              </div>
+            )}
+
           </CardContent>
           <CardFooter className="flex flex-col gap-4 pt-4">
             <Button className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all shadow-lg shadow-blue-100" type="submit" disabled={loading}>

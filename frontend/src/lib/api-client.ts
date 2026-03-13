@@ -4,6 +4,20 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 export type ApiRequestConfig = Omit<RequestInit, "method" | "body">;
 
+export class ApiError extends Error {
+  public code?: number;
+  public errorDetail?: { type: string; field?: string; reason?: string; details?: any };
+  public requestId?: string;
+
+  constructor(message: string, code?: number, errorDetail?: any, requestId?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+    this.errorDetail = errorDetail;
+    this.requestId = requestId;
+  }
+}
+
 async function request<T>(
   path: string,
   method: string,
@@ -41,7 +55,12 @@ async function request<T>(
   const result = await response.json();
 
   if (!response.ok || (result.code !== undefined && result.code !== 0)) {
-    throw new Error(result.message || response.statusText || "Request failed");
+    throw new ApiError(
+      result.message || response.statusText || "Request failed",
+      result.code,
+      result.error,
+      result.request_id
+    );
   }
 
   return result.data as T;
