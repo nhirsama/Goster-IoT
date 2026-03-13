@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aarondl/authboss/v3"
+	"github.com/aarondl/authboss/v3/defaults"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -49,14 +51,6 @@ type apiEnvelope struct {
 	Data      interface{}     `json:"data,omitempty"`
 	Error     *apiErrorDetail `json:"error,omitempty"`
 	Meta      interface{}     `json:"meta,omitempty"`
-}
-
-type apiRememberValues struct {
-	shouldRemember bool
-}
-
-func (v apiRememberValues) GetShouldRemember() bool {
-	return v.shouldRemember
 }
 
 func (ws *webServer) registerAPIRoutes(mux *http.ServeMux) {
@@ -225,47 +219,68 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req struct {
-		Username     string `json:"username"`
-		Password     string `json:"password"`
-		Email        string `json:"email"`
-		CaptchaToken string `json:"captcha_token"`
-	}
-	if err := decodeAPIBody(r, &req); err != nil {
+	values, err := decodeJSONToStringMap(r)
+	if err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40001, "invalid json body",
 			&apiErrorDetail{Type: "validation_error"})
 		return
 	}
 
-	req.Username = strings.TrimSpace(req.Username)
-	req.Email = strings.TrimSpace(req.Email)
-	if len(req.Username) < 3 || len(req.Username) > 64 {
-		ws.apiError(w, r, http.StatusBadRequest, 40002, "username length out of range",
-			&apiErrorDetail{Type: "validation_error", Field: "username"})
-		return
-	}
-	if len(req.Password) < 8 || len(req.Password) > 128 {
-		ws.apiError(w, r, http.StatusBadRequest, 40003, "password length out of range",
-			&apiErrorDetail{Type: "validation_error", Field: "password"})
-		return
-	}
-	if req.Email != "" && !strings.Contains(req.Email, "@") {
-		ws.apiError(w, r, http.StatusBadRequest, 40004, "invalid email format",
-			&apiErrorDetail{Type: "validation_error", Field: "email"})
-		return
-	}
-
 	if ws.turnstile != nil && ws.turnstile.Enabled {
-		if strings.TrimSpace(req.CaptchaToken) == "" {
+		captchaToken := strings.TrimSpace(values["captcha_token"])
+		if captchaToken == "" {
+			captchaToken = strings.TrimSpace(values["cf-turnstile-response"])
+		}
+		if captchaToken == "" {
 			ws.apiError(w, r, http.StatusBadRequest, 40005, "captcha token required",
 				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
 			return
 		}
-		if !ws.turnstile.VerifyToken(req.CaptchaToken, clientIPFromRequest(r)) {
+		if !ws.turnstile.VerifyToken(captchaToken, clientIPFromRequest(r)) {
 			ws.apiError(w, r, http.StatusBadRequest, 40006, "captcha verification failed",
 				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
 			return
 		}
+	}
+
+	reader := defaults.NewHTTPBodyReader(true, true)
+	validatable, err := reader.Read("register", requestWithStringMapJSON(r, values))
+	if err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40001, "invalid json body",
+			&apiErrorDetail{Type: "validation_error"})
+		return
+	}
+	if errs := validatable.Validate(); errs != nil {
+		detail := &apiErrorDetail{Type: "validation_error"}
+		if f, ok := errs[0].(interface {
+			Name() string
+			Err() error
+		}); ok {
+			detail.Field = f.Name()
+			if ferr := f.Err(); ferr != nil {
+				detail.Reason = ferr.Error()
+			}
+		} else {
+			detail.Reason = errs[0].Error()
+		}
+		ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
+			detail,
+		)
+		return
+	}
+
+	creds := authboss.MustHaveUserValues(validatable)
+	username := strings.TrimSpace(creds.GetPID())
+	password := creds.GetPassword()
+	if username == "" {
+		ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: "username"})
+		return
+	}
+	if password == "" {
+		ws.apiError(w, r, http.StatusBadRequest, 40003, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: "password"})
+		return
 	}
 
 	storer, ok := ws.authboss.Config.Storage.Server.(authboss.CreatingServerStorer)
@@ -276,13 +291,13 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	user := authboss.MustBeAuthable(storer.New(r.Context()))
-	user.PutPID(req.Username)
+	user.PutPID(username)
 
 	if emailSetter, ok := user.(interface{ PutEmail(string) }); ok {
-		emailSetter.PutEmail(req.Email)
+		emailSetter.PutEmail(strings.TrimSpace(values["email"]))
 	}
 
-	pass, err := ws.authboss.Config.Core.Hasher.GenerateHash(req.Password)
+	pass, err := ws.authboss.Config.Core.Hasher.GenerateHash(password)
 	if err != nil {
 		ws.apiError(w, r, http.StatusInternalServerError, 50003, "failed to generate password hash",
 			&apiErrorDetail{Type: "internal_error"})
@@ -323,8 +338,8 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 		Message:   "created",
 		RequestID: ws.getRequestID(r),
 		Data: map[string]interface{}{
-			"username":      req.Username,
-			"email":         req.Email,
+			"username":      username,
+			"email":         strings.TrimSpace(values["email"]),
 			"permission":    perm,
 			"authenticated": true,
 		},
@@ -337,39 +352,25 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Username     string `json:"username"`
-		Password     string `json:"password"`
-		RememberMe   bool   `json:"remember_me"`
-		CaptchaToken string `json:"captcha_token"`
-	}
-	if err := decodeAPIBody(r, &req); err != nil {
+	values, err := decodeJSONToStringMap(r)
+	if err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40007, "invalid json body",
 			&apiErrorDetail{Type: "validation_error"})
 		return
 	}
-
-	req.Username = strings.TrimSpace(req.Username)
-	if req.Username == "" {
-		ws.apiError(w, r, http.StatusBadRequest, 40008, "username is required",
-			&apiErrorDetail{Type: "validation_error", Field: "username"})
+	if values["remember_me"] != "" && values[authboss.CookieRemember] == "" {
+		values[authboss.CookieRemember] = strings.ToLower(values["remember_me"])
+	}
+	reader := defaults.NewHTTPBodyReader(true, true)
+	validatable, err := reader.Read("login", requestWithStringMapJSON(r, values))
+	if err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40007, "invalid json body",
+			&apiErrorDetail{Type: "validation_error"})
 		return
 	}
-	if req.Password == "" {
-		ws.apiError(w, r, http.StatusBadRequest, 40009, "password is required",
-			&apiErrorDetail{Type: "validation_error", Field: "password"})
-		return
-	}
+	creds := authboss.MustHaveUserValues(validatable)
 
-	if ws.turnstile != nil && ws.turnstile.Enabled && strings.TrimSpace(req.CaptchaToken) != "" {
-		if !ws.turnstile.VerifyToken(req.CaptchaToken, clientIPFromRequest(r)) {
-			ws.apiError(w, r, http.StatusBadRequest, 40010, "captcha verification failed",
-				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
-			return
-		}
-	}
-
-	pidUser, err := ws.authboss.Storage.Server.Load(r.Context(), req.Username)
+	pidUser, err := ws.authboss.Storage.Server.Load(r.Context(), creds.GetPID())
 	if err == authboss.ErrUserNotFound {
 		ws.apiError(w, r, http.StatusUnauthorized, 40111, "invalid credentials",
 			&apiErrorDetail{Type: "invalid_credentials"})
@@ -388,7 +389,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := ws.authboss.VerifyPassword(authUser, req.Password); err != nil {
+	if err := ws.authboss.VerifyPassword(authUser, creds.GetPassword()); err != nil {
 		_, _ = ws.authboss.Events.FireAfter(authboss.EventAuthFail, w, r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser)))
 		ws.apiError(w, r, http.StatusUnauthorized, 40112, "invalid credentials",
 			&apiErrorDetail{Type: "invalid_credentials"})
@@ -396,9 +397,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser))
-	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyValues, apiRememberValues{
-		shouldRemember: req.RememberMe,
-	}))
+	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyValues, validatable))
 
 	handled, err := ws.authboss.Events.FireBefore(authboss.EventAuth, w, r)
 	if err != nil {
@@ -897,6 +896,40 @@ func decodeAPIBody(r *http.Request, out interface{}) error {
 		return io.ErrUnexpectedEOF
 	}
 	return nil
+}
+
+func decodeJSONToStringMap(r *http.Request) (map[string]string, error) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAPIBodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	var v map[string]interface{}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]string, len(v))
+	for k, val := range v {
+		switch tv := val.(type) {
+		case string:
+			out[k] = tv
+		case bool:
+			out[k] = strconv.FormatBool(tv)
+		case nil:
+			out[k] = ""
+		default:
+			out[k] = fmt.Sprint(tv)
+		}
+	}
+	return out, nil
+}
+
+func requestWithStringMapJSON(r *http.Request, values map[string]string) *http.Request {
+	payload, _ := json.Marshal(values)
+	rr := r.Clone(r.Context())
+	rr.Body = io.NopCloser(bytes.NewReader(payload))
+	rr.ContentLength = int64(len(payload))
+	return rr
 }
 
 func parseDeviceStatusFilter(raw string) (string, *inter.AuthenticateStatusType, error) {

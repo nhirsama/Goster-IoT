@@ -26,11 +26,15 @@ func newTestWS(t *testing.T) (*webServer, inter.DataStore, inter.DeviceManager) 
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
+	ab, err := SetupAuthboss(ds, "../../html")
+	if err != nil {
+		t.Fatalf("failed to setup authboss: %v", err)
+	}
 
 	return &webServer{
 		dataStore:     ds,
 		deviceManager: dm,
-		authboss:      authboss.New(),
+		authboss:      ab,
 		turnstile:     &TurnstileService{},
 	}, ds, dm
 }
@@ -138,9 +142,9 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 		wantCode int
 	}{
 		{`{`, 40001},
-		{`{"username":"ab","password":"12345678"}`, 40002},
-		{`{"username":"abc","password":"123"}`, 40003},
-		{`{"username":"abcd","password":"12345678","email":"bad"}`, 40004},
+		{`{"username":"ab","password":"12345678","confirm_password":"12345678"}`, 40002},
+		{`{"username":"abc","password":"12345678","confirm_password":"12345678"}`, 40002},
+		{`{"username":"abcd","password":"12345678","confirm_password":"different"}`, 40002},
 	}
 	for _, tc := range registerCases {
 		rec := httptest.NewRecorder()
@@ -157,7 +161,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 	ws.turnstile = &TurnstileService{Enabled: true}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"validuser","password":"12345678"}`))
+		bytes.NewBufferString(`{"username":"validuser","password":"Admin123!","confirm_password":"Admin123!"}`))
 	ws.apiRegisterHandler(rec, req)
 	if got := mustJSONEnvelope(t, rec).Code; got != 40005 {
 		t.Fatalf("expected captcha required 40005, got %d", got)
@@ -168,15 +172,15 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 		wantCode int
 	}{
 		{`{`, 40007},
-		{`{"password":"12345678"}`, 40008},
-		{`{"username":"abc"}`, 40009},
+		{`{"password":"12345678"}`, 40111},
+		{`{"username":"abc"}`, 40111},
 	}
 	for _, tc := range loginCases {
 		rec = httptest.NewRecorder()
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(tc.body))
 		ws.apiLoginHandler(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("login expected 400, got %d", rec.Code)
+		if rec.Code != http.StatusUnauthorized && rec.Code != http.StatusBadRequest {
+			t.Fatalf("login expected 400/401, got %d", rec.Code)
 		}
 		if got := mustJSONEnvelope(t, rec).Code; got != tc.wantCode {
 			t.Fatalf("login unexpected code: got %d want %d", got, tc.wantCode)
@@ -338,7 +342,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 
 	registerRec := httptest.NewRecorder()
 	registerReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"admin","password":"admin12345","email":"admin@test.local"}`))
+		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","confirm_password":"Admin123!","email":"admin@test.local"}`))
 	register.ServeHTTP(registerRec, registerReq)
 
 	if registerRec.Code != http.StatusCreated {
@@ -350,7 +354,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 
 	conflictRec := httptest.NewRecorder()
 	conflictReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"admin","password":"admin12345"}`))
+		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","confirm_password":"Admin123!"}`))
 	register.ServeHTTP(conflictRec, conflictReq)
 	if conflictRec.Code != http.StatusConflict {
 		t.Fatalf("duplicate register expected 409, got %d", conflictRec.Code)
@@ -361,7 +365,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 
 	loginRec := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
-		bytes.NewBufferString(`{"username":"admin","password":"admin12345","remember_me":false}`))
+		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","remember_me":false}`))
 	login.ServeHTTP(loginRec, loginReq)
 	if loginRec.Code != http.StatusOK {
 		t.Fatalf("login expected 200, got %d, body=%s", loginRec.Code, loginRec.Body.String())
