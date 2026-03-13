@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -394,5 +395,68 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	logout.ServeHTTP(logoutRec, logoutReq)
 	if logoutRec.Code != http.StatusNoContent {
 		t.Fatalf("logout expected 204, got %d", logoutRec.Code)
+	}
+}
+
+func TestAPIDeviceDeleteCompatIgnoresNotFound(t *testing.T) {
+	ws, _, _ := newTestWS(t)
+	uuid := strings.Repeat("b", 64)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/devices/"+uuid, nil)
+	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	rec := httptest.NewRecorder()
+
+	ws.apiDeviceByUUIDHandler(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete not-found should still return 204, got %d", rec.Code)
+	}
+}
+
+func TestAPIRefreshTokenCompatNotFoundIsInternalError(t *testing.T) {
+	ws, _, _ := newTestWS(t)
+	uuid := strings.Repeat("c", 64)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/token/refresh", nil)
+	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	rec := httptest.NewRecorder()
+
+	ws.apiDeviceByUUIDHandler(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("refresh token not-found should return 500, got %d", rec.Code)
+	}
+	if code := mustJSONEnvelope(t, rec).Code; code != 50023 {
+		t.Fatalf("unexpected business code: %d", code)
+	}
+}
+
+func TestAPIUserPermissionCompatParsing(t *testing.T) {
+	ws, ds, _ := newTestWS(t)
+	seedUser(t, ds, "perm_user")
+
+	// 旧逻辑兼容：permission 非数字时按 0 处理
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/perm_user/permission",
+		bytes.NewBufferString(`{"permission":"bad"}`))
+	rec := httptest.NewRecorder()
+	ws.apiUserPermissionHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("json compat parse expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if perm, err := ds.GetUserPermission("perm_user"); err != nil || perm != inter.PermissionNone {
+		t.Fatalf("unexpected permission after compat parse: perm=%d err=%v", perm, err)
+	}
+
+	// 兼容旧表单提交
+	form := url.Values{}
+	form.Set("permission", "2")
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/perm_user/permission",
+		bytes.NewBufferString(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	ws.apiUserPermissionHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("form parse expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if perm, err := ds.GetUserPermission("perm_user"); err != nil || perm != inter.PermissionReadWrite {
+		t.Fatalf("unexpected permission after form parse: perm=%d err=%v", perm, err)
 	}
 }

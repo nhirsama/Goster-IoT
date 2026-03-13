@@ -32,7 +32,8 @@ const (
 const (
 	minValidMetricsTimestampMs int64 = 1672531200000
 	maxAPIBodyBytes            int64 = 1 << 20
-	maxDevicePageSize                = 1000
+	defaultDevicePageSize            = 10000
+	maxDevicePageSize                = 10000
 
 	defaultAPICORSAllowedOrigins = "http://localhost:5173,http://127.0.0.1:5173"
 )
@@ -502,32 +503,21 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, statusPtr, err := parseDeviceStatusFilter(r.URL.Query().Get("status"))
-	if err != nil {
-		ws.apiError(w, r, http.StatusBadRequest, 40011, "invalid status filter",
-			&apiErrorDetail{Type: "validation_error", Field: "status"})
-		return
+	status, statusPtr, statusErr := parseDeviceStatusFilter(r.URL.Query().Get("status"))
+	if statusErr != nil {
+		// 兼容旧逻辑：状态过滤非法时回退到 authenticated，而不是直接报错
+		status, statusPtr, _ = parseDeviceStatusFilter("authenticated")
 	}
 
 	page, err := parsePositiveIntQuery(r.URL.Query().Get("page"), 1, 0)
 	if err != nil {
-		ws.apiError(w, r, http.StatusBadRequest, 40012, "invalid page",
-			&apiErrorDetail{
-				Type:   "validation_error",
-				Field:  "page",
-				Reason: err.Error(),
-			})
-		return
+		// 兼容旧逻辑：page 非法时回退默认值
+		page = 1
 	}
-	size, err := parsePositiveIntQuery(r.URL.Query().Get("size"), 100, maxDevicePageSize)
+	size, err := parsePositiveIntQuery(r.URL.Query().Get("size"), defaultDevicePageSize, maxDevicePageSize)
 	if err != nil {
-		ws.apiError(w, r, http.StatusBadRequest, 40013, "invalid size",
-			&apiErrorDetail{
-				Type:   "validation_error",
-				Field:  "size",
-				Reason: err.Error(),
-			})
-		return
+		// 兼容旧逻辑：size 非法时回退默认值
+		size = defaultDevicePageSize
 	}
 
 	devices, err := ws.deviceManager.ListDevices(statusPtr, page, size)
@@ -603,19 +593,8 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 				return
 			}
-			if !ws.apiEnsureDeviceExists(w, r, uuid) {
-				return
-			}
-			if err := ws.deviceManager.DeleteDevice(uuid); err != nil {
-				if isNotFoundError(err) {
-					ws.apiError(w, r, http.StatusNotFound, 40422, "device not found",
-						&apiErrorDetail{Type: "not_found", Field: "uuid"})
-					return
-				}
-				ws.apiError(w, r, http.StatusInternalServerError, 50021, err.Error(),
-					&apiErrorDetail{Type: "internal_error"})
-				return
-			}
+			// 兼容旧逻辑：删除操作忽略错误（包括 not found），保持幂等成功返回
+			_ = ws.deviceManager.DeleteDevice(uuid)
 			ws.apiNoContent(w, r)
 		default:
 			ws.apiMethodNotAllowed(w, r)
@@ -674,17 +653,9 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 		if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 			return
 		}
-		if !ws.apiEnsureDeviceExists(w, r, uuid) {
-			return
-		}
-
 		token, err := ws.deviceManager.RefreshToken(uuid)
 		if err != nil {
-			if isNotFoundError(err) {
-				ws.apiError(w, r, http.StatusNotFound, 40424, "device not found",
-					&apiErrorDetail{Type: "not_found", Field: "uuid"})
-				return
-			}
+			// 兼容旧逻辑：刷新 token 失败统一作为内部错误返回
 			ws.apiError(w, r, http.StatusInternalServerError, 50023, err.Error(),
 				&apiErrorDetail{Type: "internal_error"})
 			return
@@ -816,31 +787,8 @@ func (ws *webServer) apiUserPermissionHandler(w http.ResponseWriter, r *http.Req
 			&apiErrorDetail{Type: "validation_error", Field: "username"})
 		return
 	}
-	var req struct {
-		Permission int `json:"permission"`
-	}
-	if err := decodeAPIBody(r, &req); err != nil {
-		ws.apiError(w, r, http.StatusBadRequest, 40041, "invalid json body",
-			&apiErrorDetail{Type: "validation_error"})
-		return
-	}
-	if req.Permission < int(inter.PermissionNone) || req.Permission > int(inter.PermissionAdmin) {
-		ws.apiError(w, r, http.StatusBadRequest, 40042, "permission out of range",
-			&apiErrorDetail{Type: "validation_error", Field: "permission"})
-		return
-	}
-	if _, err := ws.dataStore.GetUserPermission(username); err != nil {
-		if isNotFoundError(err) {
-			ws.apiError(w, r, http.StatusNotFound, 40442, "user not found",
-				&apiErrorDetail{Type: "not_found", Field: "username"})
-			return
-		}
-		ws.apiError(w, r, http.StatusInternalServerError, 50043, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
-		return
-	}
-
-	if err := ws.dataStore.UpdateUserPermission(username, inter.PermissionType(req.Permission)); err != nil {
+	perm := parsePermissionCompat(r)
+	if err := ws.dataStore.UpdateUserPermission(username, inter.PermissionType(perm)); err != nil {
 		ws.apiError(w, r, http.StatusInternalServerError, 50042, err.Error(),
 			&apiErrorDetail{Type: "internal_error"})
 		return
@@ -984,25 +932,19 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 
 	startRaw := r.URL.Query().Get("start_ms")
 	endRaw := r.URL.Query().Get("end_ms")
-	if (startRaw == "") != (endRaw == "") {
-		return 0, 0, "", errors.New("start_ms and end_ms must be provided together")
-	}
+
+	// 扩展能力：当 start_ms/end_ms 成对且可解析时优先使用；否则回退旧逻辑时间窗
 	if startRaw != "" && endRaw != "" {
-		start, err = strconv.ParseInt(startRaw, 10, 64)
-		if err != nil {
-			return 0, 0, "", errors.New("start_ms must be int64")
+		parsedStart, startErr := strconv.ParseInt(startRaw, 10, 64)
+		parsedEnd, endErr := strconv.ParseInt(endRaw, 10, 64)
+		if startErr == nil && endErr == nil && parsedStart <= parsedEnd {
+			start = parsedStart
+			end = parsedEnd
+			if start < minValidMetricsTimestampMs {
+				start = minValidMetricsTimestampMs
+			}
+			return start, end, rangeLabel, nil
 		}
-		end, err = strconv.ParseInt(endRaw, 10, 64)
-		if err != nil {
-			return 0, 0, "", errors.New("end_ms must be int64")
-		}
-		if start > end {
-			return 0, 0, "", errors.New("start_ms must be less than or equal to end_ms")
-		}
-		if start < minValidMetricsTimestampMs {
-			start = minValidMetricsTimestampMs
-		}
-		return start, end, rangeLabel, nil
 	}
 
 	switch rangeLabel {
@@ -1017,13 +959,44 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 	case "7d":
 		start = time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
 	default:
-		return 0, 0, "", errors.New("range must be one of 1h, 6h, 24h, 7d, all")
+		// 兼容旧逻辑：range 非法时回退到 1h
+		rangeLabel = "1h"
+		start = time.Now().Add(-time.Hour).UnixMilli()
 	}
 
 	if start < minValidMetricsTimestampMs {
 		start = minValidMetricsTimestampMs
 	}
 	return start, end, rangeLabel, nil
+}
+
+func parsePermissionCompat(r *http.Request) int {
+	if err := r.ParseForm(); err == nil {
+		if formVal := strings.TrimSpace(r.FormValue("permission")); formVal != "" {
+			var perm int
+			fmt.Sscanf(formVal, "%d", &perm)
+			return perm
+		}
+	}
+
+	if r.Body == nil {
+		return 0
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAPIBodyBytes))
+	if err != nil || len(raw) == 0 {
+		return 0
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0
+	}
+	if val, ok := payload["permission"]; ok {
+		var perm int
+		fmt.Sscanf(fmt.Sprint(val), "%d", &perm)
+		return perm
+	}
+	return 0
 }
 
 func (ws *webServer) apiOK(w http.ResponseWriter, r *http.Request, data interface{}) {

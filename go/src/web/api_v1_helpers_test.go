@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -105,32 +106,37 @@ func TestResolveAllowedAPIOrigin(t *testing.T) {
 	}
 }
 
-func TestAPIDevicesHandlerValidationErrors(t *testing.T) {
-	ws := &webServer{}
+func TestAPIDevicesHandlerFallbacksForInvalidQueries(t *testing.T) {
+	ws, ds, _ := newTestWS(t)
+	seedDevice(t, ds, strings.Repeat("a", 64), inter.Authenticated)
 
 	cases := []struct {
-		name      string
-		url       string
-		wantCode  int
-		wantField string
+		name             string
+		url              string
+		wantStatusFilter string
+		wantPage         float64
+		wantSize         float64
 	}{
 		{
-			name:      "invalid_status",
-			url:       "/api/v1/devices?status=bad",
-			wantCode:  40011,
-			wantField: "status",
+			name:             "invalid_status",
+			url:              "/api/v1/devices?status=bad",
+			wantStatusFilter: "authenticated",
+			wantPage:         1,
+			wantSize:         defaultDevicePageSize,
 		},
 		{
-			name:      "invalid_page",
-			url:       "/api/v1/devices?page=0",
-			wantCode:  40012,
-			wantField: "page",
+			name:             "invalid_page",
+			url:              "/api/v1/devices?page=0",
+			wantStatusFilter: "authenticated",
+			wantPage:         1,
+			wantSize:         defaultDevicePageSize,
 		},
 		{
-			name:      "invalid_size",
-			url:       "/api/v1/devices?size=1001",
-			wantCode:  40013,
-			wantField: "size",
+			name:             "invalid_size",
+			url:              "/api/v1/devices?size=999999",
+			wantStatusFilter: "authenticated",
+			wantPage:         1,
+			wantSize:         defaultDevicePageSize,
 		},
 	}
 
@@ -141,19 +147,34 @@ func TestAPIDevicesHandlerValidationErrors(t *testing.T) {
 
 			ws.apiDevicesHandler(rec, req)
 
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d", rec.Code)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
 			}
 
 			var env apiEnvelope
 			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 				t.Fatalf("decode response failed: %v", err)
 			}
-			if env.Code != tc.wantCode {
-				t.Fatalf("unexpected business code: got %d want %d", env.Code, tc.wantCode)
+			if env.Code != 0 {
+				t.Fatalf("unexpected business code: got %d", env.Code)
 			}
-			if env.Error == nil || env.Error.Field != tc.wantField {
-				t.Fatalf("unexpected error field: %+v", env.Error)
+
+			data, ok := env.Data.(map[string]interface{})
+			if !ok {
+				t.Fatalf("unexpected data type: %T", env.Data)
+			}
+			if data["status_filter"] != tc.wantStatusFilter {
+				t.Fatalf("unexpected status_filter: got %v want %v", data["status_filter"], tc.wantStatusFilter)
+			}
+			page, ok := data["page"].(map[string]interface{})
+			if !ok {
+				t.Fatalf("unexpected page field: %#v", data["page"])
+			}
+			if got := page["page"]; got != tc.wantPage {
+				t.Fatalf("unexpected page: got %v want %v", got, tc.wantPage)
+			}
+			if got := page["size"]; got != tc.wantSize {
+				t.Fatalf("unexpected size: got %v want %v", got, tc.wantSize)
 			}
 		})
 	}
