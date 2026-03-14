@@ -15,7 +15,7 @@ export default function AdminPage() {
     <div className="space-y-6 lg:max-w-2xl">
       <div>
         <h1 className="text-xl font-black text-slate-900">管理控制台</h1>
-        <p className="text-sm text-slate-500">前后端分离版的管理入口</p>
+        <p className="text-sm text-slate-500">系统管理入口</p>
       </div>
 
       <div className="glass-card rounded-2xl overflow-hidden">

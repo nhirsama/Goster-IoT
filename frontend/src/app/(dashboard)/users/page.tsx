@@ -176,7 +176,7 @@ export default function UserManagementPage() {
                                   className={`justify-between h-14 rounded-2xl px-6 font-bold transition-all ${u.permission === Number(val) ? "bg-blue-600 shadow-lg shadow-blue-100" : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/50"}`}
                                   onClick={() => {
                                     if (u.username === currentUser.username && Number(val) !== 3) {
-                                      toast.error("出于安全限制，当前登录管理员不能在前端把自己的权限降级。");
+                                      toast.error("当前登录管理员不能将自己的权限降级。");
                                       return;
                                     }
                                     updatePermissionMutation.mutate({ 
