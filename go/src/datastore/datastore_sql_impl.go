@@ -174,8 +174,13 @@ func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.Metr
 	var points []inter.MetricPoint
 	for rows.Next() {
 		var p inter.MetricPoint
-		rows.Scan(&p.Timestamp, &p.Value, &p.Type)
+		if err := rows.Scan(&p.Timestamp, &p.Value, &p.Type); err != nil {
+			return nil, err
+		}
 		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return points, nil
 }
@@ -205,8 +210,18 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 }
 
 func (s *DataStoreSql) UpdateToken(uuid string, newToken string) error {
-	_, err := s.db.Exec("UPDATE devices SET token = ? WHERE uuid = ?", newToken, uuid)
-	return err
+	res, err := s.db.Exec("UPDATE devices SET token = ? WHERE uuid = ?", newToken, uuid)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("device not found")
+	}
+	return nil
 }
 
 // DestroyDevice 物理删除设备及其所有关联数据
@@ -219,8 +234,16 @@ func (s *DataStoreSql) DestroyDevice(uuid string) error {
 	defer tx.Rollback() // 如果中间出错则回滚
 
 	// 分别删除三张表中的相关数据
-	if _, err := tx.Exec("DELETE FROM devices WHERE uuid = ?", uuid); err != nil {
+	deviceRes, err := tx.Exec("DELETE FROM devices WHERE uuid = ?", uuid)
+	if err != nil {
 		return err
+	}
+	deviceRows, err := deviceRes.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deviceRows == 0 {
+		return errors.New("device not found")
 	}
 	if _, err := tx.Exec("DELETE FROM metrics WHERE uuid = ?", uuid); err != nil {
 		return err
@@ -255,7 +278,7 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
 		)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		if token.Valid {
 			r.Meta.Token = token.String
@@ -263,6 +286,9 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 			r.Meta.Token = ""
 		}
 		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return records, nil
 }
@@ -288,7 +314,7 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
 		)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		if token.Valid {
 			r.Meta.Token = token.String
@@ -296,6 +322,9 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 			r.Meta.Token = ""
 		}
 		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return records, nil
 }
@@ -358,7 +387,7 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 		var username sql.NullString
 		// username is nullable in new schema
 		if err := rows.Scan(&username, &perm, &u.CreatedAt); err != nil {
-			continue
+			return nil, err
 		}
 		if username.Valid {
 			u.Username = username.String
@@ -367,6 +396,9 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 		}
 		u.Permission = inter.PermissionType(perm)
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return users, nil
 }
@@ -386,6 +418,16 @@ func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType,
 
 // UpdateUserPermission 更新用户权限
 func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.PermissionType) error {
-	_, err := s.db.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
-	return err
+	res, err := s.db.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("user not found")
+	}
+	return nil
 }

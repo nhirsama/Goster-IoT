@@ -1,17 +1,17 @@
 openapi: 3.1.0
 info:
-  title: Goster IoT Management API
+  title: Goster IoT 管理 API
   version: 0.4.0
-  summary: Frontend-Backend contract for current implemented management capabilities.
+  summary: 面向当前已实现管理能力的前后端契约。
   description: |
-    This contract is based on the current system behavior and data model.
-    It defines a stable `/api/v1` namespace for frontend-backend separation,
-    while preserving compatibility expectations from the existing management logic.
+    本契约基于当前系统行为与数据模型整理。
+    它定义了稳定的 `/api/v1` 命名空间用于前后端解耦，
+    同时保留现有管理逻辑的兼容性预期。
 
-    Design principles:
-    - Contract-first
-    - Backward-safe evolution
-    - Extensible payloads via `extensions` and `meta`
+    设计原则：
+    - 契约优先
+    - 向后安全演进
+    - 通过 `extensions` 与 `meta` 扩展负载
   x-current-logic:
     metrics_default_range: 1h
     metrics_min_valid_timestamp_ms: 1672531200000
@@ -19,7 +19,7 @@ info:
 
 servers:
   - url: http://localhost:8080
-    description: Local development
+    description: 本地开发环境
 
 tags:
   - name: Auth
@@ -36,11 +36,11 @@ paths:
     get:
       tags: [Auth]
       operationId: getCaptchaConfig
-      summary: Get captcha provider config for frontend.
+      summary: 获取前端验证码服务配置。
       security: []
       responses:
         '200':
-          description: Captcha configuration.
+          description: 验证码配置。
           content:
             application/json:
               schema:
@@ -50,11 +50,11 @@ paths:
     post:
       tags: [Auth]
       operationId: register
-      summary: Register user account.
+      summary: 注册用户账号。
       description: |
-        Mirrors existing register behavior:
-        - First registered user gets `Admin` permission.
-        - Later users default to `None` permission.
+        与现有注册行为保持一致：
+        - 首个注册用户获得 `Admin` 权限。
+        - 后续用户默认获得 `None` 权限。
       x-legacy-endpoint: /auth/register
       security: []
       requestBody:
@@ -65,7 +65,7 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: Registered successfully.
+          description: 注册成功。
           content:
             application/json:
               schema:
@@ -79,7 +79,7 @@ paths:
     post:
       tags: [Auth]
       operationId: login
-      summary: Login and create authenticated session.
+      summary: 登录并创建认证会话。
       x-legacy-endpoint: /auth/login
       security: []
       requestBody:
@@ -90,12 +90,12 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Logged in successfully.
+          description: 登录成功。
           headers:
             Set-Cookie:
               schema:
                 type: string
-              description: Session cookie set by server.
+              description: 由服务端设置的会话 Cookie。
           content:
             application/json:
               schema:
@@ -109,11 +109,11 @@ paths:
     post:
       tags: [Auth]
       operationId: logout
-      summary: Logout current session.
+      summary: 登出当前会话。
       x-legacy-endpoint: /auth/logout
       responses:
         '204':
-          description: Logged out.
+          description: 已登出。
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -121,10 +121,10 @@ paths:
     get:
       tags: [Auth]
       operationId: getCurrentUser
-      summary: Get current authenticated user profile.
+      summary: 获取当前已认证用户信息。
       responses:
         '200':
-          description: Current user info.
+          description: 当前用户信息。
           content:
             application/json:
               schema:
@@ -136,14 +136,14 @@ paths:
     get:
       tags: [Device]
       operationId: listDevices
-      summary: List devices by auth status.
+      summary: 按认证状态列出设备。
       parameters:
         - $ref: '#/components/parameters/DeviceStatusFilter'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          description: Device list.
+          description: 设备列表。
           content:
             application/json:
               schema:
@@ -157,12 +157,12 @@ paths:
     get:
       tags: [Device]
       operationId: getDevice
-      summary: Get device details.
+      summary: 获取设备详情。
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
-          description: Device detail.
+          description: 设备详情。
           content:
             application/json:
               schema:
@@ -177,12 +177,12 @@ paths:
     delete:
       tags: [Device]
       operationId: deleteDevice
-      summary: Permanently delete device and related data.
+      summary: 永久删除设备及其关联数据。
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '204':
-          description: Deleted.
+          description: 已删除。
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -194,13 +194,13 @@ paths:
     post:
       tags: [Device]
       operationId: approveDevice
-      summary: Approve pending device.
+      summary: 审批待认证设备。
       x-legacy-endpoint: /device/approve?uuid={uuid}
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
-          description: Approved.
+          description: 已通过审批。
           content:
             application/json:
               schema:
@@ -216,13 +216,13 @@ paths:
     post:
       tags: [Device]
       operationId: revokeDevice
-      summary: Reject pending device or revoke authorized device.
+      summary: 拒绝待认证设备或撤销已认证设备。
       x-legacy-endpoint: /device/revoke?uuid={uuid}
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
-          description: Revoked/Rejected.
+          description: 已撤销/已拒绝。
           content:
             application/json:
               schema:
@@ -238,13 +238,13 @@ paths:
     post:
       tags: [Device]
       operationId: unblockDevice
-      summary: Move device from refused/revoked to pending.
+      summary: 将设备从已拒绝/已撤销状态移回待认证状态。
       x-legacy-endpoint: /device/unblock?uuid={uuid}
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
-          description: Unblocked.
+          description: 已解除阻断。
           content:
             application/json:
               schema:
@@ -260,13 +260,13 @@ paths:
     post:
       tags: [Device]
       operationId: refreshDeviceToken
-      summary: Refresh device token.
+      summary: 刷新设备令牌。
       x-legacy-endpoint: /device/token/refresh?uuid={uuid}
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
-          description: Token refreshed.
+          description: 令牌已刷新。
           content:
             application/json:
               schema:
@@ -282,7 +282,7 @@ paths:
     get:
       tags: [Metrics]
       operationId: getMetrics
-      summary: Query metric points for a device.
+      summary: 查询设备指标点数据。
       x-legacy-endpoint: /api/metrics/{uuid}
       parameters:
         - $ref: '#/components/parameters/DeviceUUID'
@@ -291,7 +291,7 @@ paths:
         - $ref: '#/components/parameters/EndMs'
       responses:
         '200':
-          description: Metric points.
+          description: 指标点数据。
           content:
             application/json:
               schema:
@@ -307,10 +307,10 @@ paths:
     get:
       tags: [User]
       operationId: listUsers
-      summary: List system users.
+      summary: 列出系统用户。
       responses:
         '200':
-          description: User list.
+          description: 用户列表。
           content:
             application/json:
               schema:
@@ -324,7 +324,7 @@ paths:
     post:
       tags: [User]
       operationId: updateUserPermission
-      summary: Update user permission level.
+      summary: 更新用户权限等级。
       x-legacy-endpoint: /user/permission
       parameters:
         - $ref: '#/components/parameters/Username'
@@ -336,7 +336,7 @@ paths:
               $ref: '#/components/schemas/UpdatePermissionRequest'
       responses:
         '200':
-          description: Permission updated.
+          description: 权限已更新。
           content:
             application/json:
               schema:
@@ -356,12 +356,12 @@ components:
       type: apiKey
       in: cookie
       name: goster_session
-      description: Current primary auth method.
+      description: 当前主要认证方式。
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Reserved for future token-based auth.
+      description: 为未来基于令牌的认证预留。
 
   parameters:
     DeviceUUID:
@@ -389,12 +389,12 @@ components:
         enum: [all, authenticated, pending, refused, revoked]
         default: authenticated
       description: |
-        Auth status filter:
+        认证状态筛选：
         - authenticated -> `AuthenticateStatus=0`
         - refused -> `AuthenticateStatus=1`
         - pending -> `AuthenticateStatus=2`
         - revoked -> `AuthenticateStatus=4`
-        - all -> no filter
+        - all -> 不筛选
 
     Page:
       name: page
@@ -431,7 +431,7 @@ components:
       schema:
         type: integer
         format: int64
-      description: Explicit start timestamp in milliseconds. Overrides range when paired with end_ms.
+      description: 显式指定开始时间戳（毫秒）。与 `end_ms` 同时提供时会覆盖 `range`。
 
     EndMs:
       name: end_ms
@@ -440,39 +440,39 @@ components:
       schema:
         type: integer
         format: int64
-      description: Explicit end timestamp in milliseconds. Overrides range when paired with start_ms.
+      description: 显式指定结束时间戳（毫秒）。与 `start_ms` 同时提供时会覆盖 `range`。
 
   responses:
     BadRequest:
-      description: Invalid request.
+      description: 无效请求。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
 
     Unauthorized:
-      description: Authentication required or session expired.
+      description: 需要认证或会话已过期。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
 
     Forbidden:
-      description: Permission denied.
+      description: 权限不足。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
 
     NotFound:
-      description: Resource not found.
+      description: 资源不存在。
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
 
     Conflict:
-      description: Resource already exists or state conflict.
+      description: 资源已存在或状态冲突。
       content:
         application/json:
           schema:
@@ -485,19 +485,19 @@ components:
       properties:
         code:
           type: integer
-          description: 0 means success, non-zero means error.
+          description: 0 表示成功，非 0 表示错误。
           example: 0
         message:
           type: string
           example: ok
         request_id:
           type: string
-          description: Correlation id for tracing.
+          description: 用于链路追踪的关联 ID。
           example: req_20260312_abcdef
         meta:
           type: object
           additionalProperties: true
-          description: Extensible metadata.
+          description: 可扩展元数据。
 
     ErrorDetail:
       type: object
@@ -531,26 +531,26 @@ components:
       type: integer
       enum: [0, 1, 2, 3]
       description: |
-        0=None, 1=ReadOnly, 2=ReadWrite, 3=Admin
+        0=无权限, 1=只读, 2=读写, 3=管理员
       x-enumNames: [None, ReadOnly, ReadWrite, Admin]
 
     AuthStatusType:
       type: integer
       enum: [0, 1, 2, 3, 4]
       description: |
-        0=Authenticated, 1=Refused, 2=Pending, 3=Unknown, 4=Revoked
+        0=已认证, 1=已拒绝, 2=待认证, 3=未知, 4=已撤销
       x-enumNames: [Authenticated, Refused, Pending, Unknown, Revoked]
 
     DeviceRuntimeStatus:
       type: integer
       enum: [0, 1, 2]
-      description: 0=Offline, 1=Online, 2=Delayed
+      description: 0=离线, 1=在线, 2=延迟
       x-enumNames: [Offline, Online, Delayed]
 
     MetricType:
       type: integer
       enum: [1, 2, 4]
-      description: 1=Temperature, 2=Humidity, 4=Lux
+      description: 1=温度, 2=湿度, 4=光照
       x-enumNames: [Temperature, Humidity, Lux]
 
     CaptchaConfig:
@@ -811,7 +811,7 @@ components:
         ts:
           type: integer
           format: int64
-          description: Unix timestamp in milliseconds.
+          description: Unix 时间戳（毫秒）。
         value:
           type: number
           format: float

@@ -40,6 +40,9 @@ func (ws *webServer) registerRoutes(mux *http.ServeMux) {
 	staticPath := filepath.Join(ws.htmlDir, "static")
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))))
 
+	// 新版前后端分离 API 路由
+	ws.registerAPIRoutes(mux)
+
 	// 辅助函数: 链式调用中间件
 	chain := func(handler http.HandlerFunc, minPerm inter.PermissionType) http.Handler {
 		h := ws.authMiddleware(handler, minPerm)
