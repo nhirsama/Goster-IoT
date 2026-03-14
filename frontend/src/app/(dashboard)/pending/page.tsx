@@ -6,7 +6,8 @@ import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
 import { useUx } from "@/components/providers/ux-provider";
-
+import { PageHeader } from "@/components/dashboard/page-header";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import {
   Table,
   TableBody,
@@ -16,8 +17,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Bell, CheckCircle, XCircle, RefreshCw, Cpu } from "lucide-react";
+import { Bell, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
 
@@ -26,7 +28,7 @@ export default function PendingDevicesPage() {
   const queryClient = useQueryClient();
   const { toast, confirm: askConfirm } = useUx();
 
-  const { data: deviceData, isLoading } = useQuery({
+  const { data: deviceData, isLoading, isFetching } = useQuery({
     queryKey: queryKeys.devicesByStatus("pending"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "pending" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 2,
@@ -62,90 +64,77 @@ export default function PendingDevicesPage() {
   const devices = deviceData?.items || [];
 
   return (
-    <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
-        <div className="flex items-center gap-3">
-          <div className="bg-amber-100 p-3 rounded-2xl text-amber-600">
-            <Bell className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">待处理认证</h1>
-            <p className="text-slate-500 font-medium">审批新接入系统的 IoT 设备</p>
-          </div>
-        </div>
-        <Button 
-          variant="outline" 
-          className="bg-white shadow-sm border-slate-200 hover:bg-slate-50 rounded-xl"
-          onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") })}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          刷新列表
-        </Button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={Bell}
+        title="待处理认证"
+        description="审批新接入系统的 IoT 设备。"
+        action={
+          <Button
+            variant="outline"
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") })}
+            disabled={isFetching}
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            刷新列表
+          </Button>
+        }
+      />
 
-      <Card className="border-none shadow-xl shadow-slate-200/50 bg-white overflow-hidden rounded-2xl">
+      <Card>
         <CardContent className="p-0">
           <Table>
             <TableHeader className="bg-slate-50/50">
-              <TableRow className="border-slate-100 hover:bg-transparent">
-                <TableHead className="font-bold text-slate-500 pl-6 h-12">设备标识 (UUID / MAC)</TableHead>
-                <TableHead className="font-bold text-slate-500 h-12">设备名称</TableHead>
-                <TableHead className="font-bold text-slate-500 h-12">序列号 (SN)</TableHead>
-                <TableHead className="text-right pr-6 font-bold text-slate-500 h-12">操作</TableHead>
+              <TableRow className="border-slate-200/70 hover:bg-transparent">
+                <TableHead className="h-12 pl-6 text-slate-500">设备标识</TableHead>
+                <TableHead className="h-12 text-slate-500">设备名称</TableHead>
+                <TableHead className="h-12 text-slate-500">SN</TableHead>
+                <TableHead className="h-12 pr-6 text-right text-slate-500">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-20 text-slate-400">正在获取待审批设备...</TableCell>
+                  <TableCell colSpan={4}>
+                    <EmptyState icon={RefreshCw} title="正在获取待审批设备" description="请稍候..." className="py-16" />
+                  </TableCell>
                 </TableRow>
               ) : devices.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-20">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="bg-slate-50 p-4 rounded-full">
-                        <CheckCircle className="h-10 w-10 text-emerald-400" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-slate-900 font-bold">没有待处理的设备认证</p>
-                        <p className="text-slate-400 text-sm">所有接入请求均已处理完毕</p>
-                      </div>
-                    </div>
+                  <TableCell colSpan={4}>
+                    <EmptyState icon={CheckCircle2} title="没有待处理设备" description="当前接入请求已全部处理完成。" className="py-16" />
                   </TableCell>
                 </TableRow>
               ) : (
                 devices.map((device: DeviceRecord) => (
-                  <TableRow key={device.uuid} className="group border-slate-50 hover:bg-slate-50/50 transition-colors">
+                  <TableRow key={device.uuid} className="border-slate-100/70">
                     <TableCell className="pl-6 py-4">
-                       <div className="font-mono text-sm font-bold text-slate-700">{device.uuid}</div>
-                       <div className="font-mono text-xs text-slate-400 mt-1">{device.meta.mac}</div>
+                      <div className="font-mono text-xs text-slate-600">{device.uuid}</div>
+                      <div className="mt-1 font-mono text-xs text-slate-400">{device.meta.mac}</div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-slate-400" />
-                        <span className="font-semibold text-slate-900">{device.meta.name}</span>
-                      </div>
+                      <div className="font-medium text-slate-900">{device.meta.name}</div>
                     </TableCell>
                     <TableCell>
-                      <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md text-xs font-mono font-bold">
+                      <Badge variant="outline" className="bg-slate-100 text-slate-600">
                         {device.meta.sn}
-                      </span>
+                      </Badge>
                     </TableCell>
                     <TableCell className="pr-6 text-right">
                       <div className="flex justify-end gap-2">
                         <Button
                           size="sm"
-                          className="h-9 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl px-4 transition-all shadow-sm"
+                          className="bg-emerald-600 text-white hover:bg-emerald-500"
                           onClick={() => approveMutation.mutate(device.uuid)}
                           disabled={approveMutation.isPending || revokeMutation.isPending}
                         >
-                          <CheckCircle className="h-4 w-4 mr-2" />
+                          <CheckCircle2 className="h-4 w-4" />
                           批准
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-9 text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-300 rounded-xl px-4 transition-all"
+                          className="border-rose-200 text-rose-600 hover:bg-rose-50"
                           onClick={async () => {
                             const ok = await askConfirm({
                               title: "拒绝设备接入",
@@ -154,13 +143,11 @@ export default function PendingDevicesPage() {
                               cancelText: "取消",
                               tone: "danger",
                             });
-                            if (ok) {
-                              revokeMutation.mutate(device.uuid);
-                            }
+                            if (ok) revokeMutation.mutate(device.uuid);
                           }}
                           disabled={approveMutation.isPending || revokeMutation.isPending}
                         >
-                          <XCircle className="h-4 w-4 mr-2" />
+                          <XCircle className="h-4 w-4" />
                           拒绝
                         </Button>
                       </div>
