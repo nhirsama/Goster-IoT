@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
+import { useUx } from "@/components/providers/ux-provider";
 
 import {
   Table,
@@ -23,6 +24,7 @@ type DeviceRecord = components["schemas"]["DeviceRecord"];
 export default function PendingDevicesPage() {
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
+  const { toast, confirm: askConfirm } = useUx();
 
   const { data: deviceData, isLoading } = useQuery({
     queryKey: queryKeys.devicesByStatus("pending"),
@@ -33,17 +35,25 @@ export default function PendingDevicesPage() {
   const approveMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/approve`),
     onSuccess: () => {
+      toast.success("设备已通过认证");
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "设备批准失败，请稍后重试"));
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
+      toast.success("设备已拒绝接入");
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "设备拒绝操作失败，请稍后重试"));
     },
   });
 
@@ -136,8 +146,15 @@ export default function PendingDevicesPage() {
                           size="sm"
                           variant="outline"
                           className="h-9 text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-300 rounded-xl px-4 transition-all"
-                          onClick={() => {
-                            if (confirm("确定要拒绝该设备的接入请求吗？")) {
+                          onClick={async () => {
+                            const ok = await askConfirm({
+                              title: "拒绝设备接入",
+                              description: "确定要拒绝该设备的接入请求吗？",
+                              confirmText: "确认拒绝",
+                              cancelText: "取消",
+                              tone: "danger",
+                            });
+                            if (ok) {
                               revokeMutation.mutate(device.uuid);
                             }
                           }}

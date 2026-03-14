@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { metricRangeOptions } from "@/lib/dashboard-meta";
 import { queryKeys } from "@/lib/query-keys";
 import { useParams, useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
+import { useUx } from "@/components/providers/ux-provider";
 import {
   LineChart,
   Line,
@@ -52,6 +53,7 @@ export default function DeviceMetricsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { toast, confirm: askConfirm } = useUx();
   const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
 
@@ -74,28 +76,40 @@ export default function DeviceMetricsPage() {
   const refreshTokenMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/token/refresh`),
     onSuccess: () => {
+      toast.success("设备令牌已重置");
       queryClient.invalidateQueries({ queryKey: queryKeys.device(uuid) });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "重置令牌失败，请稍后重试"));
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
+      toast.success("设备已吊销");
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "吊销设备失败，请稍后重试"));
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/v1/devices/${uuid}`),
     onSuccess: () => {
+      toast.success("设备已删除");
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "删除设备失败，请稍后重试"));
     },
   });
 
@@ -159,10 +173,17 @@ export default function DeviceMetricsPage() {
               <Button 
                 variant="outline" 
                 className="border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm font-bold"
-                onClick={() => {
-                  if(confirm("确定要重置该设备的 Token 吗？这将导致设备断开连接。")) {
+                onClick={async () => {
+                  const ok = await askConfirm({
+                    title: "重置设备令牌",
+                    description: "确定要重置该设备的 Token 吗？这将导致设备断开连接。",
+                    confirmText: "确认重置",
+                    cancelText: "取消",
+                    tone: "danger",
+                  });
+                  if (ok) {
                     refreshTokenMutation.mutate();
-                  }
+                  } 
                 }}
               >
                 <Key className="h-4 w-4 mr-2" />
@@ -182,10 +203,17 @@ export default function DeviceMetricsPage() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={() => {
-                      if(confirm("确定要吊销该设备的认证吗？设备将无法连接。")) {
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: "吊销设备认证",
+                        description: "确定要吊销该设备的认证吗？设备将无法连接。",
+                        confirmText: "确认吊销",
+                        cancelText: "取消",
+                        tone: "danger",
+                      });
+                      if (ok) {
                         revokeMutation.mutate();
-                      }
+                      } 
                     }}
                   >
                     <Ban className="h-4 w-4 mr-2" />
@@ -193,10 +221,17 @@ export default function DeviceMetricsPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem 
                     className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={() => {
-                      if(confirm("确定要永久删除该设备吗？所有历史数据将丢失且无法恢复！")) {
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: "删除设备",
+                        description: "确定要永久删除该设备吗？所有历史数据将丢失且无法恢复。",
+                        confirmText: "确认删除",
+                        cancelText: "取消",
+                        tone: "danger",
+                      });
+                      if (ok) {
                         deleteMutation.mutate();
-                      }
+                      } 
                     }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
