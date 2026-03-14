@@ -1,11 +1,10 @@
 package web
 
 import (
-	"html/template"
+	"errors"
 	"log"
 	"net/http"
 
-	"github.com/aarondl/authboss/v3"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -13,23 +12,33 @@ type webServer struct {
 	dataStore     inter.DataStore
 	deviceManager inter.DeviceManager
 	api           inter.Api
-	templates     map[string]*template.Template
-	htmlDir       string
-	authboss      *authboss.Authboss
-	turnstile     *TurnstileService
+	auth          AuthService
+	captcha       CaptchaVerifier
 }
 
-// NewWebServer 创建一个新的 web 服务器实例
-func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, api inter.Api, htmlDir string, ab *authboss.Authboss) inter.WebServer {
-	return &webServer{
-		dataStore:     ds,
-		deviceManager: dm,
-		api:           api,
-		templates:     loadTemplates(htmlDir),
-		htmlDir:       htmlDir,
-		authboss:      ab,
-		turnstile:     NewTurnstileService(),
+func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
+	ws, err := newWebServer(deps)
+	if err != nil {
+		return nil, err
 	}
+	return ws, nil
+}
+
+func newWebServer(deps WebServerDeps) (*webServer, error) {
+	if err := deps.normalize(); err != nil {
+		return nil, err
+	}
+	ws := &webServer{
+		dataStore:     deps.DataStore,
+		deviceManager: deps.DeviceManager,
+		api:           deps.API,
+		auth:          deps.Auth,
+		captcha:       deps.Captcha,
+	}
+	if ws.auth == nil {
+		return nil, errors.New("auth service is required")
+	}
+	return ws, nil
 }
 
 // Start 启动标准 HTTP 服务器

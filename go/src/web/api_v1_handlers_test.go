@@ -26,16 +26,20 @@ func newTestWS(t *testing.T) (*webServer, inter.DataStore, inter.DeviceManager) 
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
-	ab, err := SetupAuthboss(ds, "../../html")
+	ab, err := SetupAuthboss(ds)
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
+	}
+	authService, err := NewAuthService(ab)
+	if err != nil {
+		t.Fatalf("failed to setup auth service: %v", err)
 	}
 
 	return &webServer{
 		dataStore:     ds,
 		deviceManager: dm,
-		authboss:      ab,
-		turnstile:     &TurnstileService{},
+		auth:          authService,
+		captcha:       &TurnstileService{},
 	}, ds, dm
 }
 
@@ -103,16 +107,20 @@ func newAuthFlowWS(t *testing.T) *webServer {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
-	ab, err := SetupAuthboss(ds, "../../html")
+	ab, err := SetupAuthboss(ds)
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
+	}
+	authService, err := NewAuthService(ab)
+	if err != nil {
+		t.Fatalf("failed to setup auth service: %v", err)
 	}
 
 	return &webServer{
 		dataStore:     ds,
 		deviceManager: dm,
-		authboss:      ab,
-		turnstile:     &TurnstileService{Enabled: false},
+		auth:          authService,
+		captcha:       &TurnstileService{Enabled: false},
 	}
 }
 
@@ -131,7 +139,7 @@ func TestAPICaptchaConfigHandler(t *testing.T) {
 		t.Fatalf("unexpected provider: %v", data["provider"])
 	}
 
-	ws.turnstile = &TurnstileService{Enabled: true, SiteKey: "site_key_x"}
+	ws.captcha = &TurnstileService{Enabled: true, SiteKey: "site_key_x"}
 	rec = httptest.NewRecorder()
 	ws.apiCaptchaConfigHandler(rec, req)
 	env = mustJSONEnvelope(t, rec)
@@ -165,7 +173,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 		}
 	}
 
-	ws.turnstile = &TurnstileService{Enabled: true}
+	ws.captcha = &TurnstileService{Enabled: true}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		bytes.NewBufferString(`{"username":"validuser","password":"Admin123!"}`))
@@ -345,9 +353,9 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	ws := newAuthFlowWS(t)
 
-	register := ws.authboss.LoadClientStateMiddleware(http.HandlerFunc(ws.apiRegisterHandler))
-	login := ws.authboss.LoadClientStateMiddleware(http.HandlerFunc(ws.apiLoginHandler))
-	logout := ws.authboss.LoadClientStateMiddleware(http.HandlerFunc(ws.apiLogoutHandler))
+	register := ws.auth.LoadClientStateMiddleware(http.HandlerFunc(ws.apiRegisterHandler))
+	login := ws.auth.LoadClientStateMiddleware(http.HandlerFunc(ws.apiLoginHandler))
+	logout := ws.auth.LoadClientStateMiddleware(http.HandlerFunc(ws.apiLogoutHandler))
 
 	registerRec := httptest.NewRecorder()
 	registerReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",

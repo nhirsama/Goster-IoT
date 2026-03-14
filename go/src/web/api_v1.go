@@ -57,10 +57,10 @@ type apiEnvelope struct {
 
 func (ws *webServer) registerAPIRoutes(mux *http.ServeMux) {
 	public := func(h http.HandlerFunc) http.Handler {
-		return ws.apiMiddleware(ws.authboss.LoadClientStateMiddleware(h))
+		return ws.apiMiddleware(ws.auth.LoadClientStateMiddleware(h))
 	}
 	protected := func(h http.HandlerFunc, minPerm inter.PermissionType) http.Handler {
-		return ws.apiMiddleware(ws.authboss.LoadClientStateMiddleware(ws.apiAuthMiddleware(h, minPerm)))
+		return ws.apiMiddleware(ws.auth.LoadClientStateMiddleware(ws.apiAuthMiddleware(h, minPerm)))
 	}
 
 	mux.Handle("/api/v1/auth/captcha/config", public(ws.apiCaptchaConfigHandler))
@@ -159,7 +159,7 @@ func (ws *webServer) apiAuthMiddleware(next http.HandlerFunc, minPerm inter.Perm
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := ws.getRequestID(r)
 
-		u, err := ws.authboss.CurrentUser(r)
+		u, err := ws.auth.CurrentUser(r)
 		if err != nil || u == nil {
 			ws.apiErrorWithRequestID(
 				w, http.StatusUnauthorized, rid, 40101, "unauthorized",
@@ -202,10 +202,10 @@ func (ws *webServer) apiCaptchaConfigHandler(w http.ResponseWriter, r *http.Requ
 	provider := "none"
 	enabled := false
 	siteKey := ""
-	if ws.turnstile != nil && ws.turnstile.Enabled {
+	if ws.captcha != nil && ws.captcha.IsEnabled() {
 		provider = "turnstile"
 		enabled = true
-		siteKey = ws.turnstile.SiteKey
+		siteKey = ws.captcha.PublicSiteKey()
 	}
 
 	ws.apiOK(w, r, map[string]interface{}{
@@ -272,34 +272,31 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if ws.turnstile != nil && ws.turnstile.Enabled {
+	if ws.captcha != nil && ws.captcha.IsEnabled() {
 		if captchaToken == "" {
 			ws.apiError(w, r, http.StatusBadRequest, 40005, "captcha token required",
 				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
 			return
 		}
-		if !ws.turnstile.VerifyToken(captchaToken, clientIPFromRequest(r)) {
+		if !ws.captcha.VerifyToken(captchaToken, clientIPFromRequest(r)) {
 			ws.apiError(w, r, http.StatusBadRequest, 40006, "captcha verification failed",
 				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
 			return
 		}
 	}
 
-	storer, ok := ws.authboss.Config.Storage.Server.(authboss.CreatingServerStorer)
-	if !ok {
-		ws.apiError(w, r, http.StatusInternalServerError, 50002, "registration not supported",
-			&apiErrorDetail{Type: "internal_error"})
+	user, err := ws.auth.NewAuthableUser(r.Context())
+	if err != nil {
+		ws.apiInternalError(w, r, 50002, err)
 		return
 	}
-
-	user := authboss.MustBeAuthable(storer.New(r.Context()))
 	user.PutPID(username)
 
 	if emailSetter, ok := user.(interface{ PutEmail(string) }); ok {
 		emailSetter.PutEmail(email)
 	}
 
-	pass, err := ws.authboss.Config.Core.Hasher.GenerateHash(password)
+	pass, err := ws.auth.HashPassword(password)
 	if err != nil {
 		ws.apiError(w, r, http.StatusInternalServerError, 50003, "failed to generate password hash",
 			&apiErrorDetail{Type: "internal_error"})
@@ -307,7 +304,7 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	user.PutPassword(pass)
 
-	if err := storer.Create(r.Context(), user); err != nil {
+	if err := ws.auth.CreateUser(r.Context(), user); err != nil {
 		if err == authboss.ErrUserFound {
 			ws.apiError(w, r, http.StatusConflict, 40901, "user already exists",
 				&apiErrorDetail{Type: "conflict", Field: "username"})
@@ -318,7 +315,7 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, user))
-	handled, err := ws.authboss.Events.FireAfter(authboss.EventRegister, w, r)
+	handled, err := ws.auth.FireAfter(authboss.EventRegister, w, r)
 	if err != nil {
 		ws.apiInternalError(w, r, 50005, err)
 		return
@@ -393,7 +390,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	creds := authboss.MustHaveUserValues(validatable)
 
-	pidUser, err := ws.authboss.Storage.Server.Load(r.Context(), creds.GetPID())
+	pidUser, err := ws.auth.LoadUser(r.Context(), creds.GetPID())
 	if err == authboss.ErrUserNotFound {
 		ws.apiError(w, r, http.StatusUnauthorized, 40111, "invalid credentials",
 			&apiErrorDetail{Type: "invalid_credentials"})
@@ -411,8 +408,8 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := ws.authboss.VerifyPassword(authUser, creds.GetPassword()); err != nil {
-		_, _ = ws.authboss.Events.FireAfter(authboss.EventAuthFail, w, r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser)))
+	if err := ws.auth.VerifyPassword(authUser, creds.GetPassword()); err != nil {
+		_, _ = ws.auth.FireAfter(authboss.EventAuthFail, w, r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser)))
 		ws.apiError(w, r, http.StatusUnauthorized, 40112, "invalid credentials",
 			&apiErrorDetail{Type: "invalid_credentials"})
 		return
@@ -421,7 +418,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser))
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyValues, validatable))
 
-	handled, err := ws.authboss.Events.FireBefore(authboss.EventAuth, w, r)
+	handled, err := ws.auth.FireBefore(authboss.EventAuth, w, r)
 	if err != nil {
 		ws.apiInternalError(w, r, 50008, err)
 		return
@@ -430,7 +427,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handled, err = ws.authboss.Events.FireBefore(authboss.EventAuthHijack, w, r)
+	handled, err = ws.auth.FireBefore(authboss.EventAuthHijack, w, r)
 	if err != nil {
 		ws.apiInternalError(w, r, 50009, err)
 		return
@@ -442,7 +439,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 	authboss.PutSession(w, authboss.SessionKey, pidUser.GetPID())
 	authboss.DelSession(w, authboss.SessionHalfAuthKey)
 
-	handled, err = ws.authboss.Events.FireAfter(authboss.EventAuth, w, r)
+	handled, err = ws.auth.FireAfter(authboss.EventAuth, w, r)
 	if err != nil {
 		ws.apiInternalError(w, r, 50010, err)
 		return
@@ -472,18 +469,16 @@ func (ws *webServer) apiLogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := ws.authboss.CurrentUser(r)
+	user, err := ws.auth.CurrentUser(r)
 	if err != nil || user == nil {
 		ws.apiError(w, r, http.StatusUnauthorized, 40113, "unauthorized",
 			&apiErrorDetail{Type: "auth_required"})
 		return
 	}
 
-	if rememberStorer, ok := ws.authboss.Config.Storage.Server.(authboss.RememberingServerStorer); ok {
-		if err := rememberStorer.DelRememberTokens(r.Context(), user.GetPID()); err != nil {
-			ws.apiInternalError(w, r, 50012, err)
-			return
-		}
+	if err := ws.auth.ClearRememberTokens(r.Context(), user.GetPID()); err != nil {
+		ws.apiInternalError(w, r, 50012, err)
+		return
 	}
 
 	authboss.DelKnownSession(w)
@@ -501,7 +496,7 @@ func (ws *webServer) apiMeHandler(w http.ResponseWriter, r *http.Request) {
 	perm, _ := r.Context().Value(apiCtxPerm).(inter.PermissionType)
 
 	email := ""
-	u, _ := ws.authboss.CurrentUser(r)
+	u, _ := ws.auth.CurrentUser(r)
 	if su, ok := u.(inter.SessionUser); ok {
 		email = su.GetEmail()
 	}
