@@ -9,7 +9,7 @@ export function useAuth() {
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  const { data: user, isLoading, isError, refetch } = useQuery<AuthSession>({
+  const { data: user, isLoading, refetch } = useQuery<AuthSession>({
     queryKey: ["auth-me"],
     queryFn: () => api.get("/api/v1/auth/me"),
     retry: false,

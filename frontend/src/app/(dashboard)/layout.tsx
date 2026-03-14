@@ -10,17 +10,19 @@ import Link from "next/link";
 import {
   Network,
   Monitor,
-  Wrench,
   Bell,
   Ban,
-  UserCog,
   Users,
   LogOut,
   ChevronRight,
-  Home,
   Server,
+  Fingerprint,
+  Home,
+  Layers,
+  Menu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
 
@@ -41,22 +43,24 @@ export default function DashboardLayout({
 
   const { data: deviceData } = useQuery({
     queryKey: ["devices", "authenticated"],
-    queryFn: () => api.get("/api/v1/devices", { status: "authenticated" }),
+    queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "authenticated" }),
     enabled: isAuthenticated,
+    refetchInterval: 10000, // 与原版一致：10秒刷新设备列表
   });
 
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="h-8 w-8 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
+      <div className="flex items-center justify-center min-h-screen bg-slate-900">
+        <div className="h-8 w-8 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
       </div>
     );
   }
 
+  // 零权限处理 (与原版逻辑一致)
   if (user?.permission === 0) {
     return (
       <div className="container flex flex-col items-center justify-center min-h-screen text-center p-4 bg-slate-50 mx-auto">
-        <UserCog className="h-20 w-20 text-slate-400 mb-4" />
+        <Ban className="h-20 w-20 text-slate-400 mb-4" />
         <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">账户待审核</h1>
         <p className="text-lg text-slate-500 mb-8">您的账户注册成功，但暂时没有任何权限。</p>
         <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => logout()}>
@@ -68,137 +72,185 @@ export default function DashboardLayout({
 
   const devices = deviceData?.items || [];
   const permission = user?.permission || 0;
+  const mobileHomeActive = pathname === "/";
+  const mobileDevicesActive = pathname === "/devices" || pathname.startsWith("/devices/");
+  const mobileAdminActive =
+    pathname === "/admin" || pathname === "/pending" || pathname === "/blacklist" || pathname === "/users";
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] font-sans text-slate-900 overflow-hidden">
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-72 bg-white border-r border-slate-200 shadow-sm z-20">
-        <div className="p-6">
+    <div className="flex h-screen bg-[#f1f5f9] font-sans text-slate-900 overflow-hidden">
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-30 h-14 bg-white/95 backdrop-blur border-b border-slate-200">
+        <div className="h-full px-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm">
+              <Network className="h-4 w-4 text-white" />
+            </div>
+            <span className="text-base font-black text-slate-900">Goster IoT</span>
+          </Link>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => logout()}>
+            <LogOut className="h-4 w-4 text-slate-500" />
+          </Button>
+        </div>
+      </header>
+
+      {/* 桌面端侧边栏 - 主流 IoT 风格：深色高对比度 */}
+      <aside className="hidden lg:flex flex-col w-[280px] bg-[#0f172a] text-slate-300 shadow-2xl z-20">
+        <div className="p-6 border-b border-slate-800/50">
           <Link href="/" className="flex items-center gap-3 text-decoration-none group">
-            <div className="bg-blue-600 p-2 rounded-xl shadow-md shadow-blue-200 group-hover:bg-blue-700 transition-colors">
+            <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-900/20 group-hover:bg-blue-500 transition-colors">
               <Network className="h-6 w-6 text-white" />
             </div>
-            <span className="text-2xl font-black tracking-tight text-slate-900">Goster IoT</span>
+            <span className="text-2xl font-black tracking-tight text-white">Goster IoT</span>
           </Link>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 custom-scrollbar">
-          <div className="mb-6">
-            <div className="flex items-center gap-2 px-2 mb-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
-              <Monitor className="h-4 w-4" />
+        <div className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-700">
+          {/* 设备监控区 */}
+          <div className="mb-8">
+            <div className="flex items-center gap-2 px-2 mb-4 text-[11px] font-black text-slate-500 uppercase tracking-widest">
+              <Monitor className="h-3.5 w-3.5" />
               <span>设备监控</span>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {devices.length === 0 ? (
-                <div className="px-4 py-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <Server className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-slate-500">暂无在线设备</p>
+                <div className="px-4 py-8 text-center bg-slate-800/30 rounded-xl border border-dashed border-slate-700/50">
+                  <Server className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                  <p className="text-xs font-medium text-slate-500">暂无在线设备</p>
                 </div>
               ) : (
-                devices.map((device: DeviceRecord) => (
-                  <Link
-                    key={device.uuid}
-                    href={`/devices/${device.uuid}`}
-                    className={`flex items-center justify-between p-3 rounded-xl transition-all ${pathname === `/devices/${device.uuid}` ? 'bg-blue-50 border border-blue-100 shadow-sm' : 'hover:bg-slate-50 border border-transparent'}`}
-                  >
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${device.runtime?.status === 1 ? 'bg-emerald-500' : device.runtime?.status === 2 ? 'bg-amber-500' : 'bg-slate-300'}`}></span>
-                      <div className="truncate">
-                        <p className={`text-sm font-bold truncate ${pathname === `/devices/${device.uuid}` ? 'text-blue-700' : 'text-slate-700'}`}>{device.meta.name}</p>
-                        <p className="text-[10px] font-mono text-slate-400 truncate">{device.uuid.split("-")[0]}...</p>
+                devices.map((device: DeviceRecord) => {
+                  const isActive = pathname === `/devices/${device.uuid}`;
+                  return (
+                    <Link
+                      key={device.uuid}
+                      href={`/devices/${device.uuid}`}
+                      className={`flex items-center justify-between p-3 rounded-xl transition-all border ${isActive ? 'bg-blue-600/10 border-blue-500/30 shadow-inner' : 'border-transparent hover:bg-slate-800/50 hover:border-slate-700/50'}`}
+                    >
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        {/* 状态点 - 发光效果 */}
+                        <div className="relative flex-shrink-0">
+                           <span className={`absolute inset-0 rounded-full blur-sm opacity-50 ${device.runtime?.status === 1 ? 'bg-emerald-400' : device.runtime?.status === 2 ? 'bg-amber-400' : 'bg-slate-500'}`}></span>
+                           <span className={`relative block h-2.5 w-2.5 rounded-full ${device.runtime?.status === 1 ? 'bg-emerald-500' : device.runtime?.status === 2 ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
+                        </div>
+                        <div className="truncate">
+                          <p className={`text-sm font-bold truncate ${isActive ? 'text-blue-400' : 'text-slate-200'}`}>{device.meta.name}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Fingerprint className="h-3 w-3 text-slate-600" />
+                            <p className="text-[10px] font-mono text-slate-500 truncate">{device.uuid.split("-")[0]}</p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <ChevronRight className={`h-4 w-4 flex-shrink-0 ${pathname === `/devices/${device.uuid}` ? 'text-blue-400' : 'text-slate-300 opacity-0 group-hover:opacity-100'}`} />
-                  </Link>
-                ))
+                      <ChevronRight className={`h-4 w-4 flex-shrink-0 transition-transform ${isActive ? 'text-blue-500 translate-x-1' : 'text-slate-700 opacity-0 group-hover:opacity-100'}`} />
+                    </Link>
+                  );
+                })
               )}
             </div>
           </div>
 
-          <div className="mb-6">
-            <div className="flex items-center gap-2 px-2 mb-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
-              <Wrench className="h-4 w-4" />
-              <span>管理</span>
+          {/* 管理区 */}
+          <div className="mb-8">
+            <div className="flex items-center gap-2 px-2 mb-4 text-[11px] font-black text-slate-500 uppercase tracking-widest">
+              <span>管理控制台</span>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {permission >= 2 && (
-                <Link href="/pending" className={`flex items-center gap-3 p-3 rounded-xl transition-all ${pathname === '/pending' ? 'bg-amber-50 border border-amber-100 text-amber-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50 border border-transparent'}`}>
-                  <Bell className="h-4 w-4" />
-                  <span className="text-sm font-bold">待处理认证</span>
+                <Link href="/pending" className={`flex items-center justify-between p-3 rounded-xl transition-all border ${pathname === '/pending' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                  <div className="flex items-center gap-3">
+                    <Bell className="h-4 w-4" />
+                    <span className="text-sm font-bold">待处理认证</span>
+                  </div>
+                  <ChevronRight className="h-4 w-4 opacity-30" />
                 </Link>
               )}
               {permission >= 1 && (
-                <Link href="/blacklist" className={`flex items-center gap-3 p-3 rounded-xl transition-all ${pathname === '/blacklist' ? 'bg-rose-50 border border-rose-100 text-rose-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50 border border-transparent'}`}>
-                  <Ban className="h-4 w-4" />
-                  <span className="text-sm font-bold">黑名单</span>
+                <Link href="/blacklist" className={`flex items-center justify-between p-3 rounded-xl transition-all border ${pathname === '/blacklist' ? 'bg-rose-500/10 border-rose-500/30 text-rose-400' : 'border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                   <div className="flex items-center gap-3">
+                    <Ban className="h-4 w-4" />
+                    <span className="text-sm font-bold">黑名单</span>
+                  </div>
+                  <ChevronRight className="h-4 w-4 opacity-30" />
                 </Link>
               )}
             </div>
           </div>
 
+          {/* 系统区 */}
           {permission >= 3 && (
-            <div className="mb-6">
-              <div className="flex items-center gap-2 px-2 mb-3 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                <UserCog className="h-4 w-4" />
-                <span>系统</span>
+            <div className="mb-8">
+              <div className="flex items-center gap-2 px-2 mb-4 text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                <span>系统设置</span>
               </div>
-              <div className="space-y-1">
-                <Link href="/users" className={`flex items-center gap-3 p-3 rounded-xl transition-all ${pathname === '/users' ? 'bg-purple-50 border border-purple-100 text-purple-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50 border border-transparent'}`}>
-                  <Users className="h-4 w-4" />
-                  <span className="text-sm font-bold">用户管理</span>
+              <div className="space-y-1.5">
+                <Link href="/users" className={`flex items-center justify-between p-3 rounded-xl transition-all border ${pathname === '/users' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                   <div className="flex items-center gap-3">
+                    <Users className="h-4 w-4" />
+                    <span className="text-sm font-bold">用户管理</span>
+                  </div>
+                  <ChevronRight className="h-4 w-4 opacity-30" />
                 </Link>
               </div>
             </div>
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-100 mt-auto">
-          <Button variant="outline" className="w-full justify-center text-slate-500 border-slate-200 hover:bg-rose-50 hover:text-rose-600 transition-colors rounded-xl" onClick={() => logout()}>
-            <LogOut className="h-4 w-4 mr-2" />
-            退出登录
-          </Button>
-          <div className="text-center mt-4 space-y-1">
-            <p className="text-xs font-bold text-slate-700">{user?.username}</p>
+        <div className="p-4 border-t border-slate-800/50 bg-[#0b1120]">
+          <div className="flex items-center justify-between mb-4 px-2">
+            <div className="flex flex-col">
+              <span className="text-sm font-bold text-white">{user?.username}</span>
+              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
+                {permission === 3 ? 'Admin' : permission === 2 ? 'ReadWrite' : 'ReadOnly'}
+              </span>
+            </div>
+            <Badge variant="outline" className="border-slate-700 text-slate-400 bg-slate-800/50">在线</Badge>
           </div>
+          <Button variant="ghost" className="w-full justify-start text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors rounded-xl" onClick={() => logout()}>
+            <LogOut className="h-4 w-4 mr-3" />
+            <span className="font-bold">退出系统</span>
+          </Button>
         </div>
       </aside>
 
-      {/* Mobile Header */}
-      <div className="lg:hidden flex flex-col flex-1 w-full h-full">
-        <header className="flex-shrink-0 h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 z-20">
-          <Link href="/" className="flex items-center gap-2">
-            <Network className="h-6 w-6 text-blue-600" />
-            <span className="text-lg font-black tracking-tight text-slate-900">Goster IoT</span>
-          </Link>
-          <Button variant="ghost" size="icon" onClick={() => logout()} className="text-slate-400 hover:text-rose-600">
-             <LogOut className="h-5 w-5" />
-          </Button>
-        </header>
-
-        {/* Main Content (Mobile) */}
-        <main className="flex-1 overflow-y-auto bg-[#f8fafc] relative">
-          <div className="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none"></div>
-          <div className="relative z-10 w-full h-full p-4">
-            {children}
-          </div>
-        </main>
-
-        {/* Mobile Bottom Nav */}
-        <nav className="flex-shrink-0 h-16 bg-white border-t border-slate-200 flex items-center justify-around px-2 pb-safe z-20">
-          <Link href="/" className={`flex flex-col items-center justify-center w-full h-full gap-1 ${pathname === '/' ? 'text-blue-600' : 'text-slate-400'}`}>
-            <Home className="h-5 w-5" />
-            <span className="text-[10px] font-bold">首页</span>
-          </Link>
-        </nav>
-      </div>
-
-      {/* Main Content (Desktop) */}
-      <main className="hidden lg:block flex-1 overflow-y-auto bg-[#f8fafc] relative">
-         <div className="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none"></div>
-         <div className="relative z-10 w-full h-full max-w-6xl mx-auto p-8">
+      {/* 桌面端主内容区 */}
+      <main className="flex-1 overflow-y-auto bg-[#f8fafc] relative pt-14 lg:pt-0 pb-20 lg:pb-0">
+         {/* 微妙的网格背景，增加科技感 */}
+         <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:3rem_3rem] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none opacity-50"></div>
+         <div className="relative z-10 w-full h-full max-w-7xl mx-auto p-4 lg:p-8">
             {children}
          </div>
       </main>
+
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200">
+        <div className="grid grid-cols-3 h-16">
+          <Link
+            href="/"
+            className={`flex flex-col items-center justify-center gap-1 text-xs font-bold transition-colors ${
+              mobileHomeActive ? "text-blue-600" : "text-slate-500"
+            }`}
+          >
+            <Home className="h-4 w-4" />
+            首页
+          </Link>
+          <Link
+            href="/devices"
+            className={`flex flex-col items-center justify-center gap-1 text-xs font-bold transition-colors ${
+              mobileDevicesActive ? "text-blue-600" : "text-slate-500"
+            }`}
+          >
+            <Menu className="h-4 w-4" />
+            设备
+          </Link>
+          <Link
+            href="/admin"
+            className={`flex flex-col items-center justify-center gap-1 text-xs font-bold transition-colors ${
+              mobileAdminActive ? "text-blue-600" : "text-slate-500"
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            管理
+          </Link>
+        </div>
+      </nav>
     </div>
   );
 }

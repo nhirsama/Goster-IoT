@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ChevronLeft, UserCog, ShieldCheck, User, Calendar, Shield } from "lucide-react";
 import {
   Dialog,
@@ -37,6 +37,7 @@ const PERMISSION_LABELS: Record<number, { label: string; color: string }> = {
   2: { label: "读写", color: "bg-indigo-50 text-indigo-600 border-indigo-100" },
   3: { label: "超级管理员", color: "bg-purple-50 text-purple-700 border-purple-200" },
 };
+const PERMISSION_ENTRIES = Object.entries(PERMISSION_LABELS) as Array<[string, { label: string; color: string }]>;
 
 export default function UserManagementPage() {
   const { user: currentUser, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -51,7 +52,7 @@ export default function UserManagementPage() {
 
   const { data: userData, isLoading: usersLoading } = useQuery({
     queryKey: ["users"],
-    queryFn: () => api.get("/api/v1/users"),
+    queryFn: () => api.get<components["schemas"]["UserListData"]>("/api/v1/users"),
     enabled: isAuthenticated && currentUser?.permission === 3,
   });
 
@@ -125,7 +126,15 @@ export default function UserManagementPage() {
                       <TableCell>
                         <div className="flex items-center gap-2 text-slate-500 text-sm font-medium">
                           <Calendar className="h-3.5 w-3.5" />
-                          {new Date(u.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          {new Date(u.created_at).toLocaleString("zh-CN", {
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            hour12: false,
+                          })}
                         </div>
                       </TableCell>
                       <TableCell className="text-right pr-6">
@@ -146,7 +155,7 @@ export default function UserManagementPage() {
                               </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-3 py-6">
-                              {(Object.entries(PERMISSION_LABELS) as any).map(([val, {label}]: [string, {label: string}]) => (
+                              {PERMISSION_ENTRIES.map(([val, { label }]) => (
                                 <Button
                                   key={val}
                                   variant={u.permission === Number(val) ? "default" : "outline"}

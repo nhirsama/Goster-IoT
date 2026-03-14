@@ -28,27 +28,35 @@ export default function BlacklistPage() {
   // 原系统通过不同的 query/view 或者复用接口实现。我们这里直接请求 revoked 状态以获取被撤销/拒绝的设备
   const { data: revokedData, isLoading: revokedLoading } = useQuery({
     queryKey: ["devices", "revoked"],
-    queryFn: () => api.get("/api/v1/devices", { status: "revoked" }),
+    queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "revoked" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 1,
   });
 
   const { data: refusedData, isLoading: refusedLoading } = useQuery({
     queryKey: ["devices", "refused"],
-    queryFn: () => api.get("/api/v1/devices", { status: "refused" }),
+    queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "refused" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 1,
   });
 
   const unblockMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/unblock`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
     },
   });
 
   if (!isAuthenticated || (user?.permission || 0) < 1) return null;
 
   const isLoading = revokedLoading || refusedLoading;
-  const devices = [...(revokedData?.items || []), ...(refusedData?.items || [])];
+  const merged = [...(revokedData?.items || []), ...(refusedData?.items || [])];
+  const deviceMap = new Map<string, DeviceRecord>();
+  merged.forEach((device: DeviceRecord) => {
+    deviceMap.set(device.uuid, device);
+  });
+  const devices = Array.from(deviceMap.values());
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2">
@@ -131,7 +139,12 @@ export default function BlacklistPage() {
                             size="sm"
                             variant="outline"
                             className="h-9 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-600 hover:text-white rounded-xl px-4 transition-all shadow-sm"
-                            onClick={() => unblockMutation.mutate(device.uuid)}
+                            onClick={() => {
+                              if (confirm("确定要将该设备移出黑名单吗？")) {
+                                unblockMutation.mutate(device.uuid);
+                              }
+                            }}
+                            disabled={unblockMutation.isPending}
                           >
                             <RefreshCw className="h-4 w-4 mr-2" />
                             解除屏蔽

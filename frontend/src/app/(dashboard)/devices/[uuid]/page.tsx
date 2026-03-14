@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
@@ -15,14 +15,31 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  AreaChart,
-  Area,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronLeft, RefreshCw, Thermometer, Droplets, Sun, Calendar } from "lucide-react";
+import { 
+  Server, 
+  Key, 
+  Settings, 
+  Ban, 
+  Trash2, 
+  Copy, 
+  Check, 
+  Cpu,
+  MonitorSmartphone,
+  Fingerprint,
+  Wifi,
+  Activity
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type MetricsData = components["schemas"]["MetricsData"];
 type MetricPoint = components["schemas"]["MetricPoint"];
@@ -30,208 +47,258 @@ type MetricPoint = components["schemas"]["MetricPoint"];
 export default function DeviceMetricsPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const queryClient = useQueryClient();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [range, setRange] = useState("1h");
+  const [copied, setCopied] = useState(false);
 
-  const { data: device } = useQuery({
+  // 获取设备详情
+  const { data: device, isLoading: deviceLoading } = useQuery({
     queryKey: ["device", uuid],
-    queryFn: () => api.get(`/api/v1/devices/${uuid}`),
+    queryFn: () => api.get<components["schemas"]["DeviceRecord"]>(`/api/v1/devices/${uuid}`),
     enabled: !!uuid && isAuthenticated,
   });
 
-  const { data: metricsData, isLoading: metricsLoading, refetch } = useQuery<MetricsData>({
+  // 获取指标数据
+  const { data: metricsData } = useQuery<MetricsData>({
     queryKey: ["metrics", uuid, range],
     queryFn: () => api.get(`/api/v1/metrics/${uuid}`, { range }),
     enabled: !!uuid && isAuthenticated,
     refetchInterval: 30000,
   });
 
+  // 操作 Mutations
+  const refreshTokenMutation = useMutation({
+    mutationFn: () => api.post(`/api/v1/devices/${uuid}/token/refresh`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["device", uuid] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: () => api.post(`/api/v1/devices/${uuid}/revoke`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
+      router.push("/");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/api/v1/devices/${uuid}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
+      router.push("/");
+    },
+  });
+
+  const handleCopyToken = () => {
+    if (device?.meta?.token) {
+      navigator.clipboard.writeText(device.meta.token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const chartData = useMemo(() => {
     if (!metricsData?.points) return [];
-    const map = new Map<number, any>();
+    type ChartRow = { ts: number; time: string; temp?: number; hum?: number; lux?: number };
+    const map = new Map<number, ChartRow>();
     metricsData.points.forEach((p: MetricPoint) => {
-      const entry = map.get(p.ts) || { 
-        ts: p.ts, 
-        time: new Date(p.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-      };
+      const date = new Date(p.ts);
+      // 类似原版时间格式: MM-dd HH:mm 或 HH:mm
+      const timeStr = range === '1h' || range === '6h' 
+        ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : `${date.getMonth() + 1}-${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        
+      const entry = map.get(p.ts) || { ts: p.ts, time: timeStr };
       if (p.type === 1) entry.temp = p.value;
       if (p.type === 2) entry.hum = p.value;
       if (p.type === 4) entry.lux = p.value;
       map.set(p.ts, entry);
     });
     return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
-  }, [metricsData]);
+  }, [metricsData, range]);
 
   if (authLoading || !isAuthenticated) return null;
+  if (deviceLoading) return <div className="flex h-64 items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>;
+  if (!device) return <div className="text-center text-slate-500 py-20">无法加载设备信息</div>;
+
+  const permission = user?.permission || 0;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] pb-12 font-sans">
-      <header className="bg-white/80 backdrop-blur-md border-b sticky top-0 z-50 border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
+      {/* Header Card - 1:1复刻原版顶部操作区 */}
+      <Card className="border-none shadow-lg shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
+        <CardContent className="p-6 d-flex flex-wrap justify-between align-items-center gap-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" className="rounded-xl hover:bg-slate-100" onClick={() => router.back()}>
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              返回
-            </Button>
-            <div className="h-4 w-px bg-slate-200 mx-2"></div>
-            <h1 className="text-lg font-bold text-slate-900">设备运行指标</h1>
-          </div>
-          <Button variant="outline" size="sm" className="rounded-xl border-slate-200" onClick={() => refetch()}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${metricsLoading ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {device && (
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className="space-y-1">
-              <div className="flex items-center gap-3">
+            <div className="bg-slate-100 p-4 rounded-full text-blue-600 shadow-inner">
+              <Server className="h-8 w-8" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">{device.meta.name}</h2>
-                <Badge className={device.runtime?.status === 1 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-500 border-slate-200"} variant="outline">
-                   <span className={`h-1.5 w-1.5 rounded-full mr-2 ${device.runtime?.status === 1 ? "bg-emerald-500" : "bg-slate-400"}`}></span>
-                  {device.runtime?.status_text === "online" ? "在线" : "离线"}
-                </Badge>
+                <span className={`h-2.5 w-2.5 rounded-full ${device.runtime?.status === 1 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : device.runtime?.status === 2 ? 'bg-amber-500' : 'bg-slate-300'}`}></span>
               </div>
-              <p className="text-sm font-medium text-slate-400 font-mono uppercase tracking-widest">
-                SN: {device.meta.sn} | MAC: {device.meta.mac}
+              <div className="flex items-center gap-1.5 text-slate-500 mt-1">
+                <Fingerprint className="h-4 w-4" />
+                <span className="font-mono text-sm">{device.uuid}</span>
+              </div>
+            </div>
+          </div>
+
+          {permission >= 2 && (
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="outline" 
+                className="border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm font-bold"
+                onClick={() => {
+                  if(confirm("确定要重置该设备的 Token 吗？这将导致设备断开连接。")) {
+                    refreshTokenMutation.mutate();
+                  }
+                }}
+              >
+                <Key className="h-4 w-4 mr-2" />
+                重置令牌
+              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <Button variant="outline" size="icon" className="bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100" asChild>
+                    <div>
+                      <Settings className="h-4 w-4" />
+                    </div>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel className="text-xs font-black text-slate-400 uppercase tracking-widest">危险操作</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
+                    onClick={() => {
+                      if(confirm("确定要吊销该设备的认证吗？设备将无法连接。")) {
+                        revokeMutation.mutate();
+                      }
+                    }}
+                  >
+                    <Ban className="h-4 w-4 mr-2" />
+                    吊销认证
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
+                    onClick={() => {
+                      if(confirm("确定要永久删除该设备吗？所有历史数据将丢失且无法恢复！")) {
+                        deleteMutation.mutate();
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    删除设备
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Info Grid - 1:1复刻原版的四宫格 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "硬件版本", value: device.meta.hw_version, icon: Cpu },
+          { label: "软件版本", value: device.meta.sw_version, icon: MonitorSmartphone },
+          { label: "序列号", value: device.meta.sn, icon: Fingerprint, mono: true },
+          { label: "MAC 地址", value: device.meta.mac, icon: Wifi, mono: true },
+        ].map((item, i) => (
+          <Card key={i} className="border-none shadow-sm bg-white overflow-hidden group">
+            <CardContent className="p-4 relative">
+              <item.icon className="absolute right-[-10px] bottom-[-10px] h-16 w-16 text-slate-50 opacity-50 group-hover:scale-110 group-hover:-rotate-6 transition-transform" />
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">{item.label}</p>
+              <p className={`text-base font-bold text-slate-800 truncate ${item.mono ? 'font-mono tracking-tight' : ''}`} title={item.value}>
+                {item.value}
               </p>
-            </div>
-            <div className="flex gap-3">
-              <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">硬件版本</p>
-                <p className="text-sm font-bold text-slate-700">{device.meta.hw_version}</p>
-              </div>
-              <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">固件版本</p>
-                <p className="text-sm font-bold text-slate-700">{device.meta.sw_version}</p>
-              </div>
-            </div>
-          </div>
-        )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="flex items-center gap-2 text-slate-900 font-bold">
-              <Calendar className="h-5 w-5 text-blue-600" />
-              <h3>历史趋势分析</h3>
+      {/* Token Card */}
+      <Card className="border-none shadow-sm bg-white">
+        <CardContent className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+          <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest shrink-0">当前访问令牌</span>
+          <div className="bg-slate-100 p-2.5 rounded-lg flex items-center justify-between gap-4 flex-1 overflow-hidden border border-slate-200">
+            {permission >= 2 ? (
+              <>
+                <code className="text-sm font-bold text-slate-800 break-all">{device.meta.token}</code>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-slate-500 hover:text-blue-600 hover:bg-white shadow-sm transition-all" onClick={handleCopyToken}>
+                  {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </>
+            ) : (
+              <code className="text-sm font-bold text-slate-400">******** (权限不足)</code>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Chart Container - 1:1复刻原版的三曲线单表 */}
+      <Card className="border-none shadow-xl shadow-slate-200/50 bg-white">
+        <CardHeader className="border-b border-slate-100 flex flex-row items-center justify-between pb-4">
+          <div className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-blue-600" />
+            <CardTitle className="text-lg font-bold text-slate-900">数据监控</CardTitle>
+          </div>
+          
+          <div className="flex bg-slate-100 p-1 rounded-lg">
+            {[{v:'1h', l:'1小时'}, {v:'6h', l:'6小时'}, {v:'24h', l:'24小时'}, {v:'7d', l:'7天'}, {v:'all', l:'全部'}].map(r => (
+              <button
+                key={r.v}
+                onClick={() => setRange(r.v)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${range === r.v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {r.l}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {!metricsData?.points || metricsData.points.length === 0 ? (
+            <div className="h-[350px] flex flex-col items-center justify-center text-slate-400 bg-slate-50/50">
+              <Activity className="h-12 w-12 text-slate-200 mb-3" />
+              <p className="font-medium">该时间段内暂无数据</p>
             </div>
-            <Tabs defaultValue="1h" onValueChange={setRange} className="bg-slate-100 p-1 rounded-xl">
-              <TabsList className="bg-transparent h-8">
-                <TabsTrigger value="1h" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm px-4">最近 1 小时</TabsTrigger>
-                <TabsTrigger value="6h" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm px-4">6 小时</TabsTrigger>
-                <TabsTrigger value="24h" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm px-4">24 小时</TabsTrigger>
-                <TabsTrigger value="7d" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm px-4">7 天</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <Card className="border-none shadow-xl shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
-              <CardHeader className="border-b border-slate-50 pb-4">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 bg-red-50 rounded-lg text-red-500">
-                    <Thermometer className="h-5 w-5" />
-                  </div>
-                  <CardTitle className="text-lg font-bold">温度与湿度</CardTitle>
-                </div>
-                <CardDescription>设备实时回传的温湿度曲线</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-8">
-                <div className="h-[350px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorHum" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                      <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{fill: '#ef4444', fontSize: 12}} />
-                      <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{fill: '#3b82f6', fontSize: 12}} />
-                      <Tooltip 
-                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}}
-                      />
-                      <Legend verticalAlign="top" height={36}/>
-                      <Area 
-                        yAxisId="left"
-                        type="monotone" 
-                        dataKey="temp" 
-                        name="温度 (°C)" 
-                        stroke="#ef4444" 
-                        fillOpacity={1} 
-                        fill="url(#colorTemp)" 
-                        strokeWidth={3}
-                        connectNulls
-                      />
-                      <Area 
-                        yAxisId="right"
-                        type="monotone" 
-                        dataKey="hum" 
-                        name="湿度 (%)" 
-                        stroke="#3b82f6" 
-                        fillOpacity={1} 
-                        fill="url(#colorHum)" 
-                        strokeWidth={3}
-                        connectNulls
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-none shadow-xl shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
-              <CardHeader className="border-b border-slate-50 pb-4">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 bg-amber-50 rounded-lg text-amber-500">
-                    <Sun className="h-5 w-5" />
-                  </div>
-                  <CardTitle className="text-lg font-bold">光照强度 (Lux)</CardTitle>
-                </div>
-                <CardDescription>环境光敏传感器数据趋势</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-8">
-                <div className="h-[350px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient id="colorLux" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                      <YAxis axisLine={false} tickLine={false} tick={{fill: '#f59e0b', fontSize: 12}} />
-                      <Tooltip 
-                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="lux" 
-                        name="光照值 (Lux)" 
-                        stroke="#f59e0b" 
-                        fillOpacity={1} 
-                        fill="url(#colorLux)" 
-                        strokeWidth={3}
-                        connectNulls
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </main>
+          ) : (
+            <div className="h-[400px] w-full p-4 pt-6">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} minTickGap={30} />
+                  
+                  {/* YAxis 1: 温湿度 */}
+                  <YAxis yAxisId="y" orientation="left" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
+                  {/* YAxis 2: 光照 */}
+                  <YAxis yAxisId="y1" orientation="right" axisLine={false} tickLine={false} tick={{fill: '#f59e0b', fontSize: 11}} />
+                  
+                  <Tooltip 
+                    contentStyle={{borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}}
+                    labelStyle={{fontWeight: 'bold', color: '#0f172a', marginBottom: '4px'}}
+                  />
+                  <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{fontSize: '12px', fontWeight: 'bold'}} />
+                  
+                  {/* 完全复原原版配色的三条线 */}
+                  <Line yAxisId="y" type="monotone" dataKey="temp" name="温度 (°C)" stroke="#ef4444" strokeWidth={2.5} dot={false} activeDot={{r: 6, strokeWidth: 0}} connectNulls />
+                  <Line yAxisId="y" type="monotone" dataKey="hum" name="湿度 (%)" stroke="#3b82f6" strokeWidth={2.5} dot={false} activeDot={{r: 6, strokeWidth: 0}} connectNulls />
+                  <Line yAxisId="y1" type="monotone" dataKey="lux" name="光照 (Lux)" stroke="#f59e0b" strokeWidth={2.5} dot={false} activeDot={{r: 6, strokeWidth: 0}} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

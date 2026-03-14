@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Bell, CheckCircle, XCircle, RefreshCw, Cpu } from "lucide-react";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
@@ -25,21 +25,24 @@ export default function PendingDevicesPage() {
 
   const { data: deviceData, isLoading } = useQuery({
     queryKey: ["devices", "pending"],
-    queryFn: () => api.get("/api/v1/devices", { status: "pending" }),
+    queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "pending" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 2,
   });
 
   const approveMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/approve`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
     },
   });
 
@@ -123,6 +126,7 @@ export default function PendingDevicesPage() {
                           size="sm"
                           className="h-9 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl px-4 transition-all shadow-sm"
                           onClick={() => approveMutation.mutate(device.uuid)}
+                          disabled={approveMutation.isPending || revokeMutation.isPending}
                         >
                           <CheckCircle className="h-4 w-4 mr-2" />
                           批准
@@ -131,7 +135,12 @@ export default function PendingDevicesPage() {
                           size="sm"
                           variant="outline"
                           className="h-9 text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-300 rounded-xl px-4 transition-all"
-                          onClick={() => revokeMutation.mutate(device.uuid)}
+                          onClick={() => {
+                            if (confirm("确定要拒绝该设备的接入请求吗？")) {
+                              revokeMutation.mutate(device.uuid);
+                            }
+                          }}
+                          disabled={approveMutation.isPending || revokeMutation.isPending}
                         >
                           <XCircle className="h-4 w-4 mr-2" />
                           拒绝

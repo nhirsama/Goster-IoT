@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { api } from '../lib/api-client'
+import { paths } from '../lib/api-types'
 
 describe('API Client', () => {
   beforeEach(() => {
@@ -13,14 +14,14 @@ describe('API Client', () => {
       json: () => Promise.resolve(mockResponse)
     } as Response)
 
-    await api.get('/api/v1/auth/me' as any)
+    await api.get('/api/v1/auth/me' as keyof paths)
 
     const fetchCall = vi.mocked(fetch).mock.calls[0]
     const options = fetchCall[1] as RequestInit
     const headers = options.headers as Record<string, string>
 
-    expect(headers['X-Request-ID']).toBeDefined()
-    expect(headers['X-Request-ID']).toMatch(/^req_\d+/)
+    expect(headers['X-Request-Id']).toBeDefined()
+    expect(headers['X-Request-Id']).toMatch(/^req_\d+/)
   })
 
   it('should handle API errors', async () => {
@@ -30,6 +31,6 @@ describe('API Client', () => {
       json: () => Promise.resolve(mockError)
     } as Response)
 
-    await expect(api.get('/api/v1/auth/me' as any)).rejects.toThrow('Invalid token')
+    await expect(api.get('/api/v1/auth/me' as keyof paths)).rejects.toThrow('Invalid token')
   })
 })

@@ -42,7 +42,7 @@ export default function DashboardHome() {
 
         {/* Mobile Hint */}
         <div className="lg:hidden mt-8">
-          <p className="text-slate-400 text-sm">请点击左上角菜单开始操作（桌面端体验更佳）</p>
+          <p className="text-slate-400 text-sm">请使用底部导航切换首页、设备和管理</p>
         </div>
       </div>
     </div>

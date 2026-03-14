@@ -1,15 +1,28 @@
 import { paths } from "./api-types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-
 export type ApiRequestConfig = Omit<RequestInit, "method" | "body">;
+type ApiPrimitive = string | number | boolean | null | undefined;
+type ApiParams = Record<string, ApiPrimitive>;
+type ApiErrorDetail = {
+  type: string;
+  field?: string;
+  reason?: string;
+  details?: Record<string, unknown>;
+};
+type ApiEnvelope<T> = {
+  code?: number;
+  message?: string;
+  data: T;
+  error?: ApiErrorDetail;
+  request_id?: string;
+};
 
 export class ApiError extends Error {
   public code?: number;
-  public errorDetail?: { type: string; field?: string; reason?: string; details?: any };
+  public errorDetail?: ApiErrorDetail;
   public requestId?: string;
 
-  constructor(message: string, code?: number, errorDetail?: any, requestId?: string) {
+  constructor(message: string, code?: number, errorDetail?: ApiErrorDetail, requestId?: string) {
     super(message);
     this.name = "ApiError";
     this.code = code;
@@ -21,7 +34,7 @@ export class ApiError extends Error {
 async function request<T>(
   path: string,
   method: string,
-  body?: any,
+  body?: unknown,
   config?: ApiRequestConfig
 ): Promise<T> {
   // 智能拼接：如果 path 已经包含 /api/v1 且 baseUrl 也包含，则进行去重
@@ -52,7 +65,7 @@ async function request<T>(
     return {} as T;
   }
 
-  const result = await response.json();
+  const result = (await response.json()) as ApiEnvelope<T>;
 
   if (!response.ok || (result.code !== undefined && result.code !== 0)) {
     throw new ApiError(
@@ -67,9 +80,9 @@ async function request<T>(
 }
 
 export const api = {
-  get: <P extends keyof paths | (string & {})>(
+  get: <T = unknown, P extends keyof paths | (string & {}) = keyof paths | (string & {})>(
     path: P,
-    params?: any,
+    params?: ApiParams,
     config?: ApiRequestConfig
   ) => {
     let url = path as string;
@@ -83,17 +96,17 @@ export const api = {
       const query = searchParams.toString();
       if (query) url += `?${query}`;
     }
-    return request<any>(url, "GET", undefined, config);
+    return request<T>(url, "GET", undefined, config);
   },
 
-  post: <P extends keyof paths | (string & {})>(
+  post: <T = unknown, P extends keyof paths | (string & {}) = keyof paths | (string & {})>(
     path: P,
-    body?: any,
+    body?: unknown,
     config?: ApiRequestConfig
-  ) => request<any>(path as string, "POST", body, config),
+  ) => request<T>(path as string, "POST", body, config),
 
-  delete: <P extends keyof paths | (string & {})>(
+  delete: <T = unknown, P extends keyof paths | (string & {}) = keyof paths | (string & {})>(
     path: P,
     config?: ApiRequestConfig
-  ) => request<any>(path as string, "DELETE", undefined, config),
+  ) => request<T>(path as string, "DELETE", undefined, config),
 };
