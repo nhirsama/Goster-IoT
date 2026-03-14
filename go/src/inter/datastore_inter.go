@@ -49,6 +49,41 @@ type MetricPoint struct {
 	Type      uint8   `json:"type"`  // 数据类型 (1=Temp, 2=Humi, 4=Lux)
 }
 
+// ExternalEntity 外部集成平台实体（如 Home Assistant 中的 entity）
+type ExternalEntity struct {
+	Source      string                 `json:"source"`
+	EntityID    string                 `json:"entity_id"`
+	Domain      string                 `json:"domain"`
+	GosterUUID  string                 `json:"goster_uuid,omitempty"`
+	DeviceID    string                 `json:"device_id,omitempty"`
+	Model       string                 `json:"model,omitempty"`
+	Name        string                 `json:"name,omitempty"`
+	RoomName    string                 `json:"room_name,omitempty"`
+	Unit        string                 `json:"unit,omitempty"`
+	ValueType   string                 `json:"value_type"` // number | bool | string | json
+	DeviceClass string                 `json:"device_class,omitempty"`
+	StateClass  string                 `json:"state_class,omitempty"`
+	Attributes  map[string]interface{} `json:"attributes,omitempty"`
+	LastStateTS int64                  `json:"last_state_ts,omitempty"`
+	LastText    *string                `json:"last_state_text,omitempty"`
+	LastNum     *float64               `json:"last_state_num,omitempty"`
+	LastBool    *bool                  `json:"last_state_bool,omitempty"`
+}
+
+// ExternalObservation 外部实体观测值（通用多类型）
+type ExternalObservation struct {
+	Source    string                 `json:"source"`
+	EntityID  string                 `json:"entity_id"`
+	Timestamp int64                  `json:"ts"`
+	ValueNum  *float64               `json:"value_num,omitempty"`
+	ValueText *string                `json:"value_text,omitempty"`
+	ValueBool *bool                  `json:"value_bool,omitempty"`
+	ValueJSON map[string]interface{} `json:"value_json,omitempty"`
+	Unit      string                 `json:"unit,omitempty"`
+	ValueSig  string                 `json:"value_sig,omitempty"` // 幂等签名
+	RawEvent  map[string]interface{} `json:"raw_event,omitempty"`
+}
+
 // DataStore 定义了底层数据持久化的标准接口，用于管理设备生命周期、配置、时序指标及日志。
 // 该接口旨在兼容多种存储后端（如 SQLite, PostgreSQL 或时序数据库）。
 type DataStore interface {
@@ -90,6 +125,23 @@ type DataStore interface {
 	// QueryMetrics 查询指定时间范围内的时序数据。
 	// start 和 end 分别为开始和结束的时间戳（闭区间）。
 	QueryMetrics(uuid string, start, end int64) ([]MetricPoint, error)
+
+	// [外部集成实体与观测]
+
+	// UpsertExternalEntity 创建或更新外部实体主档
+	UpsertExternalEntity(entity ExternalEntity) error
+
+	// GetExternalEntity 查询单个外部实体
+	GetExternalEntity(source, entityID string) (ExternalEntity, error)
+
+	// ListExternalEntities 按 source/domain 分页查询外部实体
+	ListExternalEntities(source, domain string, limit, offset int) ([]ExternalEntity, error)
+
+	// BatchAppendExternalObservations 批量追加外部观测值（支持去重）
+	BatchAppendExternalObservations(items []ExternalObservation) error
+
+	// QueryExternalObservations 查询外部实体时序观测值
+	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
 
 	// [日志管理]
 
