@@ -313,16 +313,14 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 				&apiErrorDetail{Type: "conflict", Field: "username"})
 			return
 		}
-		ws.apiError(w, r, http.StatusInternalServerError, 50004, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50004, err)
 		return
 	}
 
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, user))
 	handled, err := ws.authboss.Events.FireAfter(authboss.EventRegister, w, r)
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50005, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50005, err)
 		return
 	}
 	if !handled {
@@ -402,8 +400,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50006, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50006, err)
 		return
 	}
 
@@ -426,8 +423,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	handled, err := ws.authboss.Events.FireBefore(authboss.EventAuth, w, r)
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50008, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50008, err)
 		return
 	}
 	if handled {
@@ -436,8 +432,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	handled, err = ws.authboss.Events.FireBefore(authboss.EventAuthHijack, w, r)
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50009, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50009, err)
 		return
 	}
 	if handled {
@@ -449,8 +444,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	handled, err = ws.authboss.Events.FireAfter(authboss.EventAuth, w, r)
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50010, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50010, err)
 		return
 	}
 	if handled {
@@ -487,8 +481,7 @@ func (ws *webServer) apiLogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	if rememberStorer, ok := ws.authboss.Config.Storage.Server.(authboss.RememberingServerStorer); ok {
 		if err := rememberStorer.DelRememberTokens(r.Context(), user.GetPID()); err != nil {
-			ws.apiError(w, r, http.StatusInternalServerError, 50012, err.Error(),
-				&apiErrorDetail{Type: "internal_error"})
+			ws.apiInternalError(w, r, 50012, err)
 			return
 		}
 	}
@@ -549,11 +542,11 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 
 	devices, err := ws.deviceManager.ListDevices(statusPtr, page, size)
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50011, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50011, err)
 		return
 	}
 
+	includeToken := ws.apiCanViewDeviceToken(r)
 	items := make([]map[string]interface{}, 0, len(devices))
 	for _, d := range devices {
 		runtimeStatus, _ := ws.deviceManager.QueryDeviceStatus(d.UUID)
@@ -567,17 +560,7 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 
 		items = append(items, map[string]interface{}{
 			"uuid": d.UUID,
-			"meta": map[string]interface{}{
-				"name":                d.Meta.Name,
-				"hw_version":          d.Meta.HWVersion,
-				"sw_version":          d.Meta.SWVersion,
-				"config_version":      d.Meta.ConfigVersion,
-				"sn":                  d.Meta.SerialNumber,
-				"mac":                 d.Meta.MACAddress,
-				"created_at":          d.Meta.CreatedAt,
-				"token":               d.Meta.Token,
-				"authenticate_status": int(d.Meta.AuthenticateStatus),
-			},
+			"meta": apiDeviceMetaData(d.Meta, includeToken),
 			"runtime": map[string]interface{}{
 				"status":      int(runtimeStatus),
 				"status_text": statusText,
@@ -626,8 +609,7 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 						&apiErrorDetail{Type: "not_found", Field: "uuid"})
 					return
 				}
-				ws.apiError(w, r, http.StatusInternalServerError, 50025, err.Error(),
-					&apiErrorDetail{Type: "internal_error"})
+				ws.apiInternalError(w, r, 50025, err)
 				return
 			}
 			ws.apiNoContent(w, r)
@@ -666,8 +648,7 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 					&apiErrorDetail{Type: "not_found", Field: "uuid"})
 				return
 			}
-			ws.apiError(w, r, http.StatusInternalServerError, 50022, err.Error(),
-				&apiErrorDetail{Type: "internal_error"})
+			ws.apiInternalError(w, r, 50022, err)
 			return
 		}
 
@@ -695,8 +676,7 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 					&apiErrorDetail{Type: "not_found", Field: "uuid"})
 				return
 			}
-			ws.apiError(w, r, http.StatusInternalServerError, 50023, err.Error(),
-				&apiErrorDetail{Type: "internal_error"})
+			ws.apiInternalError(w, r, 50023, err)
 			return
 		}
 
@@ -729,19 +709,10 @@ func (ws *webServer) apiGetDevice(w http.ResponseWriter, r *http.Request, uuid s
 		statusText = "delayed"
 	}
 
+	includeToken := ws.apiCanViewDeviceToken(r)
 	ws.apiOK(w, r, map[string]interface{}{
 		"uuid": uuid,
-		"meta": map[string]interface{}{
-			"name":                meta.Name,
-			"hw_version":          meta.HWVersion,
-			"sw_version":          meta.SWVersion,
-			"config_version":      meta.ConfigVersion,
-			"sn":                  meta.SerialNumber,
-			"mac":                 meta.MACAddress,
-			"created_at":          meta.CreatedAt,
-			"token":               meta.Token,
-			"authenticate_status": int(meta.AuthenticateStatus),
-		},
+		"meta": apiDeviceMetaData(meta, includeToken),
 		"runtime": map[string]interface{}{
 			"status":      int(runtimeStatus),
 			"status_text": statusText,
@@ -775,8 +746,7 @@ func (ws *webServer) apiMetricsV1Handler(w http.ResponseWriter, r *http.Request)
 
 	points, err := ws.dataStore.QueryMetrics(uuid, start, end)
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50031, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50031, err)
 		return
 	}
 
@@ -797,8 +767,7 @@ func (ws *webServer) apiUsersHandler(w http.ResponseWriter, r *http.Request) {
 
 	users, err := ws.dataStore.ListUsers()
 	if err != nil {
-		ws.apiError(w, r, http.StatusInternalServerError, 50041, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50041, err)
 		return
 	}
 
@@ -842,14 +811,44 @@ func (ws *webServer) apiUserPermissionHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	currentUsername, _ := r.Context().Value(apiCtxUsername).(string)
+	if currentUsername != "" && strings.EqualFold(currentUsername, username) && payload.Permission < int(inter.PermissionAdmin) {
+		ws.apiError(w, r, http.StatusBadRequest, 40046, "cannot change your own admin permission",
+			&apiErrorDetail{Type: "validation_error", Field: "permission"})
+		return
+	}
+
+	currentPerm, err := ws.dataStore.GetUserPermission(username)
+	if err != nil {
+		if isNotFoundError(err) {
+			ws.apiError(w, r, http.StatusNotFound, 40442, "user not found",
+				&apiErrorDetail{Type: "not_found", Field: "username"})
+			return
+		}
+		ws.apiInternalError(w, r, 50043, err)
+		return
+	}
+
+	if currentPerm == inter.PermissionAdmin && payload.Permission < int(inter.PermissionAdmin) {
+		users, err := ws.dataStore.ListUsers()
+		if err != nil {
+			ws.apiInternalError(w, r, 50044, err)
+			return
+		}
+		if countAdminUsers(users) <= 1 {
+			ws.apiError(w, r, http.StatusBadRequest, 40047, "cannot demote the last admin",
+				&apiErrorDetail{Type: "validation_error", Field: "permission"})
+			return
+		}
+	}
+
 	if err := ws.dataStore.UpdateUserPermission(username, inter.PermissionType(payload.Permission)); err != nil {
 		if isNotFoundError(err) {
 			ws.apiError(w, r, http.StatusNotFound, 40442, "user not found",
 				&apiErrorDetail{Type: "not_found", Field: "username"})
 			return
 		}
-		ws.apiError(w, r, http.StatusInternalServerError, 50042, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50042, err)
 		return
 	}
 
@@ -877,8 +876,7 @@ func (ws *webServer) apiEnsureDeviceExists(w http.ResponseWriter, r *http.Reques
 				&apiErrorDetail{Type: "not_found", Field: "uuid"})
 			return false
 		}
-		ws.apiError(w, r, http.StatusInternalServerError, 50024, err.Error(),
-			&apiErrorDetail{Type: "internal_error"})
+		ws.apiInternalError(w, r, 50024, err)
 		return false
 	}
 	return true

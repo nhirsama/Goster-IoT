@@ -174,8 +174,13 @@ func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.Metr
 	var points []inter.MetricPoint
 	for rows.Next() {
 		var p inter.MetricPoint
-		rows.Scan(&p.Timestamp, &p.Value, &p.Type)
+		if err := rows.Scan(&p.Timestamp, &p.Value, &p.Type); err != nil {
+			return nil, err
+		}
 		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return points, nil
 }
@@ -273,7 +278,7 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
 		)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		if token.Valid {
 			r.Meta.Token = token.String
@@ -281,6 +286,9 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 			r.Meta.Token = ""
 		}
 		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return records, nil
 }
@@ -306,7 +314,7 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
 		)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		if token.Valid {
 			r.Meta.Token = token.String
@@ -314,6 +322,9 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 			r.Meta.Token = ""
 		}
 		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return records, nil
 }
@@ -376,7 +387,7 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 		var username sql.NullString
 		// username is nullable in new schema
 		if err := rows.Scan(&username, &perm, &u.CreatedAt); err != nil {
-			continue
+			return nil, err
 		}
 		if username.Valid {
 			u.Username = username.String
@@ -385,6 +396,9 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 		}
 		u.Permission = inter.PermissionType(perm)
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return users, nil
 }

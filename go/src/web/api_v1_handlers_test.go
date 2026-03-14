@@ -54,6 +54,13 @@ func ctxWithPerm(req *http.Request, perm inter.PermissionType) *http.Request {
 	return req.WithContext(ctx)
 }
 
+func ctxWithUserPerm(req *http.Request, username string, perm inter.PermissionType) *http.Request {
+	ctx := context.WithValue(req.Context(), apiCtxUsername, username)
+	ctx = context.WithValue(ctx, apiCtxPerm, perm)
+	ctx = context.WithValue(ctx, apiCtxRequestID, "req_test")
+	return req.WithContext(ctx)
+}
+
 func seedDevice(t *testing.T, ds inter.DataStore, uuid string, status inter.AuthenticateStatusType) {
 	t.Helper()
 	meta := inter.DeviceMetadata{
@@ -144,7 +151,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 		{`{`, 40001},
 		{`{"username":"ab","password":"12345678"}`, 40002},
 		{`{"username":"abc","password":"123"}`, 40003},
-		{`{"username":"abcd","password":"12345678","confirm_password":"different"}`, 40001},
+		{`{"username":"abcd","password":"12345678","extra":"different"}`, 40001},
 	}
 	for _, tc := range registerCases {
 		rec := httptest.NewRecorder()
@@ -269,6 +276,7 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed metric failed: %v", err)
 	}
+	seedUser(t, ds, "admin_seed")
 	seedUser(t, ds, "tester")
 
 	rec := httptest.NewRecorder()
@@ -456,5 +464,72 @@ func TestAPIUserPermissionValidationAndNotFound(t *testing.T) {
 	ws.apiUserPermissionHandler(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("user not found should return 404, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAPIDeviceTokenVisibilityByPermission(t *testing.T) {
+	ws, ds, _ := newTestWS(t)
+	uuid := strings.Repeat("d", 64)
+	seedDevice(t, ds, uuid, inter.Authenticated)
+
+	readonlyReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
+	readonlyReq = ctxWithPerm(readonlyReq, inter.PermissionReadOnly)
+	readonlyRec := httptest.NewRecorder()
+	ws.apiDevicesHandler(readonlyRec, readonlyReq)
+	if readonlyRec.Code != http.StatusOK {
+		t.Fatalf("readonly list expected 200, got %d", readonlyRec.Code)
+	}
+	readonlyEnv := mustJSONEnvelope(t, readonlyRec)
+	readonlyData := readonlyEnv.Data.(map[string]interface{})
+	items := readonlyData["items"].([]interface{})
+	firstItem := items[0].(map[string]interface{})
+	meta := firstItem["meta"].(map[string]interface{})
+	if meta["token"] != nil {
+		t.Fatalf("readonly user should not see token")
+	}
+
+	readwriteReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices/"+uuid, nil)
+	readwriteReq = ctxWithPerm(readwriteReq, inter.PermissionReadWrite)
+	readwriteRec := httptest.NewRecorder()
+	ws.apiDeviceByUUIDHandler(readwriteRec, readwriteReq)
+	if readwriteRec.Code != http.StatusOK {
+		t.Fatalf("readwrite detail expected 200, got %d", readwriteRec.Code)
+	}
+	readwriteEnv := mustJSONEnvelope(t, readwriteRec)
+	readwriteData := readwriteEnv.Data.(map[string]interface{})
+	detailMeta := readwriteData["meta"].(map[string]interface{})
+	if token, ok := detailMeta["token"].(string); !ok || strings.TrimSpace(token) == "" {
+		t.Fatalf("readwrite user should see token")
+	}
+}
+
+func TestAPIUserPermissionGuardsSelfAndLastAdmin(t *testing.T) {
+	ws, ds, _ := newTestWS(t)
+	seedUser(t, ds, "admin_only")
+
+	// 保护 1：管理员不能自降权
+	selfReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin_only/permission",
+		bytes.NewBufferString(`{"permission":1}`))
+	selfReq = ctxWithUserPerm(selfReq, "admin_only", inter.PermissionAdmin)
+	selfRec := httptest.NewRecorder()
+	ws.apiUserPermissionHandler(selfRec, selfReq)
+	if selfRec.Code != http.StatusBadRequest {
+		t.Fatalf("self demotion should return 400, got %d", selfRec.Code)
+	}
+	if code := mustJSONEnvelope(t, selfRec).Code; code != 40046 {
+		t.Fatalf("self demotion expected code 40046, got %d", code)
+	}
+
+	// 保护 2：最后一个管理员不能被降权
+	lastAdminReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin_only/permission",
+		bytes.NewBufferString(`{"permission":1}`))
+	lastAdminReq = ctxWithUserPerm(lastAdminReq, "other_admin", inter.PermissionAdmin)
+	lastAdminRec := httptest.NewRecorder()
+	ws.apiUserPermissionHandler(lastAdminRec, lastAdminReq)
+	if lastAdminRec.Code != http.StatusBadRequest {
+		t.Fatalf("last admin demotion should return 400, got %d", lastAdminRec.Code)
+	}
+	if code := mustJSONEnvelope(t, lastAdminRec).Code; code != 40047 {
+		t.Fatalf("last admin demotion expected code 40047, got %d", code)
 	}
 }
