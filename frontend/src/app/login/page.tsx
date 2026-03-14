@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api-client";
 import { Network, User, Lock, Github } from "lucide-react";
+import { queryKeys } from "@/lib/query-keys";
 
 const loginSchema = z.object({
   username: z.string().min(1, "请输入用户名"),
@@ -44,7 +45,7 @@ export default function LoginPage() {
         ...data,
         remember_me: !!data.remember_me,
       });
-      queryClient.invalidateQueries({ queryKey: ["auth-me"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.authMe });
       router.push("/");
     } catch (err: unknown) {
       if (err instanceof ApiError && err.errorDetail) {

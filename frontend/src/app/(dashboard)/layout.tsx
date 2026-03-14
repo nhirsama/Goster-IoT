@@ -4,6 +4,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
+import { getPermissionRoleLabel } from "@/lib/dashboard-meta";
+import { queryKeys } from "@/lib/query-keys";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 import Link from "next/link";
@@ -42,7 +44,7 @@ export default function DashboardLayout({
   }, [isAuthenticated, authLoading, router]);
 
   const { data: deviceData } = useQuery({
-    queryKey: ["devices", "authenticated"],
+    queryKey: queryKeys.devicesByStatus("authenticated"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "authenticated" }),
     enabled: isAuthenticated,
     refetchInterval: 10000, // 与原版一致：10秒刷新设备列表
@@ -78,8 +80,8 @@ export default function DashboardLayout({
     pathname === "/admin" || pathname === "/pending" || pathname === "/blacklist" || pathname === "/users";
 
   return (
-    <div className="flex h-screen bg-[#f1f5f9] font-sans text-slate-900 overflow-hidden">
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-30 h-14 bg-white/95 backdrop-blur border-b border-slate-200">
+    <div className="flex h-screen bg-[linear-gradient(135deg,#f8fbff_0%,#f3f8ff_35%,#f8fbff_100%)] font-sans text-slate-900 overflow-hidden">
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-30 h-14 bg-white/85 backdrop-blur-xl border-b border-slate-200/70">
         <div className="h-full px-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <div className="bg-blue-600 p-1.5 rounded-lg shadow-sm">
@@ -94,7 +96,7 @@ export default function DashboardLayout({
       </header>
 
       {/* 桌面端侧边栏 - 主流 IoT 风格：深色高对比度 */}
-      <aside className="hidden lg:flex flex-col w-[280px] bg-[#0f172a] text-slate-300 shadow-2xl z-20">
+      <aside className="hidden lg:flex flex-col w-[280px] bg-[linear-gradient(180deg,#0c162d_0%,#0a1224_100%)] text-slate-300 shadow-2xl z-20 border-r border-slate-800/60">
         <div className="p-6 border-b border-slate-800/50">
           <Link href="/" className="flex items-center gap-3 text-decoration-none group">
             <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-900/20 group-hover:bg-blue-500 transition-colors">
@@ -198,9 +200,7 @@ export default function DashboardLayout({
           <div className="flex items-center justify-between mb-4 px-2">
             <div className="flex flex-col">
               <span className="text-sm font-bold text-white">{user?.username}</span>
-              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
-                {permission === 3 ? 'Admin' : permission === 2 ? 'ReadWrite' : 'ReadOnly'}
-              </span>
+              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">{getPermissionRoleLabel(permission)}</span>
             </div>
             <Badge variant="outline" className="border-slate-700 text-slate-400 bg-slate-800/50">在线</Badge>
           </div>
@@ -212,15 +212,14 @@ export default function DashboardLayout({
       </aside>
 
       {/* 桌面端主内容区 */}
-      <main className="flex-1 overflow-y-auto bg-[#f8fafc] relative pt-14 lg:pt-0 pb-20 lg:pb-0">
-         {/* 微妙的网格背景，增加科技感 */}
-         <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:3rem_3rem] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none opacity-50"></div>
+      <main className="flex-1 overflow-y-auto bg-transparent relative pt-14 lg:pt-0 pb-20 lg:pb-0">
+         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,#dbeafe_0%,transparent_55%),radial-gradient(ellipse_at_bottom_right,#cffafe_0%,transparent_50%)] pointer-events-none opacity-90"></div>
          <div className="relative z-10 w-full h-full max-w-7xl mx-auto p-4 lg:p-8">
             {children}
          </div>
       </main>
 
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/85 backdrop-blur-xl border-t border-slate-200/70 shadow-[0_-8px_24px_rgba(15,23,42,0.08)]">
         <div className="grid grid-cols-3 h-16">
           <Link
             href="/"

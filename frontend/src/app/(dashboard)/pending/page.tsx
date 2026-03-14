@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
+import { queryKeys } from "@/lib/query-keys";
 
 import {
   Table,
@@ -24,7 +25,7 @@ export default function PendingDevicesPage() {
   const queryClient = useQueryClient();
 
   const { data: deviceData, isLoading } = useQuery({
-    queryKey: ["devices", "pending"],
+    queryKey: queryKeys.devicesByStatus("pending"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "pending" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 2,
   });
@@ -32,17 +33,17 @@ export default function PendingDevicesPage() {
   const approveMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/approve`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices", "pending"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices", "pending"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
     },
   });
 
@@ -65,7 +66,7 @@ export default function PendingDevicesPage() {
         <Button 
           variant="outline" 
           className="bg-white shadow-sm border-slate-200 hover:bg-slate-50 rounded-xl"
-          onClick={() => queryClient.invalidateQueries({ queryKey: ["devices", "pending"] })}
+          onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") })}
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
           刷新列表

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
+import { queryKeys } from "@/lib/query-keys";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -51,7 +52,7 @@ export default function UserManagementPage() {
   }, [isAuthenticated, currentUser, authLoading, router]);
 
   const { data: userData, isLoading: usersLoading } = useQuery({
-    queryKey: ["users"],
+    queryKey: queryKeys.users,
     queryFn: () => api.get<components["schemas"]["UserListData"]>("/api/v1/users"),
     enabled: isAuthenticated && currentUser?.permission === 3,
   });
@@ -59,7 +60,7 @@ export default function UserManagementPage() {
   const updatePermissionMutation = useMutation({
     mutationFn: ({ username, permission }: { username: string; permission: PermissionType }) =>
       api.post(`/api/v1/users/${username}/permission`, { permission }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.users }),
   });
 
   if (authLoading || !isAuthenticated || currentUser?.permission !== 3) {

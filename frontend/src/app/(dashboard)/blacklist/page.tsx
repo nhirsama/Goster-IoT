@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
+import { queryKeys } from "@/lib/query-keys";
 
 import {
   Table,
@@ -27,13 +28,13 @@ export default function BlacklistPage() {
   // 同时获取 refused (1) 和 revoked (4) 状态的设备，这里我们在前端过滤或者如果后端支持多状态查询
   // 原系统通过不同的 query/view 或者复用接口实现。我们这里直接请求 revoked 状态以获取被撤销/拒绝的设备
   const { data: revokedData, isLoading: revokedLoading } = useQuery({
-    queryKey: ["devices", "revoked"],
+    queryKey: queryKeys.devicesByStatus("revoked"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "revoked" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 1,
   });
 
   const { data: refusedData, isLoading: refusedLoading } = useQuery({
-    queryKey: ["devices", "refused"],
+    queryKey: queryKeys.devicesByStatus("refused"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "refused" }),
     enabled: isAuthenticated && (user?.permission || 0) >= 1,
   });
@@ -41,10 +42,10 @@ export default function BlacklistPage() {
   const unblockMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/unblock`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "pending"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
     },
   });
 
@@ -74,8 +75,8 @@ export default function BlacklistPage() {
           variant="outline" 
           className="bg-white shadow-sm border-slate-200 hover:bg-slate-50 rounded-xl"
           onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
-            queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
+            queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
           }}
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />

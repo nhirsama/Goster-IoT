@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
+import { queryKeys } from "@/lib/query-keys";
 import { Fingerprint, Server, ChevronRight, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -14,7 +15,7 @@ export default function DevicesPage() {
   const { isAuthenticated } = useAuth();
 
   const { data: deviceData, isLoading, refetch } = useQuery({
-    queryKey: ["devices", "authenticated"],
+    queryKey: queryKeys.devicesByStatus("authenticated"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "authenticated" }),
     enabled: isAuthenticated,
     refetchInterval: 10000,
@@ -36,7 +37,7 @@ export default function DevicesPage() {
         </Button>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="glass-card rounded-2xl overflow-hidden">
         {isLoading ? (
           <div className="py-16 text-center text-slate-400">正在加载设备列表...</div>
         ) : devices.length === 0 ? (
@@ -50,7 +51,7 @@ export default function DevicesPage() {
               <Link
                 key={device.uuid}
                 href={`/devices/${device.uuid}`}
-                className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+                className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span

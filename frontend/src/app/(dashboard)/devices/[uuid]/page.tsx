@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
+import { metricRangeOptions } from "@/lib/dashboard-meta";
+import { queryKeys } from "@/lib/query-keys";
 import { useParams, useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
 import {
@@ -43,25 +45,26 @@ import {
 
 type MetricsData = components["schemas"]["MetricsData"];
 type MetricPoint = components["schemas"]["MetricPoint"];
+type MetricRange = (typeof metricRangeOptions)[number]["value"];
 
 export default function DeviceMetricsPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [range, setRange] = useState("1h");
+  const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
 
   // 获取设备详情
   const { data: device, isLoading: deviceLoading } = useQuery({
-    queryKey: ["device", uuid],
+    queryKey: queryKeys.device(uuid),
     queryFn: () => api.get<components["schemas"]["DeviceRecord"]>(`/api/v1/devices/${uuid}`),
     enabled: !!uuid && isAuthenticated,
   });
 
   // 获取指标数据
   const { data: metricsData } = useQuery<MetricsData>({
-    queryKey: ["metrics", uuid, range],
+    queryKey: queryKeys.metrics(uuid, range),
     queryFn: () => api.get(`/api/v1/metrics/${uuid}`, { range }),
     enabled: !!uuid && isAuthenticated,
     refetchInterval: 30000,
@@ -71,17 +74,17 @@ export default function DeviceMetricsPage() {
   const refreshTokenMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/token/refresh`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["device", uuid] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.device(uuid) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
     },
   });
@@ -89,9 +92,9 @@ export default function DeviceMetricsPage() {
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/v1/devices/${uuid}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices", "authenticated"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "refused"] });
-      queryClient.invalidateQueries({ queryKey: ["devices", "revoked"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
     },
   });
@@ -253,14 +256,14 @@ export default function DeviceMetricsPage() {
             <CardTitle className="text-lg font-bold text-slate-900">数据监控</CardTitle>
           </div>
           
-          <div className="flex bg-slate-100 p-1 rounded-lg">
-            {[{v:'1h', l:'1小时'}, {v:'6h', l:'6小时'}, {v:'24h', l:'24小时'}, {v:'7d', l:'7天'}, {v:'all', l:'全部'}].map(r => (
+            <div className="flex bg-slate-100 p-1 rounded-lg">
+            {metricRangeOptions.map((r) => (
               <button
-                key={r.v}
-                onClick={() => setRange(r.v)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${range === r.v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                key={r.value}
+                onClick={() => setRange(r.value)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${range === r.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                {r.l}
+                {r.label}
               </button>
             ))}
           </div>

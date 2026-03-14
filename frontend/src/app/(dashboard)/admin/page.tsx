@@ -18,11 +18,11 @@ export default function AdminPage() {
         <p className="text-sm text-slate-500">前后端分离版的管理入口</p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="glass-card rounded-2xl overflow-hidden">
         {permission >= 2 && (
           <Link
             href="/pending"
-            className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors border-b border-slate-100"
+            className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition-colors border-b border-slate-100"
           >
             <div className="flex items-center gap-3">
               <Bell className="h-4 w-4 text-amber-500" />
@@ -35,7 +35,7 @@ export default function AdminPage() {
         {permission >= 1 && (
           <Link
             href="/blacklist"
-            className={`flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors ${
+            className={`flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition-colors ${
               permission >= 3 ? "border-b border-slate-100" : ""
             }`}
           >
@@ -50,7 +50,7 @@ export default function AdminPage() {
         {permission >= 3 && (
           <Link
             href="/users"
-            className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+            className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition-colors"
           >
             <div className="flex items-center gap-3">
               <Users className="h-4 w-4 text-blue-500" />

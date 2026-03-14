@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api-client";
 import { UserPlus, User, Mail, Lock, Check } from "lucide-react";
 import { components } from "@/lib/api-types";
+import { queryKeys } from "@/lib/query-keys";
 
 const registerSchema = z
   .object({
@@ -70,7 +71,7 @@ export default function RegisterPage() {
         ...payload,
         captcha_token: captchaToken || undefined,
       });
-      queryClient.invalidateQueries({ queryKey: ["auth-me"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.authMe });
       router.push("/");
     } catch (err: unknown) {
       if (err instanceof ApiError && err.errorDetail) {

@@ -116,8 +116,23 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.12), transparent 40%),
+      radial-gradient(circle at 100% 100%, rgba(20, 184, 166, 0.1), transparent 35%),
+      linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/85 backdrop-blur-md border border-white/70 shadow-[0_12px_32px_rgba(15,23,42,0.08)];
+  }
+
+  .elevate-hover {
+    @apply transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(15,23,42,0.12)];
   }
 }
