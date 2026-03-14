@@ -6,7 +6,8 @@ import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useUx } from "@/components/providers/ux-provider";
 
 import {
   Table,
@@ -44,7 +45,7 @@ export default function UserManagementPage() {
   const { user: currentUser, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [actionError, setActionError] = useState<string | null>(null);
+  const { toast } = useUx();
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || currentUser?.permission !== 3)) {
@@ -62,11 +63,11 @@ export default function UserManagementPage() {
     mutationFn: ({ username, permission }: { username: string; permission: PermissionType }) =>
       api.post(`/api/v1/users/${encodeURIComponent(username)}/permission`, { permission }),
     onSuccess: () => {
-      setActionError(null);
+      toast.success("用户权限已更新");
       queryClient.invalidateQueries({ queryKey: queryKeys.users });
     },
     onError: (error: unknown) => {
-      setActionError(getApiErrorMessage(error, "权限更新失败，请稍后重试"));
+      toast.error(getApiErrorMessage(error, "权限更新失败，请稍后重试"));
     },
   });
 
@@ -92,11 +93,6 @@ export default function UserManagementPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {actionError && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {actionError}
-          </div>
-        )}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">用户列表</h2>
@@ -180,7 +176,7 @@ export default function UserManagementPage() {
                                   className={`justify-between h-14 rounded-2xl px-6 font-bold transition-all ${u.permission === Number(val) ? "bg-blue-600 shadow-lg shadow-blue-100" : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/50"}`}
                                   onClick={() => {
                                     if (u.username === currentUser.username && Number(val) !== 3) {
-                                      setActionError("出于安全限制，当前登录管理员不能在前端把自己的权限降级。");
+                                      toast.error("出于安全限制，当前登录管理员不能在前端把自己的权限降级。");
                                       return;
                                     }
                                     updatePermissionMutation.mutate({ 

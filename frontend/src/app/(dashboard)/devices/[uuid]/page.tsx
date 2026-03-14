@@ -8,6 +8,7 @@ import { metricRangeOptions } from "@/lib/dashboard-meta";
 import { queryKeys } from "@/lib/query-keys";
 import { useParams, useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
+import { useUx } from "@/components/providers/ux-provider";
 import {
   LineChart,
   Line,
@@ -52,9 +53,9 @@ export default function DeviceMetricsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { toast, confirm: askConfirm } = useUx();
   const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   // 获取设备详情
   const { data: device, isLoading: deviceLoading } = useQuery({
@@ -75,40 +76,40 @@ export default function DeviceMetricsPage() {
   const refreshTokenMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/token/refresh`),
     onSuccess: () => {
-      setActionError(null);
+      toast.success("设备令牌已重置");
       queryClient.invalidateQueries({ queryKey: queryKeys.device(uuid) });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
     },
     onError: (error: unknown) => {
-      setActionError(getApiErrorMessage(error, "重置令牌失败，请稍后重试"));
+      toast.error(getApiErrorMessage(error, "重置令牌失败，请稍后重试"));
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
-      setActionError(null);
+      toast.success("设备已吊销");
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
     },
     onError: (error: unknown) => {
-      setActionError(getApiErrorMessage(error, "吊销设备失败，请稍后重试"));
+      toast.error(getApiErrorMessage(error, "吊销设备失败，请稍后重试"));
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/v1/devices/${uuid}`),
     onSuccess: () => {
-      setActionError(null);
+      toast.success("设备已删除");
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
     },
     onError: (error: unknown) => {
-      setActionError(getApiErrorMessage(error, "删除设备失败，请稍后重试"));
+      toast.error(getApiErrorMessage(error, "删除设备失败，请稍后重试"));
     },
   });
 
@@ -148,11 +149,6 @@ export default function DeviceMetricsPage() {
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
-      {actionError && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {actionError}
-        </div>
-      )}
       {/* Header Card - 1:1复刻原版顶部操作区 */}
       <Card className="border-none shadow-lg shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
         <CardContent className="p-6 d-flex flex-wrap justify-between align-items-center gap-4">
@@ -177,10 +173,17 @@ export default function DeviceMetricsPage() {
               <Button 
                 variant="outline" 
                 className="border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm font-bold"
-                onClick={() => {
-                  if(confirm("确定要重置该设备的 Token 吗？这将导致设备断开连接。")) {
+                onClick={async () => {
+                  const ok = await askConfirm({
+                    title: "重置设备令牌",
+                    description: "确定要重置该设备的 Token 吗？这将导致设备断开连接。",
+                    confirmText: "确认重置",
+                    cancelText: "取消",
+                    tone: "danger",
+                  });
+                  if (ok) {
                     refreshTokenMutation.mutate();
-                  }
+                  } 
                 }}
               >
                 <Key className="h-4 w-4 mr-2" />
@@ -200,10 +203,17 @@ export default function DeviceMetricsPage() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={() => {
-                      if(confirm("确定要吊销该设备的认证吗？设备将无法连接。")) {
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: "吊销设备认证",
+                        description: "确定要吊销该设备的认证吗？设备将无法连接。",
+                        confirmText: "确认吊销",
+                        cancelText: "取消",
+                        tone: "danger",
+                      });
+                      if (ok) {
                         revokeMutation.mutate();
-                      }
+                      } 
                     }}
                   >
                     <Ban className="h-4 w-4 mr-2" />
@@ -211,10 +221,17 @@ export default function DeviceMetricsPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem 
                     className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={() => {
-                      if(confirm("确定要永久删除该设备吗？所有历史数据将丢失且无法恢复！")) {
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: "删除设备",
+                        description: "确定要永久删除该设备吗？所有历史数据将丢失且无法恢复。",
+                        confirmText: "确认删除",
+                        cancelText: "取消",
+                        tone: "danger",
+                      });
+                      if (ok) {
                         deleteMutation.mutate();
-                      }
+                      } 
                     }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />

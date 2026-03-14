@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/query-provider";
+import { UxProvider } from "@/components/providers/ux-provider";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-sans",
@@ -29,7 +30,9 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} font-sans min-h-screen`}
       >
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <UxProvider>{children}</UxProvider>
+        </QueryProvider>
       </body>
     </html>
   );
