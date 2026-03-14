@@ -34,7 +34,7 @@ func generateRandomKey(length int) []byte {
 }
 
 // SetupAuthboss 初始化并配置 Authboss 实例
-func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, error) {
+func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	ab := authboss.New()
 	cookieSecure := resolveCookieSecure()
 
@@ -73,8 +73,8 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 		ab.Config.Paths.RootURL = "http://localhost:8080"
 	}
 
-	ab.Config.Paths.RegisterOK = "/auth/login"
-	ab.Config.Paths.LogoutOK = "/auth/login"
+	ab.Config.Paths.RegisterOK = "/login"
+	ab.Config.Paths.LogoutOK = "/login"
 	ab.Config.Paths.OAuth2LoginOK = "/"
 
 	// 基础默认配置 (无 Confirm, 无 Lock)
@@ -118,10 +118,8 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 		},
 	}
 
-	// 设置 HTML 渲染器
-	renderer := NewHTMLRenderer(htmlDir)
+	renderer := NewStaticViewRenderer()
 	ab.Config.Core.ViewRenderer = renderer
-	// 使用正确的渲染器重新初始化 Responder
 	ab.Config.Core.Responder = defaults.NewResponder(renderer)
 
 	if err := ab.Init(); err != nil {

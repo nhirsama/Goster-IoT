@@ -34,6 +34,17 @@ func NewTurnstileService() *TurnstileService {
 	}
 }
 
+func (s *TurnstileService) IsEnabled() bool {
+	return s != nil && s.Enabled
+}
+
+func (s *TurnstileService) PublicSiteKey() string {
+	if s == nil {
+		return ""
+	}
+	return s.SiteKey
+}
+
 type turnstileResponse struct {
 	Success bool `json:"success"`
 }

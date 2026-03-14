@@ -34,23 +34,31 @@ func start(ctx context.Context) {
 		log.Fatal(err)
 	}
 
-	htmlDir := os.Getenv("HTML_DIR")
-	if htmlDir == "" {
-		htmlDir = "html"
-	}
-
 	// Initialize Authboss (Encapsulated in web package)
-	ab, err := web.SetupAuthboss(db, htmlDir)
+	ab, err := web.SetupAuthboss(db)
 	if err != nil {
 		log.Fatalf("Failed to setup Authboss: %v", err)
+	}
+	authService, err := web.NewAuthService(ab)
+	if err != nil {
+		log.Fatalf("Failed to setup auth service: %v", err)
 	}
 
 	dm := device_manager.NewDeviceManager(db)
 
 	api := api.NewApi(db, dm)
 
-	web := web.NewWebServer(db, dm, api, htmlDir, ab)
-	go web.Start()
+	webServer, err := web.NewWebServer(web.WebServerDeps{
+		DataStore:     db,
+		DeviceManager: dm,
+		API:           api,
+		Auth:          authService,
+		Captcha:       web.NewTurnstileService(),
+	})
+	if err != nil {
+		log.Fatalf("Failed to setup web server: %v", err)
+	}
+	go webServer.Start()
 	go api.Start()
 	select {
 	case <-ctx.Done():
