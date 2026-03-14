@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/aarondl/authboss/v3"
 	_ "github.com/aarondl/authboss/v3/auth"
@@ -35,6 +36,7 @@ func generateRandomKey(length int) []byte {
 // SetupAuthboss 初始化并配置 Authboss 实例
 func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, error) {
 	ab := authboss.New()
+	cookieSecure := resolveCookieSecure()
 
 	// 确保 datastore 实现了 Authboss ServerStorer
 	storer, ok := db.(authboss.ServerStorer)
@@ -49,7 +51,7 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 	sessionStore := sessions.NewCookieStore(sessionKey)
 	sessionStore.Options.MaxAge = 0
 	sessionStore.Options.HttpOnly = true
-	sessionStore.Options.Secure = false // 本地开发环境设为 false
+	sessionStore.Options.Secure = cookieSecure
 	sessionStore.Options.Path = "/"
 	sessionStore.Options.SameSite = http.SameSiteLaxMode
 	ab.Config.Storage.SessionState = NewSessionStorer("goster_session", sessionStore)
@@ -60,7 +62,7 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 	cookieStore := sessions.NewCookieStore(cookieKey)
 	cookieStore.Options.MaxAge = 86400 * 30
 	cookieStore.Options.HttpOnly = true
-	cookieStore.Options.Secure = false // 本地开发环境设为 false
+	cookieStore.Options.Secure = cookieSecure
 	cookieStore.Options.Path = "/"
 	cookieStore.Options.SameSite = http.SameSiteLaxMode
 	ab.Config.Storage.CookieState = NewSessionStorer("goster_remember", cookieStore)
@@ -127,4 +129,21 @@ func SetupAuthboss(db inter.DataStore, htmlDir string) (*authboss.Authboss, erro
 	}
 
 	return ab, nil
+}
+
+func resolveCookieSecure() bool {
+	if raw := strings.TrimSpace(os.Getenv("AUTH_COOKIE_SECURE")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err == nil {
+			return v
+		}
+	}
+
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "prod" || env == "production" {
+		return true
+	}
+
+	rootURL := strings.ToLower(strings.TrimSpace(os.Getenv("AUTHBOSS_ROOT_URL")))
+	return strings.HasPrefix(rootURL, "https://")
 }

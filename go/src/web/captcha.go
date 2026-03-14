@@ -1,11 +1,14 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 // TurnstileService 管理 Cloudflare Turnstile 验证
@@ -13,7 +16,10 @@ type TurnstileService struct {
 	SiteKey   string
 	SecretKey string
 	Enabled   bool
+	client    *http.Client
 }
+
+const turnstileVerifyTimeout = 5 * time.Second
 
 // NewTurnstileService 初始化服务
 func NewTurnstileService() *TurnstileService {
@@ -22,6 +28,9 @@ func NewTurnstileService() *TurnstileService {
 		SiteKey:   os.Getenv("CF_SITE_KEY"),
 		SecretKey: os.Getenv("CF_SECRET_KEY"),
 		Enabled:   provider == "turnstile",
+		client: &http.Client{
+			Timeout: turnstileVerifyTimeout,
+		},
 	}
 }
 
@@ -54,16 +63,36 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 		return false
 	}
 
-	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", map[string][]string{
+	form := url.Values{
 		"secret":   {s.SecretKey},
 		"response": {token},
 		"remoteip": {ip},
-	})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), turnstileVerifyTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
+	if err != nil {
+		log.Printf("Turnstile 请求构建失败: %v", err)
+		return false
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := s.client
+	if client == nil {
+		client = &http.Client{Timeout: turnstileVerifyTimeout}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Turnstile 验证请求失败 (网络错误): %v", err)
 		return false
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Turnstile 验证失败: 非 200 状态码 %d", resp.StatusCode)
+		return false
+	}
 
 	var result turnstileResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
