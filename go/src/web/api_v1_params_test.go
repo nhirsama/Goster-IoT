@@ -43,23 +43,17 @@ func TestResolveMetricsRangeWithExplicitWindow(t *testing.T) {
 
 func TestResolveMetricsRangeInvalidQueries(t *testing.T) {
 	startOnly := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?start_ms=1700000000000", nil)
-	start, _, label, err := resolveMetricsRange(startOnly)
-	if err != nil {
-		t.Fatalf("start_ms without end_ms should fallback, got err=%v", err)
-	}
-	if label != "1h" {
-		t.Fatalf("unexpected fallback range label: %s", label)
-	}
-	if start < minValidMetricsTimestampMs {
-		t.Fatalf("fallback start should be clamped to min timestamp, got %d", start)
+	if _, _, _, err := resolveMetricsRange(startOnly); err == nil {
+		t.Fatalf("start_ms without end_ms should return error")
 	}
 
 	invalidRange := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?range=30m", nil)
-	_, _, label, err = resolveMetricsRange(invalidRange)
-	if err != nil {
-		t.Fatalf("invalid range should fallback, got err=%v", err)
+	if _, _, _, err := resolveMetricsRange(invalidRange); err == nil {
+		t.Fatalf("invalid range should return error")
 	}
-	if label != "1h" {
-		t.Fatalf("invalid range should fallback to 1h, got %s", label)
+
+	invalidRangeWithWindow := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?range=30m&start_ms=1700000000000&end_ms=1700003600000", nil)
+	if _, _, _, err := resolveMetricsRange(invalidRangeWithWindow); err == nil {
+		t.Fatalf("invalid range should return error even with explicit window")
 	}
 }

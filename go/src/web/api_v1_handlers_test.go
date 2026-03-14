@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -143,9 +142,9 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 		wantCode int
 	}{
 		{`{`, 40001},
-		{`{"username":"ab","password":"12345678","confirm_password":"12345678"}`, 40002},
-		{`{"username":"abc","password":"12345678","confirm_password":"12345678"}`, 40002},
-		{`{"username":"abcd","password":"12345678","confirm_password":"different"}`, 40002},
+		{`{"username":"ab","password":"12345678"}`, 40002},
+		{`{"username":"abc","password":"123"}`, 40003},
+		{`{"username":"abcd","password":"12345678","confirm_password":"different"}`, 40001},
 	}
 	for _, tc := range registerCases {
 		rec := httptest.NewRecorder()
@@ -162,7 +161,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 	ws.turnstile = &TurnstileService{Enabled: true}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"validuser","password":"Admin123!","confirm_password":"Admin123!"}`))
+		bytes.NewBufferString(`{"username":"validuser","password":"Admin123!"}`))
 	ws.apiRegisterHandler(rec, req)
 	if got := mustJSONEnvelope(t, rec).Code; got != 40005 {
 		t.Fatalf("expected captcha required 40005, got %d", got)
@@ -171,17 +170,18 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 	loginCases := []struct {
 		body     string
 		wantCode int
+		wantHTTP int
 	}{
-		{`{`, 40007},
-		{`{"password":"12345678"}`, 40111},
-		{`{"username":"abc"}`, 40111},
+		{`{`, 40007, http.StatusBadRequest},
+		{`{"password":"12345678"}`, 40008, http.StatusBadRequest},
+		{`{"username":"abc"}`, 40008, http.StatusBadRequest},
 	}
 	for _, tc := range loginCases {
 		rec = httptest.NewRecorder()
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(tc.body))
 		ws.apiLoginHandler(rec, req)
-		if rec.Code != http.StatusUnauthorized && rec.Code != http.StatusBadRequest {
-			t.Fatalf("login expected 400/401, got %d", rec.Code)
+		if rec.Code != tc.wantHTTP {
+			t.Fatalf("login expected %d, got %d", tc.wantHTTP, rec.Code)
 		}
 		if got := mustJSONEnvelope(t, rec).Code; got != tc.wantCode {
 			t.Fatalf("login unexpected code: got %d want %d", got, tc.wantCode)
@@ -343,7 +343,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 
 	registerRec := httptest.NewRecorder()
 	registerReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","confirm_password":"Admin123!","email":"admin@test.local"}`))
+		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","email":"admin@test.local"}`))
 	register.ServeHTTP(registerRec, registerReq)
 
 	if registerRec.Code != http.StatusCreated {
@@ -355,7 +355,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 
 	conflictRec := httptest.NewRecorder()
 	conflictReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","confirm_password":"Admin123!"}`))
+		bytes.NewBufferString(`{"username":"admin","password":"Admin123!"}`))
 	register.ServeHTTP(conflictRec, conflictReq)
 	if conflictRec.Code != http.StatusConflict {
 		t.Fatalf("duplicate register expected 409, got %d", conflictRec.Code)
@@ -398,7 +398,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	}
 }
 
-func TestAPIDeviceDeleteCompatIgnoresNotFound(t *testing.T) {
+func TestAPIDeviceDeleteNotFound(t *testing.T) {
 	ws, _, _ := newTestWS(t)
 	uuid := strings.Repeat("b", 64)
 
@@ -407,12 +407,12 @@ func TestAPIDeviceDeleteCompatIgnoresNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	ws.apiDeviceByUUIDHandler(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete not-found should still return 204, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("delete not-found should return 404, got %d", rec.Code)
 	}
 }
 
-func TestAPIRefreshTokenCompatNotFoundIsInternalError(t *testing.T) {
+func TestAPIRefreshTokenNotFound(t *testing.T) {
 	ws, _, _ := newTestWS(t)
 	uuid := strings.Repeat("c", 64)
 
@@ -421,42 +421,40 @@ func TestAPIRefreshTokenCompatNotFoundIsInternalError(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	ws.apiDeviceByUUIDHandler(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("refresh token not-found should return 500, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("refresh token not-found should return 404, got %d", rec.Code)
 	}
-	if code := mustJSONEnvelope(t, rec).Code; code != 50023 {
+	if code := mustJSONEnvelope(t, rec).Code; code != 40425 {
 		t.Fatalf("unexpected business code: %d", code)
 	}
 }
 
-func TestAPIUserPermissionCompatParsing(t *testing.T) {
+func TestAPIUserPermissionValidationAndNotFound(t *testing.T) {
 	ws, ds, _ := newTestWS(t)
 	seedUser(t, ds, "perm_user")
+	beforePerm, err := ds.GetUserPermission("perm_user")
+	if err != nil {
+		t.Fatalf("failed to get initial permission: %v", err)
+	}
 
-	// 旧逻辑兼容：permission 非数字时按 0 处理
+	// 非法 permission 必须返回 400
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/perm_user/permission",
 		bytes.NewBufferString(`{"permission":"bad"}`))
 	rec := httptest.NewRecorder()
 	ws.apiUserPermissionHandler(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("json compat parse expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid permission should return 400, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if perm, err := ds.GetUserPermission("perm_user"); err != nil || perm != inter.PermissionNone {
-		t.Fatalf("unexpected permission after compat parse: perm=%d err=%v", perm, err)
+	if perm, err := ds.GetUserPermission("perm_user"); err != nil || perm != beforePerm {
+		t.Fatalf("permission should remain unchanged after invalid request: perm=%d err=%v", perm, err)
 	}
 
-	// 兼容旧表单提交
-	form := url.Values{}
-	form.Set("permission", "2")
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/perm_user/permission",
-		bytes.NewBufferString(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// 用户不存在返回 404
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/not_exist/permission",
+		bytes.NewBufferString(`{"permission":2}`))
 	rec = httptest.NewRecorder()
 	ws.apiUserPermissionHandler(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("form parse expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	if perm, err := ds.GetUserPermission("perm_user"); err != nil || perm != inter.PermissionReadWrite {
-		t.Fatalf("unexpected permission after form parse: perm=%d err=%v", perm, err)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("user not found should return 404, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }

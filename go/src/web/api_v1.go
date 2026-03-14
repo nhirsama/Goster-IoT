@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -32,8 +33,8 @@ const (
 const (
 	minValidMetricsTimestampMs int64 = 1672531200000
 	maxAPIBodyBytes            int64 = 1 << 20
-	defaultDevicePageSize            = 10000
-	maxDevicePageSize                = 10000
+	defaultDevicePageSize            = 100
+	maxDevicePageSize                = 1000
 
 	defaultAPICORSAllowedOrigins = "http://localhost:5173,http://127.0.0.1:5173"
 )
@@ -220,18 +221,58 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	values, err := decodeJSONToStringMap(r)
-	if err != nil {
+	var payload struct {
+		Username     string                 `json:"username"`
+		Password     string                 `json:"password"`
+		Email        *string                `json:"email,omitempty"`
+		CaptchaToken *string                `json:"captcha_token,omitempty"`
+		Extensions   map[string]interface{} `json:"extensions,omitempty"`
+	}
+	if err := decodeAPIBody(r, &payload); err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40001, "invalid json body",
 			&apiErrorDetail{Type: "validation_error"})
 		return
 	}
+	username := strings.TrimSpace(payload.Username)
+	password := payload.Password
+	email := ""
+	captchaToken := ""
+	if payload.Email != nil {
+		email = strings.TrimSpace(*payload.Email)
+	}
+	if payload.CaptchaToken != nil {
+		captchaToken = strings.TrimSpace(*payload.CaptchaToken)
+	}
+
+	if username == "" {
+		ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: "username"})
+		return
+	}
+	if len(username) < 3 || len(username) > 64 {
+		ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: "username", Reason: "length must be 3..64"})
+		return
+	}
+	if password == "" {
+		ws.apiError(w, r, http.StatusBadRequest, 40003, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: "password"})
+		return
+	}
+	if len(password) < 8 || len(password) > 128 {
+		ws.apiError(w, r, http.StatusBadRequest, 40003, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: "password", Reason: "length must be 8..128"})
+		return
+	}
+	if email != "" {
+		if _, err := mail.ParseAddress(email); err != nil {
+			ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
+				&apiErrorDetail{Type: "validation_error", Field: "email", Reason: "invalid email format"})
+			return
+		}
+	}
 
 	if ws.turnstile != nil && ws.turnstile.Enabled {
-		captchaToken := strings.TrimSpace(values["captcha_token"])
-		if captchaToken == "" {
-			captchaToken = strings.TrimSpace(values["cf-turnstile-response"])
-		}
 		if captchaToken == "" {
 			ws.apiError(w, r, http.StatusBadRequest, 40005, "captcha token required",
 				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
@@ -242,46 +283,6 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 				&apiErrorDetail{Type: "validation_error", Field: "captcha_token"})
 			return
 		}
-	}
-
-	reader := defaults.NewHTTPBodyReader(true, true)
-	validatable, err := reader.Read("register", requestWithStringMapJSON(r, values))
-	if err != nil {
-		ws.apiError(w, r, http.StatusBadRequest, 40001, "invalid json body",
-			&apiErrorDetail{Type: "validation_error"})
-		return
-	}
-	if errs := validatable.Validate(); errs != nil {
-		detail := &apiErrorDetail{Type: "validation_error"}
-		if f, ok := errs[0].(interface {
-			Name() string
-			Err() error
-		}); ok {
-			detail.Field = f.Name()
-			if ferr := f.Err(); ferr != nil {
-				detail.Reason = ferr.Error()
-			}
-		} else {
-			detail.Reason = errs[0].Error()
-		}
-		ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
-			detail,
-		)
-		return
-	}
-
-	creds := authboss.MustHaveUserValues(validatable)
-	username := strings.TrimSpace(creds.GetPID())
-	password := creds.GetPassword()
-	if username == "" {
-		ws.apiError(w, r, http.StatusBadRequest, 40002, "validation failed",
-			&apiErrorDetail{Type: "validation_error", Field: "username"})
-		return
-	}
-	if password == "" {
-		ws.apiError(w, r, http.StatusBadRequest, 40003, "validation failed",
-			&apiErrorDetail{Type: "validation_error", Field: "password"})
-		return
 	}
 
 	storer, ok := ws.authboss.Config.Storage.Server.(authboss.CreatingServerStorer)
@@ -295,7 +296,7 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 	user.PutPID(username)
 
 	if emailSetter, ok := user.(interface{ PutEmail(string) }); ok {
-		emailSetter.PutEmail(strings.TrimSpace(values["email"]))
+		emailSetter.PutEmail(email)
 	}
 
 	pass, err := ws.authboss.Config.Core.Hasher.GenerateHash(password)
@@ -340,7 +341,7 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 		RequestID: ws.getRequestID(r),
 		Data: map[string]interface{}{
 			"username":      username,
-			"email":         strings.TrimSpace(values["email"]),
+			"email":         email,
 			"permission":    perm,
 			"authenticated": true,
 		},
@@ -353,15 +354,38 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values, err := decodeJSONToStringMap(r)
-	if err != nil {
+	var payload struct {
+		Username     string                 `json:"username"`
+		Password     string                 `json:"password"`
+		RememberMe   bool                   `json:"remember_me,omitempty"`
+		CaptchaToken *string                `json:"captcha_token,omitempty"`
+		Extensions   map[string]interface{} `json:"extensions,omitempty"`
+	}
+	if err := decodeAPIBody(r, &payload); err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40007, "invalid json body",
 			&apiErrorDetail{Type: "validation_error"})
 		return
 	}
-	if values["remember_me"] != "" && values[authboss.CookieRemember] == "" {
-		values[authboss.CookieRemember] = strings.ToLower(values["remember_me"])
+	username := strings.TrimSpace(payload.Username)
+	password := payload.Password
+	if username == "" || password == "" {
+		field := "username"
+		if username != "" {
+			field = "password"
+		}
+		ws.apiError(w, r, http.StatusBadRequest, 40008, "validation failed",
+			&apiErrorDetail{Type: "validation_error", Field: field})
+		return
 	}
+
+	values := map[string]string{
+		"username": username,
+		"password": password,
+	}
+	if payload.RememberMe {
+		values[authboss.CookieRemember] = "true"
+	}
+
 	reader := defaults.NewHTTPBodyReader(true, true)
 	validatable, err := reader.Read("login", requestWithStringMapJSON(r, values))
 	if err != nil {
@@ -505,19 +529,22 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 
 	status, statusPtr, statusErr := parseDeviceStatusFilter(r.URL.Query().Get("status"))
 	if statusErr != nil {
-		// 兼容旧逻辑：状态过滤非法时回退到 authenticated，而不是直接报错
-		status, statusPtr, _ = parseDeviceStatusFilter("authenticated")
+		ws.apiError(w, r, http.StatusBadRequest, 40011, "invalid status filter",
+			&apiErrorDetail{Type: "validation_error", Field: "status"})
+		return
 	}
 
 	page, err := parsePositiveIntQuery(r.URL.Query().Get("page"), 1, 0)
 	if err != nil {
-		// 兼容旧逻辑：page 非法时回退默认值
-		page = 1
+		ws.apiError(w, r, http.StatusBadRequest, 40012, "invalid page",
+			&apiErrorDetail{Type: "validation_error", Field: "page", Reason: err.Error()})
+		return
 	}
 	size, err := parsePositiveIntQuery(r.URL.Query().Get("size"), defaultDevicePageSize, maxDevicePageSize)
 	if err != nil {
-		// 兼容旧逻辑：size 非法时回退默认值
-		size = defaultDevicePageSize
+		ws.apiError(w, r, http.StatusBadRequest, 40013, "invalid size",
+			&apiErrorDetail{Type: "validation_error", Field: "size", Reason: err.Error()})
+		return
 	}
 
 	devices, err := ws.deviceManager.ListDevices(statusPtr, page, size)
@@ -593,8 +620,16 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 				return
 			}
-			// 兼容旧逻辑：删除操作忽略错误（包括 not found），保持幂等成功返回
-			_ = ws.deviceManager.DeleteDevice(uuid)
+			if err := ws.deviceManager.DeleteDevice(uuid); err != nil {
+				if isNotFoundError(err) {
+					ws.apiError(w, r, http.StatusNotFound, 40424, "device not found",
+						&apiErrorDetail{Type: "not_found", Field: "uuid"})
+					return
+				}
+				ws.apiError(w, r, http.StatusInternalServerError, 50025, err.Error(),
+					&apiErrorDetail{Type: "internal_error"})
+				return
+			}
 			ws.apiNoContent(w, r)
 		default:
 			ws.apiMethodNotAllowed(w, r)
@@ -655,7 +690,11 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 		}
 		token, err := ws.deviceManager.RefreshToken(uuid)
 		if err != nil {
-			// 兼容旧逻辑：刷新 token 失败统一作为内部错误返回
+			if isNotFoundError(err) {
+				ws.apiError(w, r, http.StatusNotFound, 40425, "device not found",
+					&apiErrorDetail{Type: "not_found", Field: "uuid"})
+				return
+			}
 			ws.apiError(w, r, http.StatusInternalServerError, 50023, err.Error(),
 				&apiErrorDetail{Type: "internal_error"})
 			return
@@ -787,8 +826,28 @@ func (ws *webServer) apiUserPermissionHandler(w http.ResponseWriter, r *http.Req
 			&apiErrorDetail{Type: "validation_error", Field: "username"})
 		return
 	}
-	perm := parsePermissionCompat(r)
-	if err := ws.dataStore.UpdateUserPermission(username, inter.PermissionType(perm)); err != nil {
+
+	var payload struct {
+		Permission int                    `json:"permission"`
+		Extensions map[string]interface{} `json:"extensions,omitempty"`
+	}
+	if err := decodeAPIBody(r, &payload); err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40044, "invalid json body",
+			&apiErrorDetail{Type: "validation_error", Field: "permission"})
+		return
+	}
+	if payload.Permission < int(inter.PermissionNone) || payload.Permission > int(inter.PermissionAdmin) {
+		ws.apiError(w, r, http.StatusBadRequest, 40045, "invalid permission",
+			&apiErrorDetail{Type: "validation_error", Field: "permission"})
+		return
+	}
+
+	if err := ws.dataStore.UpdateUserPermission(username, inter.PermissionType(payload.Permission)); err != nil {
+		if isNotFoundError(err) {
+			ws.apiError(w, r, http.StatusNotFound, 40442, "user not found",
+				&apiErrorDetail{Type: "not_found", Field: "username"})
+			return
+		}
 		ws.apiError(w, r, http.StatusInternalServerError, 50042, err.Error(),
 			&apiErrorDetail{Type: "internal_error"})
 		return
@@ -844,32 +903,6 @@ func decodeAPIBody(r *http.Request, out interface{}) error {
 		return io.ErrUnexpectedEOF
 	}
 	return nil
-}
-
-func decodeJSONToStringMap(r *http.Request) (map[string]string, error) {
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAPIBodyBytes))
-	if err != nil {
-		return nil, err
-	}
-	var v map[string]interface{}
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, err
-	}
-
-	out := make(map[string]string, len(v))
-	for k, val := range v {
-		switch tv := val.(type) {
-		case string:
-			out[k] = tv
-		case bool:
-			out[k] = strconv.FormatBool(tv)
-		case nil:
-			out[k] = ""
-		default:
-			out[k] = fmt.Sprint(tv)
-		}
-	}
-	return out, nil
 }
 
 func requestWithStringMapJSON(r *http.Request, values map[string]string) *http.Request {
@@ -929,22 +962,32 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 	if rangeLabel == "" {
 		rangeLabel = "1h"
 	}
+	if !isValidMetricsRange(rangeLabel) {
+		return 0, 0, "", errors.New("invalid range")
+	}
 
 	startRaw := r.URL.Query().Get("start_ms")
 	endRaw := r.URL.Query().Get("end_ms")
 
-	// 扩展能力：当 start_ms/end_ms 成对且可解析时优先使用；否则回退旧逻辑时间窗
-	if startRaw != "" && endRaw != "" {
+	// start_ms/end_ms 必须成对提供
+	if startRaw != "" || endRaw != "" {
+		if startRaw == "" || endRaw == "" {
+			return 0, 0, "", errors.New("start_ms and end_ms must be provided together")
+		}
 		parsedStart, startErr := strconv.ParseInt(startRaw, 10, 64)
 		parsedEnd, endErr := strconv.ParseInt(endRaw, 10, 64)
-		if startErr == nil && endErr == nil && parsedStart <= parsedEnd {
-			start = parsedStart
-			end = parsedEnd
-			if start < minValidMetricsTimestampMs {
-				start = minValidMetricsTimestampMs
-			}
-			return start, end, rangeLabel, nil
+		if startErr != nil || endErr != nil {
+			return 0, 0, "", errors.New("start_ms and end_ms must be integers")
 		}
+		if parsedStart > parsedEnd {
+			return 0, 0, "", errors.New("start_ms must be less than or equal to end_ms")
+		}
+		start = parsedStart
+		end = parsedEnd
+		if start < minValidMetricsTimestampMs {
+			start = minValidMetricsTimestampMs
+		}
+		return start, end, rangeLabel, nil
 	}
 
 	switch rangeLabel {
@@ -958,10 +1001,6 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 		start = time.Now().Add(-24 * time.Hour).UnixMilli()
 	case "7d":
 		start = time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
-	default:
-		// 兼容旧逻辑：range 非法时回退到 1h
-		rangeLabel = "1h"
-		start = time.Now().Add(-time.Hour).UnixMilli()
 	}
 
 	if start < minValidMetricsTimestampMs {
@@ -970,33 +1009,13 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 	return start, end, rangeLabel, nil
 }
 
-func parsePermissionCompat(r *http.Request) int {
-	if err := r.ParseForm(); err == nil {
-		if formVal := strings.TrimSpace(r.FormValue("permission")); formVal != "" {
-			var perm int
-			fmt.Sscanf(formVal, "%d", &perm)
-			return perm
-		}
+func isValidMetricsRange(raw string) bool {
+	switch raw {
+	case "1h", "6h", "24h", "7d", "all":
+		return true
+	default:
+		return false
 	}
-
-	if r.Body == nil {
-		return 0
-	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAPIBodyBytes))
-	if err != nil || len(raw) == 0 {
-		return 0
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return 0
-	}
-	if val, ok := payload["permission"]; ok {
-		var perm int
-		fmt.Sscanf(fmt.Sprint(val), "%d", &perm)
-		return perm
-	}
-	return 0
 }
 
 func (ws *webServer) apiOK(w http.ResponseWriter, r *http.Request, data interface{}) {
