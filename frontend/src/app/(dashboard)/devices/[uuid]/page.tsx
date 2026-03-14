@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { metricRangeOptions } from "@/lib/dashboard-meta";
@@ -54,6 +54,7 @@ export default function DeviceMetricsPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // 获取设备详情
   const { data: device, isLoading: deviceLoading } = useQuery({
@@ -74,28 +75,40 @@ export default function DeviceMetricsPage() {
   const refreshTokenMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/token/refresh`),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.device(uuid) });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "重置令牌失败，请稍后重试"));
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "吊销设备失败，请稍后重试"));
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/v1/devices/${uuid}`),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       router.push("/");
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "删除设备失败，请稍后重试"));
     },
   });
 
@@ -135,6 +148,11 @@ export default function DeviceMetricsPage() {
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
+      {actionError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {actionError}
+        </div>
+      )}
       {/* Header Card - 1:1复刻原版顶部操作区 */}
       <Card className="border-none shadow-lg shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
         <CardContent className="p-6 d-flex flex-wrap justify-between align-items-center gap-4">

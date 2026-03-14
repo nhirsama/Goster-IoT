@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Table,
@@ -44,6 +44,7 @@ export default function UserManagementPage() {
   const { user: currentUser, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || currentUser?.permission !== 3)) {
@@ -59,8 +60,14 @@ export default function UserManagementPage() {
 
   const updatePermissionMutation = useMutation({
     mutationFn: ({ username, permission }: { username: string; permission: PermissionType }) =>
-      api.post(`/api/v1/users/${username}/permission`, { permission }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.users }),
+      api.post(`/api/v1/users/${encodeURIComponent(username)}/permission`, { permission }),
+    onSuccess: () => {
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.users });
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "权限更新失败，请稍后重试"));
+    },
   });
 
   if (authLoading || !isAuthenticated || currentUser?.permission !== 3) {
@@ -85,6 +92,11 @@ export default function UserManagementPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {actionError && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {actionError}
+          </div>
+        )}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">用户列表</h2>
@@ -140,13 +152,18 @@ export default function UserManagementPage() {
                       </TableCell>
                       <TableCell className="text-right pr-6">
                         <Dialog>
-                          <DialogTrigger>
-                            <Button variant="outline" size="sm" className="rounded-xl border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all font-bold" disabled={u.username === currentUser.username} asChild>
-                              <div>
-                                <UserCog className="h-4 w-4 mr-2" />
-                                更改权限
-                              </div>
-                            </Button>
+                          <DialogTrigger
+                            render={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-xl border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all font-bold"
+                                disabled={u.username === currentUser.username || updatePermissionMutation.isPending}
+                              />
+                            }
+                          >
+                            <UserCog className="h-4 w-4 mr-2" />
+                            更改权限
                           </DialogTrigger>
                           <DialogContent className="rounded-3xl border-none shadow-2xl">
                             <DialogHeader>
@@ -162,11 +179,16 @@ export default function UserManagementPage() {
                                   variant={u.permission === Number(val) ? "default" : "outline"}
                                   className={`justify-between h-14 rounded-2xl px-6 font-bold transition-all ${u.permission === Number(val) ? "bg-blue-600 shadow-lg shadow-blue-100" : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/50"}`}
                                   onClick={() => {
+                                    if (u.username === currentUser.username && Number(val) !== 3) {
+                                      setActionError("出于安全限制，当前登录管理员不能在前端把自己的权限降级。");
+                                      return;
+                                    }
                                     updatePermissionMutation.mutate({ 
                                       username: u.username, 
                                       permission: Number(val) as PermissionType 
                                     });
                                   }}
+                                  disabled={updatePermissionMutation.isPending}
                                 >
                                   <div className="flex items-center gap-3">
                                     <Shield className={`h-5 w-5 ${u.permission === Number(val) ? "text-blue-100" : "text-slate-400"}`} />

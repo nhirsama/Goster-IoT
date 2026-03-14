@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
+import { useState } from "react";
 
 import {
   Table,
@@ -23,6 +24,7 @@ type DeviceRecord = components["schemas"]["DeviceRecord"];
 export default function PendingDevicesPage() {
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { data: deviceData, isLoading } = useQuery({
     queryKey: queryKeys.devicesByStatus("pending"),
@@ -33,17 +35,25 @@ export default function PendingDevicesPage() {
   const approveMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/approve`),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "设备批准失败，请稍后重试"));
     },
   });
 
   const revokeMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/revoke`),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "设备拒绝操作失败，请稍后重试"));
     },
   });
 
@@ -53,6 +63,11 @@ export default function PendingDevicesPage() {
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2">
+      {actionError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {actionError}
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
           <div className="bg-amber-100 p-3 rounded-2xl text-amber-600">

@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
+import { useState } from "react";
 
 import {
   Table,
@@ -24,6 +25,7 @@ type DeviceRecord = components["schemas"]["DeviceRecord"];
 export default function BlacklistPage() {
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // 同时获取 refused (1) 和 revoked (4) 状态的设备，这里我们在前端过滤或者如果后端支持多状态查询
   // 原系统通过不同的 query/view 或者复用接口实现。我们这里直接请求 revoked 状态以获取被撤销/拒绝的设备
@@ -42,10 +44,14 @@ export default function BlacklistPage() {
   const unblockMutation = useMutation({
     mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/unblock`),
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("revoked") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("refused") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+    },
+    onError: (error: unknown) => {
+      setActionError(getApiErrorMessage(error, "解除屏蔽失败，请稍后重试"));
     },
   });
 
@@ -61,6 +67,11 @@ export default function BlacklistPage() {
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2">
+      {actionError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {actionError}
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
           <div className="bg-rose-100 p-3 rounded-2xl text-rose-600">
