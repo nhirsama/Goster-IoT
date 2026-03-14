@@ -5,3 +5,8 @@
 goster-iot.tar
 /cpp/src/CMakeLists.txt
 /go/docs.md
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
