@@ -54,6 +54,7 @@ func (h *BusinessHandler) Authenticate(token string) (byte, []byte, error) {
 	}
 	h.uuid = uuid
 	h.authenticated = true
+	h.logger = h.logger.With(inter.String("uuid", uuid))
 	// 鉴权成功，返回 0x00 (Success)
 	return 0x00, nil, nil
 }
@@ -108,6 +109,7 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 		// 已通过 -> 返回 Token，允许接入 -> 0x00
 		h.uuid = uuid
 		h.authenticated = true
+		h.logger = h.logger.With(inter.String("uuid", uuid))
 		return 0x00, []byte(existingMeta.Token), nil
 
 	default:

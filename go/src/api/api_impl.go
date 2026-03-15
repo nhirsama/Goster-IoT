@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -20,6 +21,7 @@ type apiImpl struct {
 	logger        inter.Logger
 	protocol      inter.ProtocolCodec
 	privateKey    *ecdh.PrivateKey // X25519 私钥
+	connSeq       atomic.Uint64
 }
 
 // NewApi 创建 API 服务实例
@@ -77,12 +79,15 @@ func (a *apiImpl) negotiateSecret(peerPubKeyBytes []byte) ([]byte, error) {
 func (a *apiImpl) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	connLogger := a.logger.With(inter.String("remote_addr", conn.RemoteAddr().String()))
+	connID := a.connSeq.Add(1)
+	connLogger = connLogger.With(inter.Int64("conn_id", int64(connID)))
+
 	// 为当前会话创建独立的业务逻辑处理器 (Application Layer)
-	handler := NewBusinessHandler(a.dataStore, a.deviceManager, a.logger)
+	handler := NewBusinessHandler(a.dataStore, a.deviceManager, connLogger)
 
 	var sessionKey []byte
 	var writeSeq uint64 = 0
-	connLogger := a.logger.With(inter.String("remote_addr", conn.RemoteAddr().String()))
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
