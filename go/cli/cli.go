@@ -27,7 +27,7 @@ func Run() {
 
 func start(ctx context.Context) {
 	rootLogger := initRootLogger()
-	rootLogger.Info("logger initialized")
+	rootLogger.Info("日志系统已初始化")
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
@@ -35,19 +35,19 @@ func start(ctx context.Context) {
 	}
 	db, err := datastore.NewDataStoreSql(dbPath)
 	if err != nil {
-		rootLogger.Error("datastore setup failed", inter.Err(err))
+		rootLogger.Error("数据存储初始化失败", inter.Err(err))
 		panic(err)
 	}
 
 	// Initialize Authboss (Encapsulated in web package)
 	ab, err := web.SetupAuthboss(db)
 	if err != nil {
-		rootLogger.Error("authboss setup failed", inter.Err(err))
+		rootLogger.Error("Authboss 初始化失败", inter.Err(err))
 		panic(err)
 	}
 	authService, err := web.NewAuthService(ab)
 	if err != nil {
-		rootLogger.Error("auth service setup failed", inter.Err(err))
+		rootLogger.Error("认证服务初始化失败", inter.Err(err))
 		panic(err)
 	}
 
@@ -66,7 +66,7 @@ func start(ctx context.Context) {
 		Logger:        webLogger,
 	})
 	if err != nil {
-		rootLogger.Error("web server setup failed", inter.Err(err))
+		rootLogger.Error("Web 服务初始化失败", inter.Err(err))
 		panic(err)
 	}
 	go webServer.Start()

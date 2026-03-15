@@ -43,7 +43,7 @@ func countAdminUsers(users []inter.User) int {
 func (ws *webServer) apiInternalError(w http.ResponseWriter, r *http.Request, code int, err error) {
 	requestID := ws.getRequestID(r)
 	if err != nil {
-		logger.FromContext(r.Context()).Error("web api internal error",
+		logger.FromContext(r.Context()).Error("Web API 内部错误",
 			inter.Int("code", code),
 			inter.String("request_id", requestID),
 			inter.String("method", r.Method),

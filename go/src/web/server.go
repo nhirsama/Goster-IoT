@@ -50,9 +50,9 @@ func (ws *webServer) Start() {
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 
-	ws.log().Info("web server started", inter.String("addr", addr))
+	ws.log().Info("Web 服务已启动", inter.String("addr", addr))
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		ws.log().Error("web server listen failed", inter.Err(err))
+		ws.log().Error("Web 服务监听失败", inter.Err(err))
 		panic(err)
 	}
 }

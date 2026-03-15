@@ -61,7 +61,7 @@ func (s *TurnstileService) Verify(r *http.Request) bool {
 
 	token := r.FormValue("cf-turnstile-response")
 	if token == "" {
-		s.log().Warn("turnstile verify failed: empty form response")
+		s.log().Warn("Turnstile 校验失败：表单响应为空")
 		return false
 	}
 
@@ -74,7 +74,7 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 		return true
 	}
 	if strings.TrimSpace(token) == "" {
-		s.log().Warn("turnstile verify failed: empty token")
+		s.log().Warn("Turnstile 校验失败：token 为空")
 		return false
 	}
 
@@ -88,7 +88,7 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
 	if err != nil {
-		s.log().Warn("turnstile request build failed", inter.Err(err))
+		s.log().Warn("Turnstile 请求构建失败", inter.Err(err))
 		return false
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -99,24 +99,24 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		s.log().Warn("turnstile request failed", inter.Err(err))
+		s.log().Warn("Turnstile 请求失败", inter.Err(err))
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		s.log().Warn("turnstile verify failed: non-200 status", inter.Int("status_code", resp.StatusCode))
+		s.log().Warn("Turnstile 校验失败：状态码非 200", inter.Int("status_code", resp.StatusCode))
 		return false
 	}
 
 	var result turnstileResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		s.log().Warn("turnstile response decode failed", inter.Err(err))
+		s.log().Warn("Turnstile 响应解析失败", inter.Err(err))
 		return false
 	}
 
 	if !result.Success {
-		s.log().Warn("turnstile verify failed: success=false")
+		s.log().Warn("Turnstile 校验失败：返回 success=false")
 	}
 	return result.Success
 }

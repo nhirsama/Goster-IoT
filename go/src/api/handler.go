@@ -85,7 +85,7 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 
 	if err != nil {
 		// 设备不存在 -> 首次注册
-		h.logger.Info("api new register request", inter.String("uuid", uuid), inter.String("sn", meta.SerialNumber))
+		h.logger.Info("收到新设备注册请求", inter.String("uuid", uuid), inter.String("sn", meta.SerialNumber))
 
 		if err := h.deviceManager.RegisterDevice(meta); err != nil {
 			return 0x01, nil, fmt.Errorf("init device failed: %w", err)
@@ -144,7 +144,7 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 		DataBlob:       payload[17:],
 	}
 
-	h.logger.Debug("api parse metrics", inter.String("uuid", h.uuid), inter.Int("count", int(data.Count)))
+	h.logger.Debug("开始解析指标数据", inter.String("uuid", h.uuid), inter.Int("count", int(data.Count)))
 
 	// DataType Check (1=Temp, 2=Humi, 4=Lux)
 	if data.DataType != 1 && data.DataType != 2 && data.DataType != 4 {
@@ -255,7 +255,7 @@ func (h *BusinessHandler) HandleDownlinkAck(cmd inter.CmdID) {
 	if !h.authenticated {
 		return
 	}
-	h.logger.Debug("api downlink ack", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
+	h.logger.Debug("收到下行确认", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
 	// TODO: 在消息队列中标记该消息已送达
 }
 
@@ -281,13 +281,13 @@ func (h *BusinessHandler) HandleEvent(payload []byte) {
 	if !h.authenticated {
 		return
 	}
-	h.logger.Info("api event received", inter.String("uuid", h.uuid))
+	h.logger.Info("收到事件上报", inter.String("uuid", h.uuid))
 	h.dataStore.WriteLog(h.uuid, "EVENT", string(payload))
 }
 
 // HandleError 处理错误上报
 func (h *BusinessHandler) HandleError(payload []byte) {
-	h.logger.Warn("api device error report", inter.String("message", string(payload)))
+	h.logger.Warn("收到设备错误上报", inter.String("message", string(payload)))
 	if h.authenticated {
 		h.dataStore.WriteLog(h.uuid, "ERROR", string(payload))
 	}
