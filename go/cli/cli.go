@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,17 +35,20 @@ func start(ctx context.Context) {
 	}
 	db, err := datastore.NewDataStoreSql(dbPath)
 	if err != nil {
-		log.Fatal(err)
+		rootLogger.Error("datastore setup failed", inter.Err(err))
+		panic(err)
 	}
 
 	// Initialize Authboss (Encapsulated in web package)
 	ab, err := web.SetupAuthboss(db)
 	if err != nil {
-		log.Fatalf("Failed to setup Authboss: %v", err)
+		rootLogger.Error("authboss setup failed", inter.Err(err))
+		panic(err)
 	}
 	authService, err := web.NewAuthService(ab)
 	if err != nil {
-		log.Fatalf("Failed to setup auth service: %v", err)
+		rootLogger.Error("auth service setup failed", inter.Err(err))
+		panic(err)
 	}
 
 	dm := device_manager.NewDeviceManager(db)
@@ -64,7 +66,8 @@ func start(ctx context.Context) {
 		Logger:        webLogger,
 	})
 	if err != nil {
-		log.Fatalf("Failed to setup web server: %v", err)
+		rootLogger.Error("web server setup failed", inter.Err(err))
+		panic(err)
 	}
 	go webServer.Start()
 	go api.Start()

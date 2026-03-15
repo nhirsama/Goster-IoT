@@ -1,7 +1,6 @@
 package web
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -43,8 +42,12 @@ func countAdminUsers(users []inter.User) int {
 func (ws *webServer) apiInternalError(w http.ResponseWriter, r *http.Request, code int, err error) {
 	requestID := ws.getRequestID(r)
 	if err != nil {
-		log.Printf("api internal error code=%d request_id=%s method=%s path=%s err=%v",
-			code, requestID, r.Method, r.URL.Path, err)
+		ws.logger.Error("web api internal error",
+			inter.Int("code", code),
+			inter.String("request_id", requestID),
+			inter.String("method", r.Method),
+			inter.String("path", r.URL.Path),
+			inter.Err(err))
 	}
 	ws.apiErrorWithRequestID(w, http.StatusInternalServerError, requestID, code, "internal server error",
 		&apiErrorDetail{Type: "internal_error"})

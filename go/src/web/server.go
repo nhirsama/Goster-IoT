@@ -2,7 +2,6 @@ package web
 
 import (
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -50,8 +49,9 @@ func (ws *webServer) Start() {
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 
-	log.Printf("正在启动 web 服务器 (HTTP) 于 %s", addr)
+	ws.logger.Info("web server started", inter.String("addr", addr))
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("web 服务器启动失败: %v", err)
+		ws.logger.Error("web server listen failed", inter.Err(err))
+		panic(err)
 	}
 }

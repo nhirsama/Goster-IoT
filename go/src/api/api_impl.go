@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
 
@@ -30,10 +29,11 @@ func NewApi(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) inter.Ap
 	}
 	privKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		log.Fatalf("API: 生成 X25519 密钥对失败: %v", err)
+		l.Error("api generate x25519 key failed", inter.Err(err))
+		panic(err)
 	}
 
-	log.Printf("API: 初始化 X25519 密钥成功, 公钥: %s", hex.EncodeToString(privKey.PublicKey().Bytes()))
+	l.Info("api x25519 key initialized", inter.String("pub_key", hex.EncodeToString(privKey.PublicKey().Bytes())))
 
 	return &apiImpl{
 		dataStore:     ds,
@@ -49,14 +49,15 @@ func (a *apiImpl) Start() {
 	addr := ":8081"
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("API 服务无法监听端口 %s: %v", addr, err)
+		a.logger.Error("api listen failed", inter.String("addr", addr), inter.Err(err))
+		panic(err)
 	}
-	log.Printf("正在启动 API 服务 (Goster-WY) 于 %s", addr)
+	a.logger.Info("api server started", inter.String("addr", addr))
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Printf("API 连接接收错误: %v", err)
+			a.logger.Warn("api accept failed", inter.Err(err))
 			continue
 		}
 		go a.handleConnection(conn)
@@ -77,10 +78,11 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	// 为当前会话创建独立的业务逻辑处理器 (Application Layer)
-	handler := NewBusinessHandler(a.dataStore, a.deviceManager)
+	handler := NewBusinessHandler(a.dataStore, a.deviceManager, a.logger)
 
 	var sessionKey []byte
 	var writeSeq uint64 = 0
+	connLogger := a.logger.With(inter.String("remote_addr", conn.RemoteAddr().String()))
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -89,7 +91,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 		packet, err := a.protocol.Unpack(conn, sessionKey)
 		if err != nil {
 			if err != io.EOF && err != io.ErrUnexpectedEOF {
-				log.Printf("API: 解包失败 (Remote: %s): %v", conn.RemoteAddr(), err)
+				connLogger.Warn("api unpack failed", inter.Err(err))
 			}
 			return
 		}
@@ -100,7 +102,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			packet.CmdID == inter.CmdDeviceRegister
 
 		if !handler.IsAuthenticated() && !allowed {
-			log.Printf("API: 拒绝非法指令 0x%X (未鉴权)", packet.CmdID)
+			connLogger.Warn("api command rejected before auth", inter.Int("cmd_id", int(packet.CmdID)))
 			return
 		}
 
@@ -108,12 +110,12 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 		case inter.CmdHandshakeInit:
 			// 设备第一帧：上传其公钥 (32字节)
 			if len(packet.Payload) != 32 {
-				log.Printf("API: 握手失败，无效的公钥长度")
+				connLogger.Warn("api handshake invalid pubkey length", inter.Int("payload_len", len(packet.Payload)))
 				return
 			}
 			secret, err := a.negotiateSecret(packet.Payload)
 			if err != nil {
-				log.Printf("API: 密钥协商失败: %v", err)
+				connLogger.Warn("api handshake negotiate secret failed", inter.Err(err))
 				return
 			}
 			sessionKey = secret
@@ -122,7 +124,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			writeSeq++
 			respBuf, _ := a.protocol.Pack(a.privateKey.PublicKey().Bytes(), inter.CmdHandshakeResp, 0, nil, writeSeq, true)
 			conn.Write(respBuf)
-			log.Printf("API: 已交换密钥 (Remote: %s)", conn.RemoteAddr())
+			connLogger.Info("api handshake exchanged key")
 
 		case inter.CmdAuthVerify:
 			// Token 鉴权 (0x0003)
@@ -132,7 +134,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			status, respPayload, err := handler.Authenticate(token)
 
 			if err != nil {
-				log.Printf("API: 鉴权失败 (Token: %s): %v", token, err)
+				connLogger.Warn("api auth failed", inter.Err(err), inter.Int("token_len", len(token)))
 			}
 
 			// 发送 CmdAuthAck (加密)
@@ -144,7 +146,8 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			if status != 0x00 {
 				return // 鉴权失败关闭连接
 			}
-			log.Printf("API: 身份鉴权通过 (UUID: %s)", handler.GetUUID())
+			connLogger = connLogger.With(inter.String("uuid", handler.GetUUID()))
+			connLogger.Info("api auth success")
 
 		case inter.CmdDeviceRegister:
 			// 设备注册 (0x0005)
@@ -154,7 +157,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			status, respPayload, err := handler.HandleRegistration(payloadStr)
 
 			if err != nil {
-				log.Printf("API: 注册处理异常 (Status: %d): %v", status, err)
+				connLogger.Warn("api register handler failed", inter.Int("status", int(status)), inter.Err(err))
 			}
 
 			// 发送 CmdAuthAck (加密)
@@ -165,18 +168,19 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 
 			if status != 0x00 {
 				if status == 0x02 {
-					log.Printf("API: 设备注册申请已提交 (Pending), 关闭连接")
+					connLogger.Info("api register pending")
 				} else {
-					log.Printf("API: 鉴权/注册被拒绝 (Status: %d), 关闭连接", status)
+					connLogger.Warn("api register rejected", inter.Int("status", int(status)))
 				}
 				time.Sleep(100 * time.Millisecond) // 给客户端留出读取响应的时间
 				return                             // 关闭连接
 			}
-			log.Printf("API: 设备注册成功并自动鉴权 (UUID: %s)", handler.GetUUID())
+			connLogger = connLogger.With(inter.String("uuid", handler.GetUUID()))
+			connLogger.Info("api register success")
 
 		case inter.CmdMetricsReport:
 			if err := handler.HandleMetrics(packet.Payload); err != nil {
-				log.Printf("API: Metrics error: %v", err)
+				connLogger.Warn("api metrics handle failed", inter.Err(err))
 			}
 			// 发送通用 ACK
 			writeSeq++
@@ -185,7 +189,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 
 		case inter.CmdLogReport:
 			if err := handler.HandleLog(packet.Payload); err != nil {
-				log.Printf("API: Log error: %v", err)
+				connLogger.Warn("api log handle failed", inter.Err(err))
 			}
 			// 发送通用 ACK
 			writeSeq++
@@ -203,7 +207,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			// 密钥重协商
 			secret, err := a.negotiateSecret(packet.Payload)
 			if err != nil {
-				log.Printf("API: 密钥重协商失败: %v", err)
+				connLogger.Warn("api key re-exchange failed", inter.Err(err))
 				return
 			}
 			sessionKey = secret
@@ -227,7 +231,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			return
 
 		default:
-			log.Printf("API: 未知指令 0x%X", packet.CmdID)
+			connLogger.Warn("api unknown cmd", inter.Int("cmd_id", int(packet.CmdID)))
 		}
 
 		// --- 检查并处理下行消息 ---
@@ -241,7 +245,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 				downlinkBuf, err := a.protocol.Pack(downlinkPayload, cmdID, 1, sessionKey, writeSeq, false)
 				if err == nil {
 					conn.Write(downlinkBuf)
-					log.Printf("API: 下发指令 0x%X 到设备 %s", cmdID, handler.GetUUID())
+					connLogger.Info("api downlink sent", inter.Int("cmd_id", int(cmdID)))
 				}
 			}
 		}
