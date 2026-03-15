@@ -6,33 +6,41 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/protocol"
 )
 
 type apiImpl struct {
 	dataStore     inter.DataStore
 	deviceManager inter.DeviceManager
+	logger        inter.Logger
 	protocol      inter.ProtocolCodec
 	privateKey    *ecdh.PrivateKey // X25519 私钥
+	connSeq       atomic.Uint64
 }
 
 // NewApi 创建 API 服务实例
-func NewApi(ds inter.DataStore, dm inter.DeviceManager) inter.Api {
+func NewApi(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) inter.Api {
+	if l == nil {
+		l = logger.Default()
+	}
 	privKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		log.Fatalf("API: 生成 X25519 密钥对失败: %v", err)
+		l.Error("API 生成 X25519 密钥失败", inter.Err(err))
+		panic(err)
 	}
 
-	log.Printf("API: 初始化 X25519 密钥成功, 公钥: %s", hex.EncodeToString(privKey.PublicKey().Bytes()))
+	l.Info("API X25519 密钥初始化成功", inter.String("pub_key", hex.EncodeToString(privKey.PublicKey().Bytes())))
 
 	return &apiImpl{
 		dataStore:     ds,
 		deviceManager: dm,
+		logger:        l,
 		protocol:      protocol.NewGosterCodec(),
 		privateKey:    privKey,
 	}
@@ -43,14 +51,15 @@ func (a *apiImpl) Start() {
 	addr := ":8081"
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("API 服务无法监听端口 %s: %v", addr, err)
+		a.logger.Error("API 监听失败", inter.String("addr", addr), inter.Err(err))
+		panic(err)
 	}
-	log.Printf("正在启动 API 服务 (Goster-WY) 于 %s", addr)
+	a.logger.Info("API 服务已启动", inter.String("addr", addr))
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Printf("API 连接接收错误: %v", err)
+			a.logger.Warn("API 接受连接失败", inter.Err(err))
 			continue
 		}
 		go a.handleConnection(conn)
@@ -70,8 +79,12 @@ func (a *apiImpl) negotiateSecret(peerPubKeyBytes []byte) ([]byte, error) {
 func (a *apiImpl) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	connLogger := a.logger.With(inter.String("remote_addr", conn.RemoteAddr().String()))
+	connID := a.connSeq.Add(1)
+	connLogger = connLogger.With(inter.Int64("conn_id", int64(connID)))
+
 	// 为当前会话创建独立的业务逻辑处理器 (Application Layer)
-	handler := NewBusinessHandler(a.dataStore, a.deviceManager)
+	handler := NewBusinessHandler(a.dataStore, a.deviceManager, connLogger)
 
 	var sessionKey []byte
 	var writeSeq uint64 = 0
@@ -83,7 +96,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 		packet, err := a.protocol.Unpack(conn, sessionKey)
 		if err != nil {
 			if err != io.EOF && err != io.ErrUnexpectedEOF {
-				log.Printf("API: 解包失败 (Remote: %s): %v", conn.RemoteAddr(), err)
+				connLogger.Warn("API 解包失败", inter.Err(err))
 			}
 			return
 		}
@@ -94,7 +107,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			packet.CmdID == inter.CmdDeviceRegister
 
 		if !handler.IsAuthenticated() && !allowed {
-			log.Printf("API: 拒绝非法指令 0x%X (未鉴权)", packet.CmdID)
+			connLogger.Warn("未鉴权状态下收到非法指令", inter.Int("cmd_id", int(packet.CmdID)))
 			return
 		}
 
@@ -102,12 +115,12 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 		case inter.CmdHandshakeInit:
 			// 设备第一帧：上传其公钥 (32字节)
 			if len(packet.Payload) != 32 {
-				log.Printf("API: 握手失败，无效的公钥长度")
+				connLogger.Warn("握手失败：公钥长度无效", inter.Int("payload_len", len(packet.Payload)))
 				return
 			}
 			secret, err := a.negotiateSecret(packet.Payload)
 			if err != nil {
-				log.Printf("API: 密钥协商失败: %v", err)
+				connLogger.Warn("握手失败：共享密钥协商失败", inter.Err(err))
 				return
 			}
 			sessionKey = secret
@@ -116,7 +129,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			writeSeq++
 			respBuf, _ := a.protocol.Pack(a.privateKey.PublicKey().Bytes(), inter.CmdHandshakeResp, 0, nil, writeSeq, true)
 			conn.Write(respBuf)
-			log.Printf("API: 已交换密钥 (Remote: %s)", conn.RemoteAddr())
+			connLogger.Info("握手完成：已交换密钥")
 
 		case inter.CmdAuthVerify:
 			// Token 鉴权 (0x0003)
@@ -126,7 +139,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			status, respPayload, err := handler.Authenticate(token)
 
 			if err != nil {
-				log.Printf("API: 鉴权失败 (Token: %s): %v", token, err)
+				connLogger.Warn("鉴权失败", inter.Err(err), inter.Int("token_len", len(token)))
 			}
 
 			// 发送 CmdAuthAck (加密)
@@ -138,7 +151,8 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			if status != 0x00 {
 				return // 鉴权失败关闭连接
 			}
-			log.Printf("API: 身份鉴权通过 (UUID: %s)", handler.GetUUID())
+			connLogger = connLogger.With(inter.String("uuid", handler.GetUUID()))
+			connLogger.Info("鉴权成功")
 
 		case inter.CmdDeviceRegister:
 			// 设备注册 (0x0005)
@@ -148,7 +162,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			status, respPayload, err := handler.HandleRegistration(payloadStr)
 
 			if err != nil {
-				log.Printf("API: 注册处理异常 (Status: %d): %v", status, err)
+				connLogger.Warn("设备注册处理失败", inter.Int("status", int(status)), inter.Err(err))
 			}
 
 			// 发送 CmdAuthAck (加密)
@@ -159,18 +173,19 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 
 			if status != 0x00 {
 				if status == 0x02 {
-					log.Printf("API: 设备注册申请已提交 (Pending), 关闭连接")
+					connLogger.Info("设备注册待审核")
 				} else {
-					log.Printf("API: 鉴权/注册被拒绝 (Status: %d), 关闭连接", status)
+					connLogger.Warn("设备注册被拒绝", inter.Int("status", int(status)))
 				}
 				time.Sleep(100 * time.Millisecond) // 给客户端留出读取响应的时间
 				return                             // 关闭连接
 			}
-			log.Printf("API: 设备注册成功并自动鉴权 (UUID: %s)", handler.GetUUID())
+			connLogger = connLogger.With(inter.String("uuid", handler.GetUUID()))
+			connLogger.Info("设备注册成功")
 
 		case inter.CmdMetricsReport:
 			if err := handler.HandleMetrics(packet.Payload); err != nil {
-				log.Printf("API: Metrics error: %v", err)
+				connLogger.Warn("指标上报处理失败", inter.Err(err))
 			}
 			// 发送通用 ACK
 			writeSeq++
@@ -179,7 +194,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 
 		case inter.CmdLogReport:
 			if err := handler.HandleLog(packet.Payload); err != nil {
-				log.Printf("API: Log error: %v", err)
+				connLogger.Warn("日志上报处理失败", inter.Err(err))
 			}
 			// 发送通用 ACK
 			writeSeq++
@@ -197,7 +212,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			// 密钥重协商
 			secret, err := a.negotiateSecret(packet.Payload)
 			if err != nil {
-				log.Printf("API: 密钥重协商失败: %v", err)
+				connLogger.Warn("密钥重协商失败", inter.Err(err))
 				return
 			}
 			sessionKey = secret
@@ -221,7 +236,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 			return
 
 		default:
-			log.Printf("API: 未知指令 0x%X", packet.CmdID)
+			connLogger.Warn("未知指令", inter.Int("cmd_id", int(packet.CmdID)))
 		}
 
 		// --- 检查并处理下行消息 ---
@@ -235,7 +250,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 				downlinkBuf, err := a.protocol.Pack(downlinkPayload, cmdID, 1, sessionKey, writeSeq, false)
 				if err == nil {
 					conn.Write(downlinkBuf)
-					log.Printf("API: 下发指令 0x%X 到设备 %s", cmdID, handler.GetUUID())
+					connLogger.Info("下行指令已发送", inter.Int("cmd_id", int(cmdID)))
 				}
 			}
 		}

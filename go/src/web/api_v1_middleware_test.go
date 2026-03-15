@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 func TestAPIMiddlewareOptionsRequest(t *testing.T) {
@@ -96,5 +98,25 @@ func TestAPINoContentAddsRequestIDHeader(t *testing.T) {
 	}
 	if got := rec.Header().Get("X-Request-Id"); got != "req_test_123" {
 		t.Fatalf("unexpected X-Request-Id header: %q", got)
+	}
+}
+
+func TestAPIMiddlewareInjectsContextLogger(t *testing.T) {
+	ws := &webServer{}
+	h := ws.apiMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := logger.FromContext(r.Context())
+		if l == nil {
+			t.Fatal("context logger should not be nil")
+		}
+		l.Info("test")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }

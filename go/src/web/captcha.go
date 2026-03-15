@@ -3,12 +3,14 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 // TurnstileService 管理 Cloudflare Turnstile 验证
@@ -17,6 +19,7 @@ type TurnstileService struct {
 	SecretKey string
 	Enabled   bool
 	client    *http.Client
+	logger    inter.Logger
 }
 
 const turnstileVerifyTimeout = 5 * time.Second
@@ -31,6 +34,7 @@ func NewTurnstileService() *TurnstileService {
 		client: &http.Client{
 			Timeout: turnstileVerifyTimeout,
 		},
+		logger: logger.Default().With(inter.String("module", "captcha")),
 	}
 }
 
@@ -57,7 +61,7 @@ func (s *TurnstileService) Verify(r *http.Request) bool {
 
 	token := r.FormValue("cf-turnstile-response")
 	if token == "" {
-		log.Println("Turnstile 验证失败: 提交的 cf-turnstile-response 为空")
+		s.log().Warn("Turnstile 校验失败：表单响应为空")
 		return false
 	}
 
@@ -70,7 +74,7 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 		return true
 	}
 	if strings.TrimSpace(token) == "" {
-		log.Println("Turnstile 验证失败: token 为空")
+		s.log().Warn("Turnstile 校验失败：token 为空")
 		return false
 	}
 
@@ -84,7 +88,7 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
 	if err != nil {
-		log.Printf("Turnstile 请求构建失败: %v", err)
+		s.log().Warn("Turnstile 请求构建失败", inter.Err(err))
 		return false
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -95,26 +99,33 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Turnstile 验证请求失败 (网络错误): %v", err)
+		s.log().Warn("Turnstile 请求失败", inter.Err(err))
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Turnstile 验证失败: 非 200 状态码 %d", resp.StatusCode)
+		s.log().Warn("Turnstile 校验失败：状态码非 200", inter.Int("status_code", resp.StatusCode))
 		return false
 	}
 
 	var result turnstileResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("Turnstile 响应解析失败: %v", err)
+		s.log().Warn("Turnstile 响应解析失败", inter.Err(err))
 		return false
 	}
 
 	if !result.Success {
-		log.Println("Turnstile 验证失败: 验证码服务返回 Success=false")
+		s.log().Warn("Turnstile 校验失败：返回 success=false")
 	}
 	return result.Success
+}
+
+func (s *TurnstileService) log() inter.Logger {
+	if s != nil && s.logger != nil {
+		return s.logger
+	}
+	return logger.Default().With(inter.String("module", "captcha"))
 }
 
 func clientIPFromRequest(r *http.Request) string {

@@ -20,6 +20,7 @@ import (
 	"github.com/aarondl/authboss/v3"
 	"github.com/aarondl/authboss/v3/defaults"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 type apiCtxKey string
@@ -81,7 +82,13 @@ func (ws *webServer) registerAPIRoutes(mux *http.ServeMux) {
 func (ws *webServer) apiMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := ws.getRequestID(r)
-		r = r.WithContext(context.WithValue(r.Context(), apiCtxRequestID, rid))
+		ctx := context.WithValue(r.Context(), apiCtxRequestID, rid)
+		ctx = logger.IntoContext(ctx, ws.log().With(
+			inter.String("request_id", rid),
+			inter.String("method", r.Method),
+			inter.String("path", r.URL.Path),
+		))
+		r = r.WithContext(ctx)
 
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if origin != "" {
@@ -188,6 +195,10 @@ func (ws *webServer) apiAuthMiddleware(next http.HandlerFunc, minPerm inter.Perm
 		ctx := context.WithValue(r.Context(), apiCtxRequestID, rid)
 		ctx = context.WithValue(ctx, apiCtxUsername, user.GetUsername())
 		ctx = context.WithValue(ctx, apiCtxPerm, user.GetPermission())
+		ctx = logger.IntoContext(ctx, logger.FromContext(ctx).With(
+			inter.String("username", user.GetUsername()),
+			inter.Int("permission", int(user.GetPermission())),
+		))
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

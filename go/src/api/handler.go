@@ -3,18 +3,19 @@ package api
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 // BusinessHandler 处理应用层业务逻辑 (Per Session)
 type BusinessHandler struct {
 	dataStore     inter.DataStore
 	deviceManager inter.DeviceManager
+	logger        inter.Logger
 
 	// Session State
 	uuid          string
@@ -22,10 +23,14 @@ type BusinessHandler struct {
 }
 
 // NewBusinessHandler 创建业务逻辑处理器
-func NewBusinessHandler(ds inter.DataStore, dm inter.DeviceManager) *BusinessHandler {
+func NewBusinessHandler(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) *BusinessHandler {
+	if l == nil {
+		l = logger.Default()
+	}
 	return &BusinessHandler{
 		dataStore:     ds,
 		deviceManager: dm,
+		logger:        l,
 		authenticated: false,
 	}
 }
@@ -49,6 +54,7 @@ func (h *BusinessHandler) Authenticate(token string) (byte, []byte, error) {
 	}
 	h.uuid = uuid
 	h.authenticated = true
+	h.logger = h.logger.With(inter.String("uuid", uuid))
 	// 鉴权成功，返回 0x00 (Success)
 	return 0x00, nil, nil
 }
@@ -79,7 +85,7 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 
 	if err != nil {
 		// 设备不存在 -> 首次注册
-		log.Printf("API: 新设备注册申请 (UUID: %s, SN: %s)", uuid, meta.SerialNumber)
+		h.logger.Info("收到新设备注册请求", inter.String("uuid", uuid), inter.String("sn", meta.SerialNumber))
 
 		if err := h.deviceManager.RegisterDevice(meta); err != nil {
 			return 0x01, nil, fmt.Errorf("init device failed: %w", err)
@@ -103,6 +109,7 @@ func (h *BusinessHandler) HandleRegistration(payload string) (byte, []byte, erro
 		// 已通过 -> 返回 Token，允许接入 -> 0x00
 		h.uuid = uuid
 		h.authenticated = true
+		h.logger = h.logger.With(inter.String("uuid", uuid))
 		return 0x00, []byte(existingMeta.Token), nil
 
 	default:
@@ -137,7 +144,7 @@ func (h *BusinessHandler) HandleMetrics(payload []byte) error {
 		DataBlob:       payload[17:],
 	}
 
-	log.Printf("API: 解析采样数据 (UUID: %s, Count: %d)", h.uuid, data.Count)
+	h.logger.Debug("开始解析指标数据", inter.String("uuid", h.uuid), inter.Int("count", int(data.Count)))
 
 	// DataType Check (1=Temp, 2=Humi, 4=Lux)
 	if data.DataType != 1 && data.DataType != 2 && data.DataType != 4 {
@@ -248,7 +255,7 @@ func (h *BusinessHandler) HandleDownlinkAck(cmd inter.CmdID) {
 	if !h.authenticated {
 		return
 	}
-	log.Printf("API: 收到下行确认 (UUID: %s, Cmd: 0x%X)", h.uuid, cmd)
+	h.logger.Debug("收到下行确认", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
 	// TODO: 在消息队列中标记该消息已送达
 }
 
@@ -274,13 +281,13 @@ func (h *BusinessHandler) HandleEvent(payload []byte) {
 	if !h.authenticated {
 		return
 	}
-	log.Printf("API: 收到事件上报 (UUID: %s)", h.uuid)
+	h.logger.Info("收到事件上报", inter.String("uuid", h.uuid))
 	h.dataStore.WriteLog(h.uuid, "EVENT", string(payload))
 }
 
 // HandleError 处理错误上报
 func (h *BusinessHandler) HandleError(payload []byte) {
-	log.Printf("API: 收到设备错误: %s", string(payload))
+	h.logger.Warn("收到设备错误上报", inter.String("message", string(payload)))
 	if h.authenticated {
 		h.dataStore.WriteLog(h.uuid, "ERROR", string(payload))
 	}

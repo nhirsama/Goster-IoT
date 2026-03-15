@@ -2,10 +2,10 @@ package web
 
 import (
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 type webServer struct {
@@ -14,6 +14,7 @@ type webServer struct {
 	api           inter.Api
 	auth          AuthService
 	captcha       CaptchaVerifier
+	logger        inter.Logger
 }
 
 func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
@@ -34,6 +35,7 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 		api:           deps.API,
 		auth:          deps.Auth,
 		captcha:       deps.Captcha,
+		logger:        deps.Logger,
 	}
 	if ws.auth == nil {
 		return nil, errors.New("auth service is required")
@@ -48,8 +50,16 @@ func (ws *webServer) Start() {
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 
-	log.Printf("正在启动 web 服务器 (HTTP) 于 %s", addr)
+	ws.log().Info("Web 服务已启动", inter.String("addr", addr))
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("web 服务器启动失败: %v", err)
+		ws.log().Error("Web 服务监听失败", inter.Err(err))
+		panic(err)
 	}
+}
+
+func (ws *webServer) log() inter.Logger {
+	if ws != nil && ws.logger != nil {
+		return ws.logger
+	}
+	return logger.Default().With(inter.String("module", "web"))
 }
