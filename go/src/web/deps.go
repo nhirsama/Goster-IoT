@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 // CaptchaVerifier 抽象验证码服务，便于注入不同实现与测试替身。
@@ -20,6 +21,7 @@ type WebServerDeps struct {
 	API           inter.Api
 	Auth          AuthService
 	Captcha       CaptchaVerifier
+	Logger        inter.Logger
 }
 
 func (d *WebServerDeps) normalize() error {
@@ -37,6 +39,9 @@ func (d *WebServerDeps) normalize() error {
 	}
 	if d.Captcha == nil {
 		d.Captcha = NewTurnstileService()
+	}
+	if d.Logger == nil {
+		d.Logger = logger.Default()
 	}
 	return nil
 }

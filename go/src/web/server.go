@@ -14,6 +14,7 @@ type webServer struct {
 	api           inter.Api
 	auth          AuthService
 	captcha       CaptchaVerifier
+	logger        inter.Logger
 }
 
 func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
@@ -34,6 +35,7 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 		api:           deps.API,
 		auth:          deps.Auth,
 		captcha:       deps.Captcha,
+		logger:        deps.Logger,
 	}
 	if ws.auth == nil {
 		return nil, errors.New("auth service is required")

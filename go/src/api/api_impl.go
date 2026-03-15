@@ -11,18 +11,23 @@ import (
 	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/protocol"
 )
 
 type apiImpl struct {
 	dataStore     inter.DataStore
 	deviceManager inter.DeviceManager
+	logger        inter.Logger
 	protocol      inter.ProtocolCodec
 	privateKey    *ecdh.PrivateKey // X25519 私钥
 }
 
 // NewApi 创建 API 服务实例
-func NewApi(ds inter.DataStore, dm inter.DeviceManager) inter.Api {
+func NewApi(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) inter.Api {
+	if l == nil {
+		l = logger.Default()
+	}
 	privKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		log.Fatalf("API: 生成 X25519 密钥对失败: %v", err)
@@ -33,6 +38,7 @@ func NewApi(ds inter.DataStore, dm inter.DeviceManager) inter.Api {
 	return &apiImpl{
 		dataStore:     ds,
 		deviceManager: dm,
+		logger:        l,
 		protocol:      protocol.NewGosterCodec(),
 		privateKey:    privKey,
 	}

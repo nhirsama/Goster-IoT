@@ -51,7 +51,9 @@ func start(ctx context.Context) {
 
 	dm := device_manager.NewDeviceManager(db)
 
-	api := api.NewApi(db, dm)
+	apiLogger := rootLogger.With(inter.String("module", "api"))
+	webLogger := rootLogger.With(inter.String("module", "web"))
+	api := api.NewApi(db, dm, apiLogger)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:     db,
@@ -59,6 +61,7 @@ func start(ctx context.Context) {
 		API:           api,
 		Auth:          authService,
 		Captcha:       web.NewTurnstileService(),
+		Logger:        webLogger,
 	})
 	if err != nil {
 		log.Fatalf("Failed to setup web server: %v", err)
