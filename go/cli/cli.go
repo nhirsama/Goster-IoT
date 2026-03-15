@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/nhirsama/Goster-IoT/src/api"
+	"github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -26,21 +27,22 @@ func Run() {
 }
 
 func start(ctx context.Context) {
-	rootLogger := initRootLogger()
+	appCfg, err := config.Load()
+	if err != nil {
+		panic(fmt.Errorf("配置加载失败: %w", err))
+	}
+
+	rootLogger := initRootLogger(appCfg.Logger)
 	rootLogger.Info("日志系统已初始化")
 
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "./data.db"
-	}
-	db, err := datastore.NewDataStoreSql(dbPath)
+	db, err := datastore.NewDataStoreSql(appCfg.DB.Path)
 	if err != nil {
 		rootLogger.Error("数据存储初始化失败", inter.Err(err))
 		panic(err)
 	}
 
 	// Initialize Authboss (Encapsulated in web package)
-	ab, err := web.SetupAuthboss(db)
+	ab, err := web.SetupAuthbossWithConfig(db, appCfg.Auth)
 	if err != nil {
 		rootLogger.Error("Authboss 初始化失败", inter.Err(err))
 		panic(err)
@@ -51,19 +53,20 @@ func start(ctx context.Context) {
 		panic(err)
 	}
 
-	dm := device_manager.NewDeviceManager(db)
+	dm := device_manager.NewDeviceManagerWithConfig(db, appCfg.DeviceManager)
 
 	apiLogger := rootLogger.With(inter.String("module", "api"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	api := api.NewApi(db, dm, apiLogger)
+	api := api.NewApiWithConfig(db, dm, apiLogger, appCfg.API)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:     db,
 		DeviceManager: dm,
 		API:           api,
 		Auth:          authService,
-		Captcha:       web.NewTurnstileService(),
+		Captcha:       web.NewTurnstileServiceWithConfig(appCfg.Captcha),
 		Logger:        webLogger,
+		Config:        appCfg.Web,
 	})
 	if err != nil {
 		rootLogger.Error("Web 服务初始化失败", inter.Err(err))
@@ -77,8 +80,7 @@ func start(ctx context.Context) {
 	}
 }
 
-func initRootLogger() inter.Logger {
-	cfg := logger.ConfigFromEnv()
+func initRootLogger(cfg logger.Config) inter.Logger {
 	root := logger.New(cfg).With(
 		inter.String("module", "bootstrap"),
 		inter.String("component", "cli"),

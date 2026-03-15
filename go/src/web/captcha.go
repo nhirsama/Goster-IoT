@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -19,22 +19,31 @@ type TurnstileService struct {
 	SecretKey string
 	Enabled   bool
 	client    *http.Client
+	timeout   time.Duration
 	logger    inter.Logger
 }
 
-const turnstileVerifyTimeout = 5 * time.Second
-
 // NewTurnstileService 初始化服务
 func NewTurnstileService() *TurnstileService {
-	provider := os.Getenv("CAPTCHA_PROVIDER")
+	loaded, err := appcfg.Load()
+	if err != nil {
+		return NewTurnstileServiceWithConfig(appcfg.DefaultCaptchaConfig())
+	}
+	return NewTurnstileServiceWithConfig(loaded.Captcha)
+}
+
+func NewTurnstileServiceWithConfig(cfg appcfg.CaptchaConfig) *TurnstileService {
+	cfg = appcfg.NormalizeCaptchaConfig(cfg)
+	timeout := cfg.VerifyTimeout
 	return &TurnstileService{
-		SiteKey:   os.Getenv("CF_SITE_KEY"),
-		SecretKey: os.Getenv("CF_SECRET_KEY"),
-		Enabled:   provider == "turnstile",
+		SiteKey:   cfg.SiteKey,
+		SecretKey: cfg.SecretKey,
+		Enabled:   strings.EqualFold(strings.TrimSpace(cfg.Provider), "turnstile"),
 		client: &http.Client{
-			Timeout: turnstileVerifyTimeout,
+			Timeout: timeout,
 		},
-		logger: logger.Default().With(inter.String("module", "captcha")),
+		timeout: timeout,
+		logger:  logger.Default().With(inter.String("module", "captcha")),
 	}
 }
 
@@ -83,7 +92,11 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 		"response": {token},
 		"remoteip": {ip},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), turnstileVerifyTimeout)
+	timeout := s.timeout
+	if timeout <= 0 {
+		timeout = appcfg.DefaultCaptchaConfig().VerifyTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
@@ -95,7 +108,7 @@ func (s *TurnstileService) VerifyToken(token string, ip string) bool {
 
 	client := s.client
 	if client == nil {
-		client = &http.Client{Timeout: turnstileVerifyTimeout}
+		client = &http.Client{Timeout: timeout}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

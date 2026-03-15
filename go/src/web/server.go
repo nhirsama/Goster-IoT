@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -15,6 +16,7 @@ type webServer struct {
 	auth          AuthService
 	captcha       CaptchaVerifier
 	logger        inter.Logger
+	config        appcfg.WebConfig
 }
 
 func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
@@ -36,6 +38,7 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 		auth:          deps.Auth,
 		captcha:       deps.Captcha,
 		logger:        deps.Logger,
+		config:        deps.Config,
 	}
 	if ws.auth == nil {
 		return nil, errors.New("auth service is required")
@@ -45,7 +48,7 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 
 // Start 启动标准 HTTP 服务器
 func (ws *webServer) Start() {
-	addr := ":8080"
+	addr := appcfg.NormalizeWebConfig(ws.config).HTTPAddr
 
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)

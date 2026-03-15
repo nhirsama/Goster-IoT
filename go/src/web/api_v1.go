@@ -12,13 +12,13 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aarondl/authboss/v3"
 	"github.com/aarondl/authboss/v3/defaults"
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -29,15 +29,6 @@ const (
 	apiCtxRequestID apiCtxKey = "request_id"
 	apiCtxUsername  apiCtxKey = "username"
 	apiCtxPerm      apiCtxKey = "permission"
-)
-
-const (
-	minValidMetricsTimestampMs int64 = 1672531200000
-	maxAPIBodyBytes            int64 = 1 << 20
-	defaultDevicePageSize            = 100
-	maxDevicePageSize                = 1000
-
-	defaultAPICORSAllowedOrigins = "http://localhost:5173,http://127.0.0.1:5173"
 )
 
 type apiErrorDetail struct {
@@ -121,10 +112,7 @@ func (ws *webServer) resolveAllowedAPIOrigin(r *http.Request, origin string) (st
 		return origin, true
 	}
 
-	raw := strings.TrimSpace(os.Getenv("API_CORS_ALLOW_ORIGINS"))
-	if raw == "" {
-		raw = defaultAPICORSAllowedOrigins
-	}
+	raw := ws.webConfig().APICORSAllowOrigins
 
 	for _, candidate := range strings.Split(raw, ",") {
 		candidate = strings.TrimSpace(candidate)
@@ -239,7 +227,7 @@ func (ws *webServer) apiRegisterHandler(w http.ResponseWriter, r *http.Request) 
 		CaptchaToken *string                `json:"captcha_token,omitempty"`
 		Extensions   map[string]interface{} `json:"extensions,omitempty"`
 	}
-	if err := decodeAPIBody(r, &payload); err != nil {
+	if err := decodeAPIBody(r, &payload, ws.maxAPIBodyBytes()); err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40001, "invalid json body",
 			&apiErrorDetail{Type: "validation_error"})
 		return
@@ -367,7 +355,7 @@ func (ws *webServer) apiLoginHandler(w http.ResponseWriter, r *http.Request) {
 		CaptchaToken *string                `json:"captcha_token,omitempty"`
 		Extensions   map[string]interface{} `json:"extensions,omitempty"`
 	}
-	if err := decodeAPIBody(r, &payload); err != nil {
+	if err := decodeAPIBody(r, &payload, ws.maxAPIBodyBytes()); err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40007, "invalid json body",
 			&apiErrorDetail{Type: "validation_error"})
 		return
@@ -539,7 +527,7 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 			&apiErrorDetail{Type: "validation_error", Field: "page", Reason: err.Error()})
 		return
 	}
-	size, err := parsePositiveIntQuery(r.URL.Query().Get("size"), defaultDevicePageSize, maxDevicePageSize)
+	size, err := parsePositiveIntQuery(r.URL.Query().Get("size"), ws.deviceListDefaultPageSize(), ws.deviceListMaxPageSize())
 	if err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40013, "invalid size",
 			&apiErrorDetail{Type: "validation_error", Field: "size", Reason: err.Error()})
@@ -743,7 +731,7 @@ func (ws *webServer) apiMetricsV1Handler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	start, end, rangeLabel, err := resolveMetricsRange(r)
+	start, end, rangeLabel, err := resolveMetricsRange(r, ws.metricsMinValidTimestampMs(), ws.metricsDefaultRangeLabel())
 	if err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40031, err.Error(),
 			&apiErrorDetail{Type: "validation_error"})
@@ -806,7 +794,7 @@ func (ws *webServer) apiUserPermissionHandler(w http.ResponseWriter, r *http.Req
 		Permission int                    `json:"permission"`
 		Extensions map[string]interface{} `json:"extensions,omitempty"`
 	}
-	if err := decodeAPIBody(r, &payload); err != nil {
+	if err := decodeAPIBody(r, &payload, ws.maxAPIBodyBytes()); err != nil {
 		ws.apiError(w, r, http.StatusBadRequest, 40044, "invalid json body",
 			&apiErrorDetail{Type: "validation_error", Field: "permission"})
 		return
@@ -895,8 +883,8 @@ func isNotFoundError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
-func decodeAPIBody(r *http.Request, out interface{}) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxAPIBodyBytes))
+func decodeAPIBody(r *http.Request, out interface{}, maxBodyBytes int64) error {
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(out); err != nil {
 		return err
@@ -960,11 +948,11 @@ func parsePositiveIntQuery(raw string, fallback int, max int) (int, error) {
 	return v, nil
 }
 
-func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel string, err error) {
+func resolveMetricsRange(r *http.Request, minValidTimestampMs int64, defaultRangeLabel string) (start int64, end int64, rangeLabel string, err error) {
 	end = time.Now().UnixMilli()
 	rangeLabel = r.URL.Query().Get("range")
 	if rangeLabel == "" {
-		rangeLabel = "1h"
+		rangeLabel = defaultRangeLabel
 	}
 	if !isValidMetricsRange(rangeLabel) {
 		return 0, 0, "", errors.New("invalid range")
@@ -988,15 +976,15 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 		}
 		start = parsedStart
 		end = parsedEnd
-		if start < minValidMetricsTimestampMs {
-			start = minValidMetricsTimestampMs
+		if start < minValidTimestampMs {
+			start = minValidTimestampMs
 		}
 		return start, end, rangeLabel, nil
 	}
 
 	switch rangeLabel {
 	case "all":
-		start = minValidMetricsTimestampMs
+		start = minValidTimestampMs
 	case "1h":
 		start = time.Now().Add(-time.Hour).UnixMilli()
 	case "6h":
@@ -1007,8 +995,8 @@ func resolveMetricsRange(r *http.Request) (start int64, end int64, rangeLabel st
 		start = time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
 	}
 
-	if start < minValidMetricsTimestampMs {
-		start = minValidMetricsTimestampMs
+	if start < minValidTimestampMs {
+		start = minValidTimestampMs
 	}
 	return start, end, rangeLabel, nil
 }
@@ -1076,4 +1064,28 @@ func (ws *webServer) getRequestID(r *http.Request) string {
 		return "req_" + strconv.FormatInt(time.Now().Unix(), 10) + "_" + hex.EncodeToString(buf)
 	}
 	return "req_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+func (ws *webServer) maxAPIBodyBytes() int64 {
+	return ws.webConfig().MaxAPIBodyBytes
+}
+
+func (ws *webServer) deviceListDefaultPageSize() int {
+	return ws.webConfig().DeviceListPage.DefaultSize
+}
+
+func (ws *webServer) deviceListMaxPageSize() int {
+	return ws.webConfig().DeviceListPage.MaxSize
+}
+
+func (ws *webServer) metricsMinValidTimestampMs() int64 {
+	return ws.webConfig().Metrics.MinValidTimestampMs
+}
+
+func (ws *webServer) metricsDefaultRangeLabel() string {
+	return ws.webConfig().Metrics.DefaultRangeLabel
+}
+
+func (ws *webServer) webConfig() appcfg.WebConfig {
+	return appcfg.NormalizeWebConfig(ws.config)
 }

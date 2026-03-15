@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -41,7 +42,7 @@ func TestDecodeAPIBody(t *testing.T) {
 		Name string `json:"name"`
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/test", bytes.NewBufferString(`{"name":"ok"}`))
-	if err := decodeAPIBody(req, &valid); err != nil {
+	if err := decodeAPIBody(req, &valid, 1<<20); err != nil {
 		t.Fatalf("valid json should pass: %v", err)
 	}
 	if valid.Name != "ok" {
@@ -49,12 +50,12 @@ func TestDecodeAPIBody(t *testing.T) {
 	}
 
 	reqUnknown := httptest.NewRequest(http.MethodPost, "/api/v1/test", bytes.NewBufferString(`{"name":"ok","extra":1}`))
-	if err := decodeAPIBody(reqUnknown, &valid); err == nil {
+	if err := decodeAPIBody(reqUnknown, &valid, 1<<20); err == nil {
 		t.Fatalf("unknown field should fail")
 	}
 
 	reqMulti := httptest.NewRequest(http.MethodPost, "/api/v1/test", bytes.NewBufferString(`{"name":"ok"}{"name":"next"}`))
-	if err := decodeAPIBody(reqMulti, &valid); err == nil {
+	if err := decodeAPIBody(reqMulti, &valid, 1<<20); err == nil {
 		t.Fatalf("multiple json docs should fail")
 	}
 }
@@ -87,7 +88,11 @@ func TestSameOriginChecksWithProxyHeaders(t *testing.T) {
 }
 
 func TestResolveAllowedAPIOrigin(t *testing.T) {
-	ws := &webServer{}
+	ws := &webServer{
+		config: appcfg.WebConfig{
+			APICORSAllowOrigins: "https://fe.example.com,https://admin.example.com",
+		},
+	}
 
 	reqSame := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqSame.Host = "api.internal.local:8080"
@@ -95,7 +100,6 @@ func TestResolveAllowedAPIOrigin(t *testing.T) {
 		t.Fatalf("same-origin should be allowed")
 	}
 
-	t.Setenv("API_CORS_ALLOW_ORIGINS", "https://fe.example.com,https://admin.example.com")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	req.Host = "api.example.com"
 	if _, ok := ws.resolveAllowedAPIOrigin(req, "https://fe.example.com"); !ok {

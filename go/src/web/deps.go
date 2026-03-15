@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -22,6 +23,7 @@ type WebServerDeps struct {
 	Auth          AuthService
 	Captcha       CaptchaVerifier
 	Logger        inter.Logger
+	Config        appcfg.WebConfig
 }
 
 func (d *WebServerDeps) normalize() error {
@@ -38,10 +40,11 @@ func (d *WebServerDeps) normalize() error {
 		return errors.New("web deps missing auth service")
 	}
 	if d.Captcha == nil {
-		d.Captcha = NewTurnstileService()
+		d.Captcha = NewTurnstileServiceWithConfig(appcfg.DefaultCaptchaConfig())
 	}
 	if d.Logger == nil {
 		d.Logger = logger.Default()
 	}
+	d.Config = appcfg.NormalizeWebConfig(d.Config)
 	return nil
 }
