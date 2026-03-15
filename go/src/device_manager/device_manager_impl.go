@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -189,6 +192,84 @@ func (d *DeviceManager) ListDevices(status *inter.AuthenticateStatusType, page, 
 	return d.DataStore.ListDevicesByStatus(*status, page, size)
 }
 
+func (d *DeviceManager) GenerateExternalUUID(source, entityID string) string {
+	raw := strings.ToLower(strings.TrimSpace(source)) + ":" + strings.TrimSpace(entityID)
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func (d *DeviceManager) UpsertExternalEntity(entity inter.ExternalEntity) error {
+	entity.Source = strings.TrimSpace(entity.Source)
+	entity.EntityID = strings.TrimSpace(entity.EntityID)
+	entity.Domain = strings.TrimSpace(entity.Domain)
+	entity.ValueType = strings.TrimSpace(entity.ValueType)
+	if entity.Source == "" || entity.EntityID == "" || entity.Domain == "" {
+		return errors.New("source/entity_id/domain is required")
+	}
+	if entity.ValueType == "" {
+		entity.ValueType = "string"
+	}
+	if entity.GosterUUID == "" {
+		entity.GosterUUID = d.GenerateExternalUUID(entity.Source, entity.EntityID)
+	}
+	if entity.LastStateTS <= 0 {
+		entity.LastStateTS = time.Now().UnixMilli()
+	}
+	return d.DataStore.UpsertExternalEntity(entity)
+}
+
+func (d *DeviceManager) ListExternalEntities(source, domain string, page, size int) ([]inter.ExternalEntity, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if size <= 0 {
+		size = 100
+	}
+	if size > 1000 {
+		size = 1000
+	}
+	offset := (page - 1) * size
+	return d.DataStore.ListExternalEntities(source, domain, size, offset)
+}
+
+func (d *DeviceManager) BatchAppendExternalObservations(items []inter.ExternalObservation) error {
+	if len(items) == 0 {
+		return nil
+	}
+	now := time.Now().UnixMilli()
+	normalized := make([]inter.ExternalObservation, 0, len(items))
+	for _, item := range items {
+		item.Source = strings.TrimSpace(item.Source)
+		item.EntityID = strings.TrimSpace(item.EntityID)
+		if item.Source == "" || item.EntityID == "" {
+			return errors.New("source/entity_id is required")
+		}
+		if item.Timestamp <= 0 {
+			item.Timestamp = now
+		}
+		if strings.TrimSpace(item.ValueSig) == "" {
+			item.ValueSig = d.buildExternalObservationSignature(item)
+		}
+		normalized = append(normalized, item)
+	}
+	return d.DataStore.BatchAppendExternalObservations(normalized)
+}
+
+func (d *DeviceManager) QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]inter.ExternalObservation, error) {
+	source = strings.TrimSpace(source)
+	entityID = strings.TrimSpace(entityID)
+	if source == "" || entityID == "" {
+		return nil, errors.New("source/entity_id is required")
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+	return d.DataStore.QueryExternalObservations(source, entityID, start, end, limit)
+}
+
 // --- 运行时状态实现 ---
 
 func (d *DeviceManager) HandleHeartbeat(uuid string) {
@@ -203,9 +284,31 @@ func (d *DeviceManager) QueryDeviceStatus(uuid string) (inter.DeviceStatus, erro
 		if delta < d.DeathLine {
 			return inter.StatusOnline, nil
 		}
+		if delta < 2*d.DeathLine {
+			return inter.StatusDelayed, nil
+		}
 		return inter.StatusOffline, nil
 	}
 	return inter.StatusOffline, errors.New("设备从未上线")
+}
+
+func (d *DeviceManager) buildExternalObservationSignature(item inter.ExternalObservation) string {
+	var payload string
+	switch {
+	case item.ValueNum != nil:
+		payload = fmt.Sprintf("n:%g|u:%s", *item.ValueNum, item.Unit)
+	case item.ValueBool != nil:
+		payload = fmt.Sprintf("b:%t|u:%s", *item.ValueBool, item.Unit)
+	case item.ValueText != nil:
+		payload = fmt.Sprintf("t:%s|u:%s", *item.ValueText, item.Unit)
+	case len(item.ValueJSON) > 0:
+		b, _ := json.Marshal(item.ValueJSON)
+		payload = fmt.Sprintf("j:%s|u:%s", string(b), item.Unit)
+	default:
+		payload = fmt.Sprintf("empty|u:%s", item.Unit)
+	}
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:8])
 }
 
 // --- 消息队列实现 ---

@@ -29,19 +29,9 @@ func (m *MockApi) GetMessages(uuid string) ([]interface{}, error)               
 // TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
 // Run with: go test -v ./go/src/web -run TestRunServerAndStressTest
 func TestRunServerAndStressTest(t *testing.T) {
-	// 1. Change to project root so "go/html/..." paths work
-	// Adjust this depending on where you run the test from.
-	// Assuming running from project root or having robust path handling.
-	// For this test, we try to find the project root.
+	// 1. 打印当前测试工作目录，便于定位调试信息。
 	wd, _ := os.Getwd()
 	fmt.Println("Starting Test in:", wd)
-
-	// Try to locate 'go/html'
-	htmlDir := "../../html" // Relative from go/src/web
-	if _, err := os.Stat(htmlDir); os.IsNotExist(err) {
-		// Try absolute path if known, or fail
-		t.Logf("Warning: Could not find html dir at %s, trying absolute path logic or skipping template loading checks if flexible.", htmlDir)
-	}
 
 	// 2. Setup Temporary datastore
 	tempDir, err := os.MkdirTemp("", "goster_test_db")
@@ -67,13 +57,26 @@ func TestRunServerAndStressTest(t *testing.T) {
 	}
 
 	// Setup Authboss
-	ab, err := SetupAuthboss(ds, htmlDir)
+	ab, err := SetupAuthboss(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authService, err := NewAuthService(ab)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 4. Create WebServer
-	ws := NewWebServer(ds, dm, api, htmlDir, ab)
+	ws, err := NewWebServer(WebServerDeps{
+		DataStore:     ds,
+		DeviceManager: dm,
+		API:           api,
+		Auth:          authService,
+		Captcha:       &TurnstileService{Enabled: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// 5. Populate Data
 	populateData(t, ds, dm)
@@ -168,10 +171,9 @@ func runStressTest(t *testing.T) {
 	// Generate requests
 	go func() {
 		endpoints := []string{
-			"http://localhost:8080/login",
-			// Protected endpoints will redirect to login, still valid for load testing
-			"http://localhost:8080/",
-			"http://localhost:8080/devices",
+			"http://localhost:8080/api/v1/auth/captcha/config",
+			"http://localhost:8080/api/v1/devices?status=all&page=1&size=50",
+			"http://localhost:8080/api/v1/users",
 		}
 		for i := 0; i < totalRequests; i++ {
 			requestCh <- endpoints[rand.Intn(len(endpoints))]

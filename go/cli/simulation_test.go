@@ -218,7 +218,6 @@ func (c *SimClient) DoHandshake() error {
 
 func TestCompleteIoTSystemSimulation(t *testing.T) {
 	os.Setenv("DB_PATH", "./full_test.db")
-	os.Setenv("HTML_DIR", "../html")
 	defer os.Remove("./full_test.db")
 
 	t.Log(">>> 启动 Goster-IoT 后台全功能服务...")

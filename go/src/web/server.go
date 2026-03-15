@@ -1,35 +1,46 @@
 package web
 
 import (
-	"html/template"
-	"log"
+	"errors"
 	"net/http"
 
-	"github.com/aarondl/authboss/v3"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 type webServer struct {
 	dataStore     inter.DataStore
 	deviceManager inter.DeviceManager
 	api           inter.Api
-	templates     map[string]*template.Template
-	htmlDir       string
-	authboss      *authboss.Authboss
-	turnstile     *TurnstileService
+	auth          AuthService
+	captcha       CaptchaVerifier
+	logger        inter.Logger
 }
 
-// NewWebServer 创建一个新的 web 服务器实例
-func NewWebServer(ds inter.DataStore, dm inter.DeviceManager, api inter.Api, htmlDir string, ab *authboss.Authboss) inter.WebServer {
-	return &webServer{
-		dataStore:     ds,
-		deviceManager: dm,
-		api:           api,
-		templates:     loadTemplates(htmlDir),
-		htmlDir:       htmlDir,
-		authboss:      ab,
-		turnstile:     NewTurnstileService(),
+func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
+	ws, err := newWebServer(deps)
+	if err != nil {
+		return nil, err
 	}
+	return ws, nil
+}
+
+func newWebServer(deps WebServerDeps) (*webServer, error) {
+	if err := deps.normalize(); err != nil {
+		return nil, err
+	}
+	ws := &webServer{
+		dataStore:     deps.DataStore,
+		deviceManager: deps.DeviceManager,
+		api:           deps.API,
+		auth:          deps.Auth,
+		captcha:       deps.Captcha,
+		logger:        deps.Logger,
+	}
+	if ws.auth == nil {
+		return nil, errors.New("auth service is required")
+	}
+	return ws, nil
 }
 
 // Start 启动标准 HTTP 服务器
@@ -39,8 +50,16 @@ func (ws *webServer) Start() {
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 
-	log.Printf("正在启动 web 服务器 (HTTP) 于 %s", addr)
+	ws.log().Info("Web 服务已启动", inter.String("addr", addr))
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("web 服务器启动失败: %v", err)
+		ws.log().Error("Web 服务监听失败", inter.Err(err))
+		panic(err)
 	}
+}
+
+func (ws *webServer) log() inter.Logger {
+	if ws != nil && ws.logger != nil {
+		return ws.logger
+	}
+	return logger.Default().With(inter.String("module", "web"))
 }

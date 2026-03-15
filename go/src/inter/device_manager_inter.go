@@ -86,6 +86,23 @@ type DeviceManager interface {
 
 	// ListDevices 分页列出设备，status 为 nil 时列出所有
 	ListDevices(status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
+
+	// --- 外部集成实体管理 ---
+
+	// GenerateExternalUUID 为外部实体生成稳定 UUID
+	GenerateExternalUUID(source, entityID string) string
+
+	// UpsertExternalEntity 创建或更新外部实体主档
+	UpsertExternalEntity(entity ExternalEntity) error
+
+	// ListExternalEntities 按 source/domain 分页列出外部实体
+	ListExternalEntities(source, domain string, page, size int) ([]ExternalEntity, error)
+
+	// BatchAppendExternalObservations 批量写入外部观测值
+	BatchAppendExternalObservations(items []ExternalObservation) error
+
+	// QueryExternalObservations 查询外部观测值
+	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
 }
 
 // MessageQueue 定义消息队列的底层操作接口
