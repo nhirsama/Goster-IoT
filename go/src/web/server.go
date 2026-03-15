@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 type webServer struct {
@@ -49,9 +50,16 @@ func (ws *webServer) Start() {
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 
-	ws.logger.Info("web server started", inter.String("addr", addr))
+	ws.log().Info("web server started", inter.String("addr", addr))
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		ws.logger.Error("web server listen failed", inter.Err(err))
+		ws.log().Error("web server listen failed", inter.Err(err))
 		panic(err)
 	}
+}
+
+func (ws *webServer) log() inter.Logger {
+	if ws != nil && ws.logger != nil {
+		return ws.logger
+	}
+	return logger.Default().With(inter.String("module", "web"))
 }

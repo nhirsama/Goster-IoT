@@ -44,3 +44,10 @@ func TestWebServerDepsNormalizeLogger(t *testing.T) {
 		t.Fatal("normalize should inject default logger")
 	}
 }
+
+func TestWebServerLogFallback(t *testing.T) {
+	ws := &webServer{}
+	if ws.log() == nil {
+		t.Fatal("web server logger fallback should not be nil")
+	}
+}

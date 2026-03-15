@@ -82,12 +82,8 @@ func (ws *webServer) registerAPIRoutes(mux *http.ServeMux) {
 func (ws *webServer) apiMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := ws.getRequestID(r)
-		baseLogger := ws.logger
-		if baseLogger == nil {
-			baseLogger = logger.Default()
-		}
 		ctx := context.WithValue(r.Context(), apiCtxRequestID, rid)
-		ctx = logger.IntoContext(ctx, baseLogger.With(
+		ctx = logger.IntoContext(ctx, ws.log().With(
 			inter.String("request_id", rid),
 			inter.String("method", r.Method),
 			inter.String("path", r.URL.Path),
