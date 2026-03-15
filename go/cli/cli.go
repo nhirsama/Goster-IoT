@@ -11,6 +11,8 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/api"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/device_manager"
+	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/web"
 )
 
@@ -25,6 +27,9 @@ func Run() {
 }
 
 func start(ctx context.Context) {
+	rootLogger := initRootLogger()
+	rootLogger.Info("logger initialized")
+
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
 		dbPath = "./data.db"
@@ -64,4 +69,14 @@ func start(ctx context.Context) {
 	case <-ctx.Done():
 		return
 	}
+}
+
+func initRootLogger() inter.Logger {
+	cfg := logger.ConfigFromEnv()
+	root := logger.New(cfg).With(
+		inter.String("module", "bootstrap"),
+		inter.String("component", "cli"),
+	)
+	logger.SetDefault(root)
+	return root
 }
