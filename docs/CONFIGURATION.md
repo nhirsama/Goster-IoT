@@ -14,7 +14,7 @@
 |---|---|---|---|
 | `db.path` | `DB_PATH` | `./data.db` | SQLite 数据库文件路径。 |
 | `web.http_addr` | `WEB_HTTP_ADDR` | `:8080` | HTTP 管理接口监听地址。 |
-| `web.api_cors_allow_origins` | `API_CORS_ALLOW_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | API CORS 白名单，逗号分隔。 |
+| `web.api_cors_allow_origins` | `API_CORS_ALLOW_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | API CORS 白名单，逗号分隔。 |
 | `web.max_api_body_bytes` | `WEB_API_MAX_BODY_BYTES` | `1048576` | API JSON 请求体最大字节数。 |
 | `web.device_list.default_page_size` | `WEB_DEVICE_LIST_DEFAULT_PAGE_SIZE` | `100` | 设备列表默认分页大小。 |
 | `web.device_list.max_page_size` | `WEB_DEVICE_LIST_MAX_PAGE_SIZE` | `1000` | 设备列表分页大小上限。 |
@@ -68,7 +68,7 @@
 export DB_PATH=./data.db
 export WEB_HTTP_ADDR=:8080
 export API_TCP_ADDR=:8081
-export API_CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+export API_CORS_ALLOW_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 export WEB_API_MAX_BODY_BYTES=1048576
 export WEB_DEVICE_LIST_DEFAULT_PAGE_SIZE=100
 export WEB_DEVICE_LIST_MAX_PAGE_SIZE=1000

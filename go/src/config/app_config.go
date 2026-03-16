@@ -14,7 +14,7 @@ const (
 	defaultDBPath                           = "./data.db"
 	defaultWebHTTPAddr                      = ":8080"
 	defaultAPITCPAddr                       = ":8081"
-	defaultAPICORSAllowOrigins              = "http://localhost:5173,http://127.0.0.1:5173"
+	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
 	defaultAuthRootURL                      = "http://localhost:8080"
 	defaultMaxAPIBodyBytes            int64 = 1 << 20
 	defaultMetricsMinValidTimestampMs int64 = 1672531200000
