@@ -271,6 +271,37 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/devices/{uuid}/commands:
+    post:
+      tags: [Device]
+      operationId: enqueueDeviceCommand
+      summary: 将下行指令推入设备发送队列。
+      parameters:
+        - $ref: '#/components/parameters/DeviceUUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCommandRequest'
+      responses:
+        '200':
+          description: 指令已入队。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCommandEnqueueResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /api/v1/metrics/{uuid}:
     get:
       tags: [Metrics]
@@ -794,6 +825,62 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/RefreshTokenData'
+
+    DeviceCommandName:
+      type: string
+      enum: [config_push, ota_data, action_exec, screen_wy]
+      description: 设备下行指令名称。
+
+    DeviceCommandStatus:
+      type: string
+      enum: [queued, sent, acked, failed]
+      description: 设备下行指令状态。
+
+    DeviceCommandRequest:
+      type: object
+      required: [command]
+      properties:
+        command:
+          $ref: '#/components/schemas/DeviceCommandName'
+        payload:
+          type: object
+          additionalProperties: true
+          description: 指令负载（原样转发给设备侧）。
+          nullable: true
+
+    DeviceCommandEnqueueData:
+      type: object
+      required: [command_id, uuid, command, cmd_id, status]
+      properties:
+        command_id:
+          type: integer
+          format: int64
+        uuid:
+          type: string
+        command:
+          $ref: '#/components/schemas/DeviceCommandName'
+        cmd_id:
+          type: integer
+          description: 协议 CmdID 的十进制表示。
+          example: 515
+        status:
+          $ref: '#/components/schemas/DeviceCommandStatus'
+        enqueued_at:
+          type: string
+          format: date-time
+          nullable: true
+        extensions:
+          type: object
+          additionalProperties: true
+
+    DeviceCommandEnqueueResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceCommandEnqueueData'
 
     MetricPoint:
       type: object

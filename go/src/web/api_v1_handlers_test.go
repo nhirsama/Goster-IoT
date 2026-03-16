@@ -273,7 +273,7 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 }
 
 func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
+	ws, ds, dm := newTestWS(t)
 
 	uuid := strings.Repeat("a", 64)
 	seedDevice(t, ds, uuid, inter.Authenticated)
@@ -320,6 +320,35 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 		t.Fatalf("refresh token expected 200, got %d", rec.Code)
 	}
 
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/commands",
+		bytes.NewBufferString(`{"command":"action_exec","payload":{"op":"reboot"}}`))
+	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	rec = httptest.NewRecorder()
+	ws.apiDeviceByUUIDHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enqueue command expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	env := mustJSONEnvelope(t, rec)
+	data, ok := env.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected enqueue response data: %#v", env.Data)
+	}
+	if data["status"] != string(inter.DeviceCommandStatusQueued) {
+		t.Fatalf("unexpected command status: %v", data["status"])
+	}
+
+	msg, ok := dm.QueuePop(uuid)
+	if !ok {
+		t.Fatal("queued command should be available in device queue")
+	}
+	dmsg, ok := msg.(inter.DownlinkMessage)
+	if !ok {
+		t.Fatalf("unexpected queued message type: %T", msg)
+	}
+	if dmsg.CmdID != inter.CmdActionExec || dmsg.CommandID <= 0 {
+		t.Fatalf("unexpected queued message: %+v", dmsg)
+	}
+
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/metrics/"+uuid+"?range=all", nil)
 	rec = httptest.NewRecorder()
 	ws.apiMetricsV1Handler(rec, req)
@@ -347,6 +376,24 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 	ws.apiDeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete expected 204, got %d", rec.Code)
+	}
+}
+
+func TestAPIDeviceCommandValidation(t *testing.T) {
+	ws, ds, _ := newTestWS(t)
+	uuid := strings.Repeat("e", 64)
+	seedDevice(t, ds, uuid, inter.Authenticated)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/commands",
+		bytes.NewBufferString(`{"command":"reboot","payload":{"op":"now"}}`))
+	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	rec := httptest.NewRecorder()
+	ws.apiDeviceByUUIDHandler(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid command should return 400, got %d", rec.Code)
+	}
+	if code := mustJSONEnvelope(t, rec).Code; code != 40027 {
+		t.Fatalf("invalid command should return code 40027, got %d", code)
 	}
 }
 

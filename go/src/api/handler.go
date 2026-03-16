@@ -18,8 +18,9 @@ type BusinessHandler struct {
 	logger        inter.Logger
 
 	// Session State
-	uuid          string
-	authenticated bool
+	uuid                string
+	authenticated       bool
+	pendingDownlinkAcks map[inter.CmdID][]int64
 }
 
 // NewBusinessHandler 创建业务逻辑处理器
@@ -28,10 +29,11 @@ func NewBusinessHandler(ds inter.DataStore, dm inter.DeviceManager, l inter.Logg
 		l = logger.Default()
 	}
 	return &BusinessHandler{
-		dataStore:     ds,
-		deviceManager: dm,
-		logger:        l,
-		authenticated: false,
+		dataStore:           ds,
+		deviceManager:       dm,
+		logger:              l,
+		authenticated:       false,
+		pendingDownlinkAcks: make(map[inter.CmdID][]int64),
 	}
 }
 
@@ -256,24 +258,84 @@ func (h *BusinessHandler) HandleDownlinkAck(cmd inter.CmdID) {
 		return
 	}
 	h.logger.Debug("收到下行确认", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
-	// TODO: 在消息队列中标记该消息已送达
+
+	pending := h.pendingDownlinkAcks[cmd]
+	if len(pending) == 0 {
+		h.logger.Warn("收到无法匹配的下行确认", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
+		return
+	}
+
+	commandID := pending[0]
+	h.pendingDownlinkAcks[cmd] = pending[1:]
+	if len(h.pendingDownlinkAcks[cmd]) == 0 {
+		delete(h.pendingDownlinkAcks, cmd)
+	}
+	if commandID <= 0 {
+		return
+	}
+	if err := h.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusAcked, ""); err != nil {
+		h.logger.Warn("下行确认状态落库失败",
+			inter.String("uuid", h.uuid),
+			inter.Int("cmd_id", int(cmd)),
+			inter.Int64("command_id", commandID),
+			inter.Err(err))
+	}
 }
 
 // PopMessage 获取并弹出一个待处理的下行消息
-func (h *BusinessHandler) PopMessage() (inter.CmdID, []byte, bool) {
+func (h *BusinessHandler) PopMessage() (inter.DownlinkMessage, bool) {
 	if !h.authenticated {
-		return 0, nil, false
+		return inter.DownlinkMessage{}, false
 	}
 	msg, ok := h.deviceManager.QueuePop(h.uuid)
 	if !ok {
-		return 0, nil, false
+		return inter.DownlinkMessage{}, false
 	}
 
 	// 尝试断言为 DownlinkMessage 结构
 	if dmsg, ok := msg.(inter.DownlinkMessage); ok {
-		return dmsg.CmdID, dmsg.Payload, true
+		return dmsg, true
 	}
-	return 0, nil, false
+	return inter.DownlinkMessage{}, false
+}
+
+// MarkDownlinkSent 记录已发送的下行消息，用于 ACK 回填状态
+func (h *BusinessHandler) MarkDownlinkSent(msg inter.DownlinkMessage) {
+	if !h.authenticated {
+		return
+	}
+	if msg.CommandID <= 0 {
+		return
+	}
+	h.pendingDownlinkAcks[msg.CmdID] = append(h.pendingDownlinkAcks[msg.CmdID], msg.CommandID)
+	if err := h.dataStore.UpdateDeviceCommandStatus(msg.CommandID, inter.DeviceCommandStatusSent, ""); err != nil {
+		h.logger.Warn("下行发送状态落库失败",
+			inter.String("uuid", h.uuid),
+			inter.Int("cmd_id", int(msg.CmdID)),
+			inter.Int64("command_id", msg.CommandID),
+			inter.Err(err))
+	}
+}
+
+// MarkDownlinkFailed 标记下行消息发送失败
+func (h *BusinessHandler) MarkDownlinkFailed(msg inter.DownlinkMessage, err error) {
+	if !h.authenticated {
+		return
+	}
+	if msg.CommandID <= 0 {
+		return
+	}
+	errorText := ""
+	if err != nil {
+		errorText = err.Error()
+	}
+	if updateErr := h.dataStore.UpdateDeviceCommandStatus(msg.CommandID, inter.DeviceCommandStatusFailed, errorText); updateErr != nil {
+		h.logger.Warn("下行失败状态落库失败",
+			inter.String("uuid", h.uuid),
+			inter.Int("cmd_id", int(msg.CmdID)),
+			inter.Int64("command_id", msg.CommandID),
+			inter.Err(updateErr))
+	}
 }
 
 // HandleEvent 处理事件上报
