@@ -1,6 +1,7 @@
 package datastore
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -109,5 +110,42 @@ func TestExternalObservationBatchAndQuery(t *testing.T) {
 	// duplicate num observation should be ignored by UNIQUE(source, entity_id, ts, value_sig)
 	if len(results) != 2 {
 		t.Fatalf("QueryExternalObservations dedupe mismatch: got=%d want=2", len(results))
+	}
+}
+
+func TestDeviceCommandLogLifecycle(t *testing.T) {
+	store := newTestStore(t)
+	sqlStore := asSQLStore(t, store)
+
+	commandID, err := store.CreateDeviceCommand("device-1", inter.CmdActionExec, "action_exec", []byte(`{"op":"reboot"}`))
+	if err != nil {
+		t.Fatalf("CreateDeviceCommand failed: %v", err)
+	}
+	if commandID <= 0 {
+		t.Fatalf("unexpected command id: %d", commandID)
+	}
+
+	if err := store.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusSent, ""); err != nil {
+		t.Fatalf("UpdateDeviceCommandStatus(sent) failed: %v", err)
+	}
+	if err := store.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusAcked, ""); err != nil {
+		t.Fatalf("UpdateDeviceCommandStatus(acked) failed: %v", err)
+	}
+
+	var status string
+	var executedAt sql.NullTime
+	err = sqlStore.db.QueryRow(`
+		SELECT status, executed_at
+		FROM integration_external_commands
+		WHERE id = ? AND source = ?
+	`, commandID, "goster_device").Scan(&status, &executedAt)
+	if err != nil {
+		t.Fatalf("query command row failed: %v", err)
+	}
+	if status != string(inter.DeviceCommandStatusAcked) {
+		t.Fatalf("unexpected command status: %s", status)
+	}
+	if !executedAt.Valid {
+		t.Fatalf("acked command should have executed_at")
 	}
 }

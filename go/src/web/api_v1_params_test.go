@@ -59,3 +59,17 @@ func TestResolveMetricsRangeInvalidQueries(t *testing.T) {
 		t.Fatalf("invalid range should return error even with explicit window")
 	}
 }
+
+func TestParseDownlinkCommand(t *testing.T) {
+	cmdID, name, err := parseDownlinkCommand(" action_exec ")
+	if err != nil {
+		t.Fatalf("parseDownlinkCommand should parse valid command: %v", err)
+	}
+	if cmdID != 0x0203 || name != "action_exec" {
+		t.Fatalf("unexpected parse result: cmdID=%d name=%s", cmdID, name)
+	}
+
+	if _, _, err := parseDownlinkCommand("reboot"); err == nil {
+		t.Fatal("parseDownlinkCommand should reject unsupported command")
+	}
+}

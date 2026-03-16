@@ -380,3 +380,82 @@ func (s *DataStoreSql) QueryExternalObservations(source, entityID string, start,
 	}
 	return out, nil
 }
+
+func isValidDeviceCommandStatus(status inter.DeviceCommandStatus) bool {
+	switch status {
+	case inter.DeviceCommandStatusQueued, inter.DeviceCommandStatusSent, inter.DeviceCommandStatusAcked, inter.DeviceCommandStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// CreateDeviceCommand 创建一条设备下行指令日志
+func (s *DataStoreSql) CreateDeviceCommand(uuid string, cmdID inter.CmdID, command string, payloadJSON []byte) (int64, error) {
+	uuid = strings.TrimSpace(uuid)
+	command = strings.TrimSpace(strings.ToLower(command))
+	if uuid == "" {
+		return 0, errors.New("uuid is required")
+	}
+	if command == "" {
+		return 0, errors.New("command is required")
+	}
+
+	var payload interface{}
+	trimmedPayload := strings.TrimSpace(string(payloadJSON))
+	if trimmedPayload != "" {
+		payload = trimmedPayload
+	}
+
+	result, err := s.db.Exec(`
+		INSERT INTO integration_external_commands (
+			source, entity_id, command, payload_json, status, error_text, requested_at, executed_at
+		) VALUES (?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, NULL)
+	`, "goster_device", uuid, fmt.Sprintf("%s:%d", command, cmdID), payload, inter.DeviceCommandStatusQueued)
+	if err != nil {
+		return 0, err
+	}
+	commandID, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return commandID, nil
+}
+
+// UpdateDeviceCommandStatus 更新设备下行指令状态
+func (s *DataStoreSql) UpdateDeviceCommandStatus(commandID int64, status inter.DeviceCommandStatus, errorText string) error {
+	if commandID <= 0 {
+		return errors.New("invalid command id")
+	}
+	if !isValidDeviceCommandStatus(status) {
+		return errors.New("invalid command status")
+	}
+
+	var errParam interface{}
+	if strings.TrimSpace(errorText) != "" {
+		errParam = strings.TrimSpace(errorText)
+	}
+
+	var executedAt interface{}
+	if status == inter.DeviceCommandStatusAcked || status == inter.DeviceCommandStatusFailed {
+		executedAt = time.Now().UTC()
+	}
+
+	result, err := s.db.Exec(`
+		UPDATE integration_external_commands
+		SET status = ?, error_text = ?, executed_at = COALESCE(?, executed_at)
+		WHERE id = ? AND source = ?
+	`, status, errParam, executedAt, commandID, "goster_device")
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return errors.New("device command not found")
+	}
+	return nil
+}

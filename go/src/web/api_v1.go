@@ -631,6 +631,9 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			err = ws.deviceManager.RejectDevice(uuid)
 		case "unblock":
 			err = ws.deviceManager.UnblockDevice(uuid)
+		case "commands":
+			ws.apiEnqueueDeviceCommand(w, r, uuid)
+			return
 		default:
 			ws.apiError(w, r, http.StatusNotFound, 40412, "action not found",
 				&apiErrorDetail{Type: "not_found", Field: "action"})
@@ -711,6 +714,57 @@ func (ws *webServer) apiGetDevice(w http.ResponseWriter, r *http.Request, uuid s
 			"status":      int(runtimeStatus),
 			"status_text": statusText,
 		},
+	})
+}
+
+func (ws *webServer) apiEnqueueDeviceCommand(w http.ResponseWriter, r *http.Request, uuid string) {
+	if !ws.apiEnsureDeviceExists(w, r, uuid) {
+		return
+	}
+
+	var payload struct {
+		Command string          `json:"command"`
+		Payload json.RawMessage `json:"payload,omitempty"`
+	}
+	if err := decodeAPIBody(r, &payload, ws.maxAPIBodyBytes()); err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40026, "invalid json body",
+			&apiErrorDetail{Type: "validation_error"})
+		return
+	}
+
+	cmdID, command, err := parseDownlinkCommand(payload.Command)
+	if err != nil {
+		ws.apiError(w, r, http.StatusBadRequest, 40027, "invalid command",
+			&apiErrorDetail{Type: "validation_error", Field: "command"})
+		return
+	}
+
+	rawPayload := []byte(strings.TrimSpace(string(payload.Payload)))
+	commandID, err := ws.dataStore.CreateDeviceCommand(uuid, cmdID, command, rawPayload)
+	if err != nil {
+		ws.apiInternalError(w, r, 50026, err)
+		return
+	}
+
+	msg := inter.DownlinkMessage{
+		CommandID: commandID,
+		CmdID:     cmdID,
+		Payload:   rawPayload,
+	}
+	if err := ws.deviceManager.QueuePush(uuid, msg); err != nil {
+		_ = ws.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusFailed, err.Error())
+		ws.apiError(w, r, http.StatusConflict, 40921, "queue command failed",
+			&apiErrorDetail{Type: "conflict", Field: "command"})
+		return
+	}
+
+	ws.apiOK(w, r, map[string]interface{}{
+		"command_id":  commandID,
+		"uuid":        uuid,
+		"command":     command,
+		"cmd_id":      int(cmdID),
+		"status":      inter.DeviceCommandStatusQueued,
+		"enqueued_at": time.Now().UTC(),
 	})
 }
 
@@ -928,6 +982,22 @@ func parseDeviceStatusFilter(raw string) (string, *inter.AuthenticateStatusType,
 		return status, &v, nil
 	default:
 		return "", nil, strconv.ErrSyntax
+	}
+}
+
+func parseDownlinkCommand(raw string) (inter.CmdID, string, error) {
+	command := strings.TrimSpace(strings.ToLower(raw))
+	switch command {
+	case "config_push":
+		return inter.CmdConfigPush, command, nil
+	case "ota_data":
+		return inter.CmdOtaData, command, nil
+	case "action_exec":
+		return inter.CmdActionExec, command, nil
+	case "screen_wy":
+		return inter.CmdScreenWy, command, nil
+	default:
+		return 0, "", strconv.ErrSyntax
 	}
 }
 
