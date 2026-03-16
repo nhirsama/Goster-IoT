@@ -83,8 +83,9 @@ type Packet struct {
 
 // DownlinkMessage 表示一个待下发给设备的指令
 type DownlinkMessage struct {
-	CmdID   CmdID
-	Payload []byte
+	CommandID int64
+	CmdID     CmdID
+	Payload   []byte
 }
 
 // ProtocolCodec 定义了协议封包与解包的核心接口

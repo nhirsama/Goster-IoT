@@ -251,16 +251,26 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 		// --- 检查并处理下行消息 ---
 		if handler.IsAuthenticated() {
 			for {
-				cmdID, downlinkPayload, ok := handler.PopMessage()
+				msg, ok := handler.PopMessage()
 				if !ok {
 					break
 				}
 				writeSeq++
-				downlinkBuf, err := a.protocol.Pack(downlinkPayload, cmdID, 1, sessionKey, writeSeq, false)
-				if err == nil {
-					conn.Write(downlinkBuf)
-					connLogger.Info("下行指令已发送", inter.Int("cmd_id", int(cmdID)))
+				downlinkBuf, err := a.protocol.Pack(msg.Payload, msg.CmdID, 1, sessionKey, writeSeq, false)
+				if err != nil {
+					handler.MarkDownlinkFailed(msg, err)
+					connLogger.Warn("下行指令打包失败", inter.Int("cmd_id", int(msg.CmdID)), inter.Err(err))
+					continue
 				}
+				if _, err := conn.Write(downlinkBuf); err != nil {
+					handler.MarkDownlinkFailed(msg, err)
+					connLogger.Warn("下行指令发送失败", inter.Int("cmd_id", int(msg.CmdID)), inter.Err(err))
+					return
+				}
+				handler.MarkDownlinkSent(msg)
+				connLogger.Info("下行指令已发送",
+					inter.Int("cmd_id", int(msg.CmdID)),
+					inter.Int64("command_id", msg.CommandID))
 			}
 		}
 	}
