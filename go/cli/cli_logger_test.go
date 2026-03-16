@@ -17,7 +17,13 @@ func TestInitRootLogger(t *testing.T) {
 	t.Setenv("LOG_SERVICE", "goster")
 	t.Setenv("LOG_ENV", "test")
 
-	got := initRootLogger()
+	got := initRootLogger(logger.Config{
+		Level:     "debug",
+		Format:    "json",
+		AddSource: false,
+		Service:   "goster",
+		Env:       "test",
+	})
 	if got == nil {
 		t.Fatal("initRootLogger should return logger")
 	}

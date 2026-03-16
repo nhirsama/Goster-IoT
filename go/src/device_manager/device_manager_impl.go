@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -25,15 +26,30 @@ type DeviceManager struct {
 	lastHeartbeat sync.Map // map[string]time.Time
 	message       inter.MessageQueue
 	DeathLine     time.Duration
+
+	externalListDefaultSize int
+	externalListMaxSize     int
+	externalObsDefaultLimit int
+	externalObsMaxLimit     int
 }
 
 func NewDeviceManager(ds inter.DataStore) inter.DeviceManager {
+	return NewDeviceManagerWithConfig(ds, appcfg.DefaultDeviceManagerConfig())
+}
+
+func NewDeviceManagerWithConfig(ds inter.DataStore, cfg appcfg.DeviceManagerConfig) inter.DeviceManager {
+	n := appcfg.NormalizeDeviceManagerConfig(cfg)
 	return &DeviceManager{
 		DataStore:     ds,
 		tokenCache:    sync.Map{},
 		lastHeartbeat: sync.Map{},
-		message:       NewMessageQueue(100),
-		DeathLine:     60 * time.Second, // 默认 60s 心跳超时
+		message:       NewMessageQueue(n.QueueCapacity),
+		DeathLine:     n.HeartbeatDeadline,
+
+		externalListDefaultSize: n.ExternalListPage.DefaultSize,
+		externalListMaxSize:     n.ExternalListPage.MaxSize,
+		externalObsDefaultLimit: n.ExternalObservationLimit.Default,
+		externalObsMaxLimit:     n.ExternalObservationLimit.Max,
 	}
 }
 
@@ -223,10 +239,10 @@ func (d *DeviceManager) ListExternalEntities(source, domain string, page, size i
 		page = 1
 	}
 	if size <= 0 {
-		size = 100
+		size = d.externalListDefaultSize
 	}
-	if size > 1000 {
-		size = 1000
+	if size > d.externalListMaxSize {
+		size = d.externalListMaxSize
 	}
 	offset := (page - 1) * size
 	return d.DataStore.ListExternalEntities(source, domain, size, offset)
@@ -262,10 +278,10 @@ func (d *DeviceManager) QueryExternalObservations(source, entityID string, start
 		return nil, errors.New("source/entity_id is required")
 	}
 	if limit <= 0 {
-		limit = 1000
+		limit = d.externalObsDefaultLimit
 	}
-	if limit > 10000 {
-		limit = 10000
+	if limit > d.externalObsMaxLimit {
+		limit = d.externalObsMaxLimit
 	}
 	return d.DataStore.QueryExternalObservations(source, entityID, start, end, limit)
 }

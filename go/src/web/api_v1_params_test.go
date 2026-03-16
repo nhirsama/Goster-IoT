@@ -26,14 +26,15 @@ func TestParsePositiveIntQuery(t *testing.T) {
 
 func TestResolveMetricsRangeWithExplicitWindow(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?range=all&start_ms=1&end_ms=2000000000000", nil)
-	start, end, label, err := resolveMetricsRange(req)
+	const minValidMetricsTs int64 = 1672531200000
+	start, end, label, err := resolveMetricsRange(req, minValidMetricsTs, "1h")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if label != "all" {
 		t.Fatalf("unexpected range label: %s", label)
 	}
-	if start != minValidMetricsTimestampMs {
+	if start != minValidMetricsTs {
 		t.Fatalf("start should be clamped to minValidMetricsTimestampMs, got %d", start)
 	}
 	if end != 2000000000000 {
@@ -42,18 +43,19 @@ func TestResolveMetricsRangeWithExplicitWindow(t *testing.T) {
 }
 
 func TestResolveMetricsRangeInvalidQueries(t *testing.T) {
+	const minValidMetricsTs int64 = 1672531200000
 	startOnly := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?start_ms=1700000000000", nil)
-	if _, _, _, err := resolveMetricsRange(startOnly); err == nil {
+	if _, _, _, err := resolveMetricsRange(startOnly, minValidMetricsTs, "1h"); err == nil {
 		t.Fatalf("start_ms without end_ms should return error")
 	}
 
 	invalidRange := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?range=30m", nil)
-	if _, _, _, err := resolveMetricsRange(invalidRange); err == nil {
+	if _, _, _, err := resolveMetricsRange(invalidRange, minValidMetricsTs, "1h"); err == nil {
 		t.Fatalf("invalid range should return error")
 	}
 
 	invalidRangeWithWindow := httptest.NewRequest("GET", "/api/v1/metrics/dev-1?range=30m&start_ms=1700000000000&end_ms=1700003600000", nil)
-	if _, _, _, err := resolveMetricsRange(invalidRangeWithWindow); err == nil {
+	if _, _, _, err := resolveMetricsRange(invalidRangeWithWindow, minValidMetricsTs, "1h"); err == nil {
 		t.Fatalf("invalid range should return error even with explicit window")
 	}
 }

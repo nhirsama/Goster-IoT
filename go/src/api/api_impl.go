@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/protocol"
@@ -22,10 +23,17 @@ type apiImpl struct {
 	protocol      inter.ProtocolCodec
 	privateKey    *ecdh.PrivateKey // X25519 私钥
 	connSeq       atomic.Uint64
+	config        appcfg.APIConfig
 }
 
 // NewApi 创建 API 服务实例
 func NewApi(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) inter.Api {
+	return NewApiWithConfig(ds, dm, l, appcfg.DefaultAPIConfig())
+}
+
+// NewApiWithConfig 创建 API 服务实例（可注入运行时配置）。
+func NewApiWithConfig(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger, cfg appcfg.APIConfig) inter.Api {
+	cfg = appcfg.NormalizeAPIConfig(cfg)
 	if l == nil {
 		l = logger.Default()
 	}
@@ -43,12 +51,13 @@ func NewApi(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) inter.Ap
 		logger:        l,
 		protocol:      protocol.NewGosterCodec(),
 		privateKey:    privKey,
+		config:        cfg,
 	}
 }
 
 // Start 启动独立的 TCP 服务监听
 func (a *apiImpl) Start() {
-	addr := ":8081"
+	addr := a.config.TCPAddr
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		a.logger.Error("API 监听失败", inter.String("addr", addr), inter.Err(err))
@@ -90,7 +99,7 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 	var writeSeq uint64 = 0
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(a.config.ReadTimeout))
 
 		// 解包 (根据是否有 sessionKey 自动处理加密/明文)
 		packet, err := a.protocol.Unpack(conn, sessionKey)
@@ -177,8 +186,8 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 				} else {
 					connLogger.Warn("设备注册被拒绝", inter.Int("status", int(status)))
 				}
-				time.Sleep(100 * time.Millisecond) // 给客户端留出读取响应的时间
-				return                             // 关闭连接
+				time.Sleep(a.config.RegisterAckGraceDelay) // 给客户端留出读取响应的时间
+				return                                     // 关闭连接
 			}
 			connLogger = connLogger.With(inter.String("uuid", handler.GetUUID()))
 			connLogger.Info("设备注册成功")

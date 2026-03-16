@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -18,6 +17,7 @@ import (
 	_ "github.com/aarondl/authboss/v3/register"
 	_ "github.com/aarondl/authboss/v3/remember"
 	"github.com/gorilla/sessions"
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
@@ -35,8 +35,18 @@ func generateRandomKey(length int) []byte {
 
 // SetupAuthboss 初始化并配置 Authboss 实例
 func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
+	loaded, err := appcfg.Load()
+	if err != nil {
+		return nil, err
+	}
+	return SetupAuthbossWithConfig(db, loaded.Auth)
+}
+
+// SetupAuthbossWithConfig 初始化并配置 Authboss 实例（推荐统一配置入口调用）
+func SetupAuthbossWithConfig(db inter.DataStore, cfg appcfg.AuthConfig) (*authboss.Authboss, error) {
 	ab := authboss.New()
-	cookieSecure := resolveCookieSecure()
+	cfg = appcfg.NormalizeAuthConfig(cfg)
+	cookieSecure := cfg.CookieSecure
 
 	// 确保 datastore 实现了 Authboss ServerStorer
 	storer, ok := db.(authboss.ServerStorer)
@@ -49,7 +59,7 @@ func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	// 使用随机密钥：重启后 Session 失效，但安全性更高
 	sessionKey := generateRandomKey(64)
 	sessionStore := sessions.NewCookieStore(sessionKey)
-	sessionStore.Options.MaxAge = 0
+	sessionStore.Options.MaxAge = cfg.SessionCookieMaxAgeSeconds
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.Secure = cookieSecure
 	sessionStore.Options.Path = "/"
@@ -60,7 +70,7 @@ func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	// 使用独立的随机密钥
 	cookieKey := generateRandomKey(64)
 	cookieStore := sessions.NewCookieStore(cookieKey)
-	cookieStore.Options.MaxAge = 86400 * 30
+	cookieStore.Options.MaxAge = cfg.RememberCookieMaxAgeSeconds
 	cookieStore.Options.HttpOnly = true
 	cookieStore.Options.Secure = cookieSecure
 	cookieStore.Options.Path = "/"
@@ -68,9 +78,9 @@ func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	ab.Config.Storage.CookieState = NewSessionStorer("goster_remember", cookieStore)
 
 	ab.Config.Paths.Mount = "/auth"
-	ab.Config.Paths.RootURL = os.Getenv("AUTHBOSS_ROOT_URL")
+	ab.Config.Paths.RootURL = strings.TrimSpace(cfg.RootURL)
 	if ab.Config.Paths.RootURL == "" {
-		ab.Config.Paths.RootURL = "http://localhost:8080"
+		ab.Config.Paths.RootURL = appcfg.DefaultAuthConfig().RootURL
 	}
 
 	ab.Config.Paths.RegisterOK = "/login"
@@ -88,8 +98,8 @@ func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	ab.Config.Modules.OAuth2Providers = map[string]authboss.OAuth2Provider{
 		"github": {
 			OAuth2Config: &oauth2.Config{
-				ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
-				ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+				ClientID:     strings.TrimSpace(cfg.GitHubClientID),
+				ClientSecret: strings.TrimSpace(cfg.GitHubClientSecret),
 				Scopes:       []string{"user:email"},
 				Endpoint:     github.Endpoint,
 			},
@@ -127,21 +137,4 @@ func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	}
 
 	return ab, nil
-}
-
-func resolveCookieSecure() bool {
-	if raw := strings.TrimSpace(os.Getenv("AUTH_COOKIE_SECURE")); raw != "" {
-		v, err := strconv.ParseBool(raw)
-		if err == nil {
-			return v
-		}
-	}
-
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	if env == "prod" || env == "production" {
-		return true
-	}
-
-	rootURL := strings.ToLower(strings.TrimSpace(os.Getenv("AUTHBOSS_ROOT_URL")))
-	return strings.HasPrefix(rootURL, "https://")
 }
