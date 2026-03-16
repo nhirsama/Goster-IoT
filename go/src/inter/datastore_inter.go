@@ -23,6 +23,16 @@ const (
 	PermissionAdmin                           // 管理员
 )
 
+// DeviceCommandStatus 设备下行指令状态
+type DeviceCommandStatus string
+
+const (
+	DeviceCommandStatusQueued DeviceCommandStatus = "queued"
+	DeviceCommandStatusSent   DeviceCommandStatus = "sent"
+	DeviceCommandStatusAcked  DeviceCommandStatus = "acked"
+	DeviceCommandStatusFailed DeviceCommandStatus = "failed"
+)
+
 // DeviceMetadata 设备静态元数据
 type DeviceMetadata struct {
 	Name               string                 `json:"name"`               // 设备名称
@@ -142,6 +152,14 @@ type DataStore interface {
 
 	// QueryExternalObservations 查询外部实体时序观测值
 	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
+
+	// [设备指令日志]
+
+	// CreateDeviceCommand 创建一条设备下行指令日志，返回指令 ID。
+	CreateDeviceCommand(uuid string, cmdID CmdID, command string, payloadJSON []byte) (int64, error)
+
+	// UpdateDeviceCommandStatus 更新设备下行指令状态。
+	UpdateDeviceCommandStatus(commandID int64, status DeviceCommandStatus, errorText string) error
 
 	// [日志管理]
 
