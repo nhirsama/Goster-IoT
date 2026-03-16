@@ -33,7 +33,8 @@ import {
   MonitorSmartphone,
   Fingerprint,
   Wifi,
-  Activity
+  Activity,
+  SendHorizontal
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -47,6 +48,22 @@ import {
 type MetricsData = components["schemas"]["MetricsData"];
 type MetricPoint = components["schemas"]["MetricPoint"];
 type MetricRange = (typeof metricRangeOptions)[number]["value"];
+type DownlinkCommand = "config_push" | "ota_data" | "action_exec" | "screen_wy";
+type EnqueueCommandResponse = {
+  command_id: number;
+  uuid: string;
+  command: DownlinkCommand;
+  cmd_id: number;
+  status: "queued" | "sent" | "acked" | "failed";
+  enqueued_at?: string | null;
+};
+
+const downlinkCommandOptions: { value: DownlinkCommand; label: string; hint: string }[] = [
+  { value: "action_exec", label: "远程动作 (ACTION_EXEC)", hint: "例如重启、切换工作模式等动作指令" },
+  { value: "config_push", label: "配置下发 (CONFIG_PUSH)", hint: "下发设备运行配置" },
+  { value: "ota_data", label: "OTA 数据 (OTA_DATA)", hint: "下发 OTA 数据分片" },
+  { value: "screen_wy", label: "屏幕刷新 (SCREEN_WY)", hint: "下发屏幕渲染数据" },
+];
 
 export default function DeviceMetricsPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -56,6 +73,9 @@ export default function DeviceMetricsPage() {
   const { toast, confirm: askConfirm } = useUx();
   const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
+  const [command, setCommand] = useState<DownlinkCommand>("action_exec");
+  const [payloadText, setPayloadText] = useState('{"op":"reboot"}');
+  const [lastEnqueuedCommandId, setLastEnqueuedCommandId] = useState<number | null>(null);
 
   // 获取设备详情
   const { data: device, isLoading: deviceLoading } = useQuery({
@@ -113,6 +133,31 @@ export default function DeviceMetricsPage() {
     },
   });
 
+  const enqueueCommandMutation = useMutation({
+    mutationFn: async () => {
+      const raw = payloadText.trim();
+      let payload: unknown = undefined;
+      if (raw.length > 0) {
+        try {
+          payload = JSON.parse(raw);
+        } catch {
+          throw new Error("payload 必须是合法 JSON");
+        }
+      }
+      return api.post<EnqueueCommandResponse>(`/api/v1/devices/${uuid}/commands`, {
+        command,
+        payload,
+      });
+    },
+    onSuccess: (result) => {
+      setLastEnqueuedCommandId(result.command_id);
+      toast.success(`指令已入队 #${result.command_id}`);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "指令下发失败，请稍后重试"));
+    },
+  });
+
   const handleCopyToken = () => {
     if (device?.meta?.token) {
       navigator.clipboard.writeText(device.meta.token);
@@ -146,6 +191,7 @@ export default function DeviceMetricsPage() {
   if (!device) return <div className="text-center text-slate-500 py-20">无法加载设备信息</div>;
 
   const permission = user?.permission || 0;
+  const selectedCommandOption = downlinkCommandOptions.find((item) => item.value === command) || downlinkCommandOptions[0];
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
@@ -282,6 +328,58 @@ export default function DeviceMetricsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {permission >= 2 && (
+        <Card className="border-none shadow-sm bg-white">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-bold text-slate-900">云端指令下发</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-[1.2fr_2fr_auto] md:items-end">
+              <label className="space-y-1">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">指令类型</span>
+                <select
+                  value={command}
+                  onChange={(event) => setCommand(event.target.value as DownlinkCommand)}
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-blue-300 focus:ring-3 focus:ring-blue-100"
+                >
+                  {downlinkCommandOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Payload (JSON)</span>
+                <textarea
+                  value={payloadText}
+                  onChange={(event) => setPayloadText(event.target.value)}
+                  className="min-h-[88px] w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs font-mono text-slate-700 outline-none transition-colors focus:border-blue-300 focus:ring-3 focus:ring-blue-100"
+                  placeholder='{"op":"reboot"}'
+                />
+              </label>
+
+              <Button
+                className="h-9 w-full md:w-auto bg-blue-600 text-white hover:bg-blue-700"
+                disabled={enqueueCommandMutation.isPending}
+                onClick={() => enqueueCommandMutation.mutate()}
+              >
+                <SendHorizontal className="h-4 w-4 mr-2" />
+                {enqueueCommandMutation.isPending ? "发送中..." : "发送指令"}
+              </Button>
+            </div>
+
+            <p className="text-xs text-slate-500">{selectedCommandOption.hint}</p>
+            {lastEnqueuedCommandId ? (
+              <p className="text-xs font-semibold text-emerald-700">
+                最近一次入队成功：command_id #{lastEnqueuedCommandId}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Chart Container - 1:1复刻原版的三曲线单表 */}
       <Card className="border-none shadow-xl shadow-slate-200/50 bg-white">
