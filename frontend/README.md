@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Goster IoT Frontend
 
-## Getting Started
+Next.js 16 + React 19 dashboard for Goster IoT device management.
 
-First, run the development server:
+## Requirements
+
+- Node.js 20+
+- pnpm 10+
+
+## Quick Start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+cd frontend
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create `frontend/.env.local`:
 
-## Learn More
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+```
 
-To learn more about Next.js, take a look at the following resources:
+`NEXT_PUBLIC_API_URL` can include `/api/v1` or not. The client and proxy layer will normalize it.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Available Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `pnpm dev`: start local dev server
+- `pnpm build`: production build
+- `pnpm start`: start production server
+- `pnpm lint`: run ESLint
+- `pnpm test --run`: run Vitest once
+- `pnpm test:coverage`: run coverage report
+- `pnpm gen-types`: regenerate OpenAPI types from `../contracts/openapi.yaml`
 
-## Deploy on Vercel
+## Architecture Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- App Router layout in `src/app`.
+- Route protection uses `src/proxy.ts`.
+- Dashboard auth guard is server-side in `src/app/(dashboard)/layout.tsx`.
+- API calls are centralized in `src/lib/api-client.ts`.
+- API types are generated in `src/lib/api-types.ts`.
+- UI building blocks live in `src/components/ui`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Permission Model
+
+- `0`: waiting for approval
+- `1`: read-only
+- `2`: read-write
+- `3`: admin
+
+## Testing and CI
+
+- Local checks:
+
+```bash
+pnpm lint
+pnpm test --run
+pnpm build
+```
+
+- GitHub Actions workflow: `.github/workflows/frontend-ci.yml`
