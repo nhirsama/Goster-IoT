@@ -41,6 +41,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -259,44 +260,48 @@ export default function DeviceMetricsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel className="text-xs font-black text-slate-400 uppercase tracking-widest">危险操作</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem 
-                    className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={async () => {
-                      const ok = await askConfirm({
-                        title: "吊销设备认证",
-                        description: "确定要吊销该设备的认证吗？设备将无法连接。",
-                        confirmText: "确认吊销",
-                        cancelText: "取消",
-                        tone: "danger",
-                      });
-                      if (ok) {
-                        revokeMutation.mutate();
-                      } 
-                    }}
-                  >
-                    <Ban className="h-4 w-4 mr-2" />
-                    吊销认证
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={async () => {
-                      const ok = await askConfirm({
-                        title: "删除设备",
-                        description: "确定要永久删除该设备吗？所有历史数据将丢失且无法恢复。",
-                        confirmText: "确认删除",
-                        cancelText: "取消",
-                        tone: "danger",
-                      });
-                      if (ok) {
-                        deleteMutation.mutate();
-                      } 
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    删除设备
-                  </DropdownMenuItem>
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                      危险操作
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
+                      onClick={async () => {
+                        const ok = await askConfirm({
+                          title: "吊销设备认证",
+                          description: "确定要吊销该设备的认证吗？设备将无法连接。",
+                          confirmText: "确认吊销",
+                          cancelText: "取消",
+                          tone: "danger",
+                        });
+                        if (ok) {
+                          revokeMutation.mutate();
+                        }
+                      }}
+                    >
+                      <Ban className="h-4 w-4 mr-2" />
+                      吊销认证
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
+                      onClick={async () => {
+                        const ok = await askConfirm({
+                          title: "删除设备",
+                          description: "确定要永久删除该设备吗？所有历史数据将丢失且无法恢复。",
+                          confirmText: "确认删除",
+                          cancelText: "取消",
+                          tone: "danger",
+                        });
+                        if (ok) {
+                          deleteMutation.mutate();
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      删除设备
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
