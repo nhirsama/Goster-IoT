@@ -10,11 +10,9 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Activity,
-  ArrowRight,
   BellRing,
   Blocks,
   RefreshCw,
@@ -22,7 +20,6 @@ import {
   ShieldAlert,
   Wifi,
   Ban,
-  Settings,
 } from "lucide-react";
 
 export default function DashboardHome() {
@@ -90,8 +87,8 @@ export default function DashboardHome() {
         <StatCard title="当前权限" value={permission === 3 ? "管理员" : permission === 2 ? "读写" : "只读"} hint={user?.username || "当前用户"} icon={ShieldCheck} tone="primary" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+      <div className="grid gap-4">
+        <Card>
           <CardHeader className="border-b border-slate-200/70">
             <CardTitle className="text-lg font-semibold">快捷入口</CardTitle>
             <CardDescription>按场景组织常用功能，减少跳转层级。</CardDescription>
@@ -112,39 +109,6 @@ export default function DashboardHome() {
                 <p className="text-sm font-semibold text-slate-900">黑名单管理</p>
                 <p className="mt-1 text-xs text-slate-500">恢复误拦设备并追踪风险来源</p>
               </Link>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="border-b border-slate-200/70">
-            <CardTitle className="text-lg font-semibold">建议操作</CardTitle>
-            <CardDescription>根据当前状态推荐下一步。</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-4">
-            {permission >= 2 && pendingCount > 0 ? (
-              <Button asChild className="w-full justify-between">
-                <Link href="/pending">
-                  处理待审批设备
-                  <ArrowRight />
-                </Link>
-              </Button>
-            ) : (
-              <Button asChild className="w-full justify-between" variant="outline">
-                <Link href="/devices">
-                  查看在线设备
-                  <ArrowRight />
-                </Link>
-              </Button>
-            )}
-
-            {permission >= 3 ? (
-              <Button asChild className="w-full justify-between" variant="secondary">
-                <Link href="/users">
-                  调整用户权限
-                  <Settings />
-                </Link>
-              </Button>
             ) : null}
           </CardContent>
         </Card>

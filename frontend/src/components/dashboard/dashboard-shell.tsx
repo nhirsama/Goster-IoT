@@ -141,6 +141,19 @@ export default function DashboardShell({
           <section className="space-y-3">
             <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">在线设备</div>
             <div className="space-y-1.5">
+              <Link
+                href="/devices"
+                className={clsx(
+                  "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition",
+                  pathname === "/devices"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-transparent bg-white/80 text-slate-700 hover:border-slate-200 hover:bg-slate-50"
+                )}
+              >
+                <Wifi className="h-4 w-4" />
+                在线设备列表
+              </Link>
+
               {devices.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center">
                   <Wifi className="mx-auto h-5 w-5 text-slate-300" />
