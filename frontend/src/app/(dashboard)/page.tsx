@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { queryKeys } from "@/lib/query-keys";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,9 @@ import {
   ArrowRight,
   BellRing,
   Blocks,
+  RefreshCw,
   ShieldCheck,
+  ShieldAlert,
   Wifi,
   Ban,
   Settings,
@@ -54,7 +57,13 @@ export default function DashboardHome() {
     refetchInterval: 20000,
   });
 
-  if (isLoading || !isAuthenticated) return null;
+  if (isLoading) {
+    return <EmptyState icon={RefreshCw} title="正在加载控制台" description="请稍候..." className="py-24" />;
+  }
+
+  if (!isAuthenticated) {
+    return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问设备控制台。" className="py-24" />;
+  }
 
   const onlineCount = activeData?.items?.length || 0;
   const pendingCount = pendingData?.items?.length || 0;

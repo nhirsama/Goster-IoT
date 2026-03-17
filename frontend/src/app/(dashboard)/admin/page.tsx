@@ -5,8 +5,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { Ban, Bell, LogOut, Settings2, Shield, Users } from "lucide-react";
+import { Ban, Bell, LogOut, RefreshCw, Settings2, Shield, ShieldAlert, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 type Entry = {
@@ -42,10 +43,16 @@ const entries: Entry[] = [
 ];
 
 export default function AdminPage() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
   const permission = user?.permission || 0;
 
-  if (!isAuthenticated) return null;
+  if (isLoading) {
+    return <EmptyState icon={RefreshCw} title="正在校验会话状态" description="请稍候..." className="py-24" />;
+  }
+
+  if (!isAuthenticated) {
+    return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问管理控制台。" className="py-24" />;
+  }
 
   const availableEntries = entries.filter((entry) => permission >= entry.minPermission);
 

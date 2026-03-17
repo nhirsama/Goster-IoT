@@ -19,6 +19,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
@@ -32,6 +33,7 @@ import {
   Cpu,
   MonitorSmartphone,
   Fingerprint,
+  ShieldAlert,
   Wifi,
   Activity,
   SendHorizontal
@@ -186,9 +188,21 @@ export default function DeviceMetricsPage() {
     return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
   }, [metricsData, range]);
 
-  if (authLoading || !isAuthenticated) return null;
-  if (deviceLoading) return <div className="flex h-64 items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>;
-  if (!device) return <div className="text-center text-slate-500 py-20">无法加载设备信息</div>;
+  if (authLoading) {
+    return <EmptyState icon={Activity} title="正在校验会话状态" description="请稍候..." className="py-24" />;
+  }
+
+  if (!isAuthenticated) {
+    return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问设备详情。" className="py-24" />;
+  }
+
+  if (deviceLoading) {
+    return <EmptyState icon={Activity} title="正在加载设备详情" description="请稍候..." className="py-24" />;
+  }
+
+  if (!device) {
+    return <EmptyState icon={Server} title="无法加载设备信息" description="设备不存在或已被删除。" className="py-24" />;
+  }
 
   const permission = user?.permission || 0;
   const selectedCommandOption = downlinkCommandOptions.find((item) => item.value === command) || downlinkCommandOptions[0];
