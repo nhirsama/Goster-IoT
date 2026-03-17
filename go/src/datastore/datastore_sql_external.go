@@ -392,6 +392,19 @@ func isValidDeviceCommandStatus(status inter.DeviceCommandStatus) bool {
 
 // CreateDeviceCommand 创建一条设备下行指令日志
 func (s *DataStoreSql) CreateDeviceCommand(uuid string, cmdID inter.CmdID, command string, payloadJSON []byte) (int64, error) {
+	tenantID, err := s.ResolveDeviceTenant(uuid)
+	if err != nil {
+		tenantID = defaultTenantID
+	}
+	return s.createDeviceCommandRecord(tenantID, uuid, cmdID, command, payloadJSON, false)
+}
+
+func (s *DataStoreSql) CreateDeviceCommandByTenant(tenantID, uuid string, cmdID inter.CmdID, command string, payloadJSON []byte) (int64, error) {
+	return s.createDeviceCommandRecord(tenantID, uuid, cmdID, command, payloadJSON, true)
+}
+
+func (s *DataStoreSql) createDeviceCommandRecord(tenantID, uuid string, cmdID inter.CmdID, command string, payloadJSON []byte, validateTenant bool) (int64, error) {
+	tenantID = normalizeTenantID(tenantID)
 	uuid = strings.TrimSpace(uuid)
 	command = strings.TrimSpace(strings.ToLower(command))
 	if uuid == "" {
@@ -399,6 +412,15 @@ func (s *DataStoreSql) CreateDeviceCommand(uuid string, cmdID inter.CmdID, comma
 	}
 	if command == "" {
 		return 0, errors.New("command is required")
+	}
+	if validateTenant {
+		deviceTenant, err := s.ResolveDeviceTenant(uuid)
+		if err != nil {
+			return 0, err
+		}
+		if normalizeTenantID(deviceTenant) != tenantID {
+			return 0, errors.New("device tenant mismatch")
+		}
 	}
 
 	var payload interface{}
@@ -409,9 +431,9 @@ func (s *DataStoreSql) CreateDeviceCommand(uuid string, cmdID inter.CmdID, comma
 
 	result, err := s.db.Exec(`
 		INSERT INTO integration_external_commands (
-			source, entity_id, command, payload_json, status, error_text, requested_at, executed_at
-		) VALUES (?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, NULL)
-	`, "goster_device", uuid, fmt.Sprintf("%s:%d", command, cmdID), payload, inter.DeviceCommandStatusQueued)
+			tenant_id, source, entity_id, command, payload_json, status, error_text, requested_at, executed_at
+		) VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, NULL)
+	`, tenantID, "goster_device", uuid, fmt.Sprintf("%s:%d", command, cmdID), payload, inter.DeviceCommandStatusQueued)
 	if err != nil {
 		return 0, err
 	}
