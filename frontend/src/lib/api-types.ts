@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get captcha provider config for frontend. */
+        /** 获取前端验证码服务配置。 */
         get: operations["getCaptchaConfig"];
         put?: never;
         post?: never;
@@ -31,10 +31,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register user account.
-         * @description Mirrors existing register behavior:
-         *     - First registered user gets `Admin` permission.
-         *     - Later users default to `None` permission.
+         * 注册用户账号。
+         * @description 与现有注册行为保持一致：
+         *     - 首个注册用户获得 `Admin` 权限。
+         *     - 后续用户默认获得 `None` 权限。
          */
         post: operations["register"];
         delete?: never;
@@ -52,7 +52,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login and create authenticated session. */
+        /** 登录并创建认证会话。 */
         post: operations["login"];
         delete?: never;
         options?: never;
@@ -69,7 +69,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout current session. */
+        /** 登出当前会话。 */
         post: operations["logout"];
         delete?: never;
         options?: never;
@@ -84,7 +84,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get current authenticated user profile. */
+        /** 获取当前已认证用户信息。 */
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
@@ -101,7 +101,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List devices by auth status. */
+        /** 按认证状态列出设备。 */
         get: operations["listDevices"];
         put?: never;
         post?: never;
@@ -118,11 +118,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get device details. */
+        /** 获取设备详情。 */
         get: operations["getDevice"];
         put?: never;
         post?: never;
-        /** Permanently delete device and related data. */
+        /** 永久删除设备及其关联数据。 */
         delete: operations["deleteDevice"];
         options?: never;
         head?: never;
@@ -138,7 +138,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve pending device. */
+        /** 审批待认证设备。 */
         post: operations["approveDevice"];
         delete?: never;
         options?: never;
@@ -155,7 +155,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reject pending device or revoke authorized device. */
+        /** 拒绝待认证设备或撤销已认证设备。 */
         post: operations["revokeDevice"];
         delete?: never;
         options?: never;
@@ -172,7 +172,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Move device from refused/revoked to pending. */
+        /** 将设备从已拒绝/已撤销状态移回待认证状态。 */
         post: operations["unblockDevice"];
         delete?: never;
         options?: never;
@@ -189,8 +189,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh device token. */
+        /** 刷新设备令牌。 */
         post: operations["refreshDeviceToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{uuid}/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 将下行指令推入设备发送队列。 */
+        post: operations["enqueueDeviceCommand"];
         delete?: never;
         options?: never;
         head?: never;
@@ -204,7 +221,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Query metric points for a device. */
+        /** 查询设备指标点数据。 */
         get: operations["getMetrics"];
         put?: never;
         post?: never;
@@ -221,7 +238,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List system users. */
+        /** 列出系统用户。 */
         get: operations["listUsers"];
         put?: never;
         post?: never;
@@ -240,7 +257,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Update user permission level. */
+        /** 更新用户权限等级。 */
         post: operations["updateUserPermission"];
         delete?: never;
         options?: never;
@@ -254,18 +271,18 @@ export interface components {
     schemas: {
         ApiResponseBase: {
             /**
-             * @description 0 means success, non-zero means error.
+             * @description 0 表示成功，非 0 表示错误。
              * @example 0
              */
             code: number;
             /** @example ok */
             message: string;
             /**
-             * @description Correlation id for tracing.
+             * @description 用于链路追踪的关联 ID。
              * @example req_20260312_abcdef
              */
             request_id: string;
-            /** @description Extensible metadata. */
+            /** @description 可扩展元数据。 */
             meta?: {
                 [key: string]: unknown;
             };
@@ -284,22 +301,22 @@ export interface components {
             error: components["schemas"]["ErrorDetail"];
         };
         /**
-         * @description 0=None, 1=ReadOnly, 2=ReadWrite, 3=Admin
+         * @description 0=无权限, 1=只读, 2=读写, 3=管理员
          * @enum {integer}
          */
         PermissionType: 0 | 1 | 2 | 3;
         /**
-         * @description 0=Authenticated, 1=Refused, 2=Pending, 3=Unknown, 4=Revoked
+         * @description 0=已认证, 1=已拒绝, 2=待认证, 3=未知, 4=已撤销
          * @enum {integer}
          */
         AuthStatusType: 0 | 1 | 2 | 3 | 4;
         /**
-         * @description 0=Offline, 1=Online, 2=Delayed
+         * @description 0=离线, 1=在线, 2=延迟
          * @enum {integer}
          */
         DeviceRuntimeStatus: 0 | 1 | 2;
         /**
-         * @description 1=Temperature, 2=Humidity, 4=Lux
+         * @description 1=温度, 2=湿度, 4=光照
          * @enum {integer}
          */
         MetricType: 1 | 2 | 4;
@@ -339,6 +356,8 @@ export interface components {
             username: string;
             email?: string | null;
             permission: components["schemas"]["PermissionType"];
+            /** @description 当前生效租户（由 `X-Tenant-Id` 或服务端默认策略解析）。 */
+            active_tenant?: string;
             /** @default true */
             authenticated: boolean;
             extensions?: {
@@ -427,10 +446,47 @@ export interface components {
         RefreshTokenResponse: components["schemas"]["ApiResponseBase"] & {
             data: components["schemas"]["RefreshTokenData"];
         };
+        /**
+         * @description 设备下行指令名称。
+         * @enum {string}
+         */
+        DeviceCommandName: "config_push" | "ota_data" | "action_exec" | "screen_wy";
+        /**
+         * @description 设备下行指令状态。
+         * @enum {string}
+         */
+        DeviceCommandStatus: "queued" | "sent" | "acked" | "failed";
+        DeviceCommandRequest: {
+            command: components["schemas"]["DeviceCommandName"];
+            /** @description 指令负载（原样转发给设备侧）。 */
+            payload?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        DeviceCommandEnqueueData: {
+            /** Format: int64 */
+            command_id: number;
+            uuid: string;
+            command: components["schemas"]["DeviceCommandName"];
+            /**
+             * @description 协议 CmdID 的十进制表示。
+             * @example 515
+             */
+            cmd_id: number;
+            status: components["schemas"]["DeviceCommandStatus"];
+            /** Format: date-time */
+            enqueued_at?: string | null;
+            extensions?: {
+                [key: string]: unknown;
+            };
+        };
+        DeviceCommandEnqueueResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["DeviceCommandEnqueueData"];
+        };
         MetricPoint: {
             /**
              * Format: int64
-             * @description Unix timestamp in milliseconds.
+             * @description Unix 时间戳（毫秒）。
              */
             ts: number;
             /** Format: float */
@@ -482,7 +538,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description Invalid request. */
+        /** @description 无效请求。 */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
@@ -491,7 +547,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Authentication required or session expired. */
+        /** @description 需要认证或会话已过期。 */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
@@ -500,7 +556,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Permission denied. */
+        /** @description 权限不足。 */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -509,7 +565,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Resource not found. */
+        /** @description 资源不存在。 */
         NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -518,7 +574,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Resource already exists or state conflict. */
+        /** @description 资源已存在或状态冲突。 */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -532,21 +588,25 @@ export interface components {
         DeviceUUID: string;
         Username: string;
         /**
-         * @description Auth status filter:
+         * @description 认证状态筛选：
          *     - authenticated -> `AuthenticateStatus=0`
          *     - refused -> `AuthenticateStatus=1`
          *     - pending -> `AuthenticateStatus=2`
          *     - revoked -> `AuthenticateStatus=4`
-         *     - all -> no filter
+         *     - all -> 不筛选
          */
         DeviceStatusFilter: "all" | "authenticated" | "pending" | "refused" | "revoked";
         Page: number;
         Size: number;
         MetricsRange: "1h" | "6h" | "24h" | "7d" | "all";
-        /** @description Explicit start timestamp in milliseconds. Overrides range when paired with end_ms. */
+        /** @description 显式指定开始时间戳（毫秒）。与 `end_ms` 同时提供时会覆盖 `range`。 */
         StartMs: number;
-        /** @description Explicit end timestamp in milliseconds. Overrides range when paired with start_ms. */
+        /** @description 显式指定结束时间戳（毫秒）。与 `start_ms` 同时提供时会覆盖 `range`。 */
         EndMs: number;
+        /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+        TenantHeader: string;
+        /** @description 设备分组过滤参数（当前阶段仅保留契约位，后续实现组级过滤）。 */
+        GroupID: string;
     };
     requestBodies: never;
     headers: never;
@@ -563,7 +623,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Captcha configuration. */
+            /** @description 验证码配置。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -587,7 +647,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Registered successfully. */
+            /** @description 注册成功。 */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -613,10 +673,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Logged in successfully. */
+            /** @description 登录成功。 */
             200: {
                 headers: {
-                    /** @description Session cookie set by server. */
+                    /** @description 由服务端设置的会话 Cookie。 */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
@@ -637,7 +697,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Logged out. */
+            /** @description 已登出。 */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -650,13 +710,16 @@ export interface operations {
     getCurrentUser: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Current user info. */
+            /** @description 当前用户信息。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -672,24 +735,29 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description Auth status filter:
+                 * @description 认证状态筛选：
                  *     - authenticated -> `AuthenticateStatus=0`
                  *     - refused -> `AuthenticateStatus=1`
                  *     - pending -> `AuthenticateStatus=2`
                  *     - revoked -> `AuthenticateStatus=4`
-                 *     - all -> no filter
+                 *     - all -> 不筛选
                  */
                 status?: components["parameters"]["DeviceStatusFilter"];
                 page?: components["parameters"]["Page"];
                 size?: components["parameters"]["Size"];
+                /** @description 设备分组过滤参数（当前阶段仅保留契约位，后续实现组级过滤）。 */
+                group_id?: components["parameters"]["GroupID"];
             };
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Device list. */
+            /** @description 设备列表。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -705,7 +773,10 @@ export interface operations {
     getDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -713,7 +784,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Device detail. */
+            /** @description 设备详情。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -730,7 +801,10 @@ export interface operations {
     deleteDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -738,7 +812,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted. */
+            /** @description 已删除。 */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -753,7 +827,10 @@ export interface operations {
     approveDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -761,7 +838,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Approved. */
+            /** @description 已通过审批。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -778,7 +855,10 @@ export interface operations {
     revokeDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -786,7 +866,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Revoked/Rejected. */
+            /** @description 已撤销/已拒绝。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -803,7 +883,10 @@ export interface operations {
     unblockDevice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -811,7 +894,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Unblocked. */
+            /** @description 已解除阻断。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -828,7 +911,10 @@ export interface operations {
     refreshDeviceToken: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -836,7 +922,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Token refreshed. */
+            /** @description 令牌已刷新。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -850,16 +936,53 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    enqueueDeviceCommand: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                uuid: components["parameters"]["DeviceUUID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceCommandRequest"];
+            };
+        };
+        responses: {
+            /** @description 指令已入队。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceCommandEnqueueResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     getMetrics: {
         parameters: {
             query?: {
                 range?: components["parameters"]["MetricsRange"];
-                /** @description Explicit start timestamp in milliseconds. Overrides range when paired with end_ms. */
+                /** @description 显式指定开始时间戳（毫秒）。与 `end_ms` 同时提供时会覆盖 `range`。 */
                 start_ms?: components["parameters"]["StartMs"];
-                /** @description Explicit end timestamp in milliseconds. Overrides range when paired with start_ms. */
+                /** @description 显式指定结束时间戳（毫秒）。与 `start_ms` 同时提供时会覆盖 `range`。 */
                 end_ms?: components["parameters"]["EndMs"];
             };
-            header?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
             path: {
                 uuid: components["parameters"]["DeviceUUID"];
             };
@@ -867,7 +990,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Metric points. */
+            /** @description 指标点数据。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -890,7 +1013,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description User list. */
+            /** @description 用户列表。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -918,7 +1041,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Permission updated. */
+            /** @description 权限已更新。 */
             200: {
                 headers: {
                     [name: string]: unknown;

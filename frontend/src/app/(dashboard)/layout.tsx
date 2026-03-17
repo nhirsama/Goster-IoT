@@ -1,17 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, getActiveTenantId, setActiveTenantId } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { getPermissionRoleLabel } from "@/lib/dashboard-meta";
 import { queryKeys } from "@/lib/query-keys";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Bell,
   Fingerprint,
@@ -47,8 +48,11 @@ function clsx(...values: Array<string | false>) {
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
+  const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
+  const [tenantDraft, setTenantDraft] = useState(() => getActiveTenantId() || "");
+  const [appliedTenant, setAppliedTenant] = useState(() => getActiveTenantId() || "");
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -90,6 +94,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const devices = deviceData?.items || [];
   const permission = user?.permission || 0;
+  const activeTenant = user?.active_tenant?.trim() || appliedTenant || "tenant_legacy";
+  const tenantChanged = tenantDraft.trim() !== appliedTenant;
   const mobileHomeActive = pathname === "/";
   const mobileDevicesActive = pathname === "/devices" || pathname.startsWith("/devices/");
   const mobileAdminActive =
@@ -224,6 +230,34 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <Badge variant="outline" className="rounded-full bg-slate-50 text-slate-600">
               在线
             </Badge>
+          </div>
+          <div className="mb-3 rounded-xl border border-slate-200 bg-white/80 px-3 py-3">
+            <div className="mb-2 flex items-center justify-between text-[11px] text-slate-500">
+              <span>当前租户</span>
+              <span className="font-mono text-slate-700">{activeTenant}</span>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={tenantDraft}
+                onChange={(event) => setTenantDraft(event.target.value)}
+                placeholder="tenant_id"
+                className="h-8 font-mono text-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                disabled={!tenantChanged}
+                onClick={() => {
+                  const normalizedTenant = tenantDraft.trim();
+                  setActiveTenantId(normalizedTenant || null);
+                  setAppliedTenant(normalizedTenant);
+                  queryClient.invalidateQueries();
+                }}
+              >
+                切换
+              </Button>
+            </div>
           </div>
           <Button
             variant="outline"

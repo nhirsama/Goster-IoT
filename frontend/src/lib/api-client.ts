@@ -3,6 +3,8 @@ import { paths } from "./api-types";
 export type ApiRequestConfig = Omit<RequestInit, "method" | "body">;
 type ApiPrimitive = string | number | boolean | null | undefined;
 type ApiParams = Record<string, ApiPrimitive>;
+const TENANT_STORAGE_KEY = "goster_tenant_id";
+let tenantMemoryFallback: string | undefined;
 type ApiErrorDetail = {
   type: string;
   field?: string;
@@ -16,6 +18,51 @@ type ApiEnvelope<T> = {
   error?: ApiErrorDetail;
   request_id?: string;
 };
+
+function normalizeTenantId(value?: string | null): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function getTenantStorage(): Storage | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  const storage = window.localStorage as Partial<Storage> | undefined;
+  if (!storage) {
+    return undefined;
+  }
+  if (
+    typeof storage.getItem !== "function" ||
+    typeof storage.setItem !== "function" ||
+    typeof storage.removeItem !== "function"
+  ) {
+    return undefined;
+  }
+  return storage as Storage;
+}
+
+export function getActiveTenantId(): string | undefined {
+  const storage = getTenantStorage();
+  if (storage) {
+    return normalizeTenantId(storage.getItem(TENANT_STORAGE_KEY)) || tenantMemoryFallback;
+  }
+  return tenantMemoryFallback || normalizeTenantId(process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID);
+}
+
+export function setActiveTenantId(tenantId?: string | null): void {
+  const normalized = normalizeTenantId(tenantId);
+  tenantMemoryFallback = normalized;
+  const storage = getTenantStorage();
+  if (!storage) {
+    return;
+  }
+  if (normalized) {
+    storage.setItem(TENANT_STORAGE_KEY, normalized);
+    return;
+  }
+  storage.removeItem(TENANT_STORAGE_KEY);
+}
 
 export class ApiError extends Error {
   public code?: number;
@@ -59,6 +106,7 @@ async function request<T>(
 
   const url = `${baseUrl}${cleanPath}`;
   const requestId = `req_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substring(2, 10)}`;
+  const tenantId = getActiveTenantId();
 
   const response = await fetch(url, {
     ...config,
@@ -66,6 +114,7 @@ async function request<T>(
     headers: {
       "Content-Type": "application/json",
       "X-Request-Id": requestId,
+      ...(tenantId ? { "X-Tenant-Id": tenantId } : {}),
       ...config?.headers,
     },
     credentials: "include",
