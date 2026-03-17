@@ -27,9 +27,6 @@ RUN apk --no-cache add ca-certificates tzdata
 # Copy the binary from the builder stage
 COPY --from=builder /app/goster-iot .
 
-# Copy the html directory for web templates/static files
-COPY --from=builder /app/html ./html
-
 # Create a directory for persistent data
 RUN mkdir /data
 
