@@ -634,3 +634,29 @@ func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
 		t.Fatalf("cross-tenant detail code mismatch: got %d want 40421", code)
 	}
 }
+
+func TestAPIMeIncludesActiveTenant(t *testing.T) {
+	ws, _, _ := newTestWS(t)
+	user := &datastore.AuthUser{
+		Username:   "tenant_user",
+		Email:      "tenant_user@test.local",
+		Permission: int(inter.PermissionReadOnly),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	req.Header.Set("X-Tenant-Id", "tenant_demo")
+	req = req.WithContext(context.WithValue(req.Context(), authboss.CTXKeyUser, user))
+	req = req.WithContext(context.WithValue(req.Context(), apiCtxUsername, "tenant_user"))
+	req = req.WithContext(context.WithValue(req.Context(), apiCtxPerm, inter.PermissionReadOnly))
+	rec := httptest.NewRecorder()
+
+	ws.apiMeHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me expected 200, got %d", rec.Code)
+	}
+	env := mustJSONEnvelope(t, rec)
+	data := env.Data.(map[string]interface{})
+	if got := data["active_tenant"]; got != "tenant_demo" {
+		t.Fatalf("active_tenant mismatch: got=%v want=tenant_demo", got)
+	}
+}
