@@ -197,7 +197,7 @@ export default function DeviceMetricsPage() {
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
       {/* Header Card - 1:1复刻原版顶部操作区 */}
       <Card className="border-none shadow-lg shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
-        <CardContent className="p-6 d-flex flex-wrap justify-between align-items-center gap-4">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
           <div className="flex items-center gap-4">
             <div className="bg-slate-100 p-4 rounded-full text-blue-600 shadow-inner">
               <Server className="h-8 w-8" />

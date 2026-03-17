@@ -18,10 +18,13 @@ describe('API Client', () => {
 
     const fetchCall = vi.mocked(fetch).mock.calls[0]
     const options = fetchCall[1] as RequestInit
-    const headers = options.headers as Record<string, string>
+    const headerValue =
+      options.headers instanceof Headers
+        ? options.headers.get('X-Request-Id')
+        : (options.headers as Record<string, string>)?.['X-Request-Id']
 
-    expect(headers['X-Request-Id']).toBeDefined()
-    expect(headers['X-Request-Id']).toMatch(/^req_\d+/)
+    expect(headerValue).toBeDefined()
+    expect(headerValue).toMatch(/^req_\d+/)
   })
 
   it('should handle API errors', async () => {

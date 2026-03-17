@@ -59,32 +59,80 @@ async function request<T>(
 
   const url = `${baseUrl}${cleanPath}`;
   const requestId = `req_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substring(2, 10)}`;
+  const hasJsonBody = body !== undefined && body !== null;
+  const requestHeaders = new Headers(config?.headers);
 
-  const response = await fetch(url, {
-    ...config,
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-Id": requestId,
-      ...config?.headers,
-    },
-    credentials: "include",
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  if (hasJsonBody && !requestHeaders.has("Content-Type")) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
+  requestHeaders.set("X-Request-Id", requestId);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...config,
+      method,
+      headers: requestHeaders,
+      credentials: "include",
+      body: hasJsonBody ? JSON.stringify(body) : undefined,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Network request failed";
+    throw new ApiError(message, -1, { type: "network_error", reason: message }, requestId);
+  }
 
   if (response.status === 204) {
     return {} as T;
   }
 
-  const result = (await response.json()) as ApiEnvelope<T>;
+  const contentType = response.headers?.get?.("content-type") || "";
+  const isJsonResponse = contentType.includes("application/json");
+  let result: ApiEnvelope<T> | null = null;
+  let fallbackMessage = "";
 
-  if (!response.ok || (result.code !== undefined && result.code !== 0)) {
+  if (isJsonResponse) {
+    try {
+      result = (await response.json()) as ApiEnvelope<T>;
+    } catch {
+      if (!response.ok) {
+        throw new ApiError(response.statusText || "Request failed", response.status, undefined, requestId);
+      }
+      throw new ApiError("Invalid JSON response", response.status, undefined, requestId);
+    }
+  } else if (!contentType) {
+    try {
+      result = (await response.json()) as ApiEnvelope<T>;
+    } catch {
+      fallbackMessage = await response.text().catch(() => "");
+    }
+  } else {
+    fallbackMessage = await response.text().catch(() => "");
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      result?.message || fallbackMessage || response.statusText || "Request failed",
+      result?.code ?? response.status,
+      result?.error,
+      result?.request_id || requestId
+    );
+  }
+
+  if (!result) {
+    return {} as T;
+  }
+
+  if (result.code !== undefined && result.code !== 0) {
     throw new ApiError(
       result.message || response.statusText || "Request failed",
       result.code,
       result.error,
-      result.request_id
+      result.request_id || requestId
     );
+  }
+
+  if (!("data" in result)) {
+    return result as T;
   }
 
   return result.data as T;
