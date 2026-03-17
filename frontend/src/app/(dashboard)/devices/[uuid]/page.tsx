@@ -19,6 +19,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
@@ -32,6 +33,7 @@ import {
   Cpu,
   MonitorSmartphone,
   Fingerprint,
+  ShieldAlert,
   Wifi,
   Activity,
   SendHorizontal
@@ -39,6 +41,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -186,9 +189,21 @@ export default function DeviceMetricsPage() {
     return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
   }, [metricsData, range]);
 
-  if (authLoading || !isAuthenticated) return null;
-  if (deviceLoading) return <div className="flex h-64 items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>;
-  if (!device) return <div className="text-center text-slate-500 py-20">无法加载设备信息</div>;
+  if (authLoading) {
+    return <EmptyState icon={Activity} title="正在校验会话状态" description="请稍候..." className="py-24" />;
+  }
+
+  if (!isAuthenticated) {
+    return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问设备详情。" className="py-24" />;
+  }
+
+  if (deviceLoading) {
+    return <EmptyState icon={Activity} title="正在加载设备详情" description="请稍候..." className="py-24" />;
+  }
+
+  if (!device) {
+    return <EmptyState icon={Server} title="无法加载设备信息" description="设备不存在或已被删除。" className="py-24" />;
+  }
 
   const permission = user?.permission || 0;
   const selectedCommandOption = downlinkCommandOptions.find((item) => item.value === command) || downlinkCommandOptions[0];
@@ -197,7 +212,7 @@ export default function DeviceMetricsPage() {
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
       {/* Header Card - 1:1复刻原版顶部操作区 */}
       <Card className="border-none shadow-lg shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
-        <CardContent className="p-6 d-flex flex-wrap justify-between align-items-center gap-4">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
           <div className="flex items-center gap-4">
             <div className="bg-slate-100 p-4 rounded-full text-blue-600 shadow-inner">
               <Server className="h-8 w-8" />
@@ -245,44 +260,48 @@ export default function DeviceMetricsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel className="text-xs font-black text-slate-400 uppercase tracking-widest">危险操作</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem 
-                    className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={async () => {
-                      const ok = await askConfirm({
-                        title: "吊销设备认证",
-                        description: "确定要吊销该设备的认证吗？设备将无法连接。",
-                        confirmText: "确认吊销",
-                        cancelText: "取消",
-                        tone: "danger",
-                      });
-                      if (ok) {
-                        revokeMutation.mutate();
-                      } 
-                    }}
-                  >
-                    <Ban className="h-4 w-4 mr-2" />
-                    吊销认证
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
-                    onClick={async () => {
-                      const ok = await askConfirm({
-                        title: "删除设备",
-                        description: "确定要永久删除该设备吗？所有历史数据将丢失且无法恢复。",
-                        confirmText: "确认删除",
-                        cancelText: "取消",
-                        tone: "danger",
-                      });
-                      if (ok) {
-                        deleteMutation.mutate();
-                      } 
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    删除设备
-                  </DropdownMenuItem>
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                      危险操作
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
+                      onClick={async () => {
+                        const ok = await askConfirm({
+                          title: "吊销设备认证",
+                          description: "确定要吊销该设备的认证吗？设备将无法连接。",
+                          confirmText: "确认吊销",
+                          cancelText: "取消",
+                          tone: "danger",
+                        });
+                        if (ok) {
+                          revokeMutation.mutate();
+                        }
+                      }}
+                    >
+                      <Ban className="h-4 w-4 mr-2" />
+                      吊销认证
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-rose-600 focus:text-rose-700 focus:bg-rose-50 cursor-pointer font-bold"
+                      onClick={async () => {
+                        const ok = await askConfirm({
+                          title: "删除设备",
+                          description: "确定要永久删除该设备吗？所有历史数据将丢失且无法恢复。",
+                          confirmText: "确认删除",
+                          cancelText: "取消",
+                          tone: "danger",
+                        });
+                        if (ok) {
+                          deleteMutation.mutate();
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      删除设备
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

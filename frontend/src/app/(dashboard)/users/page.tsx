@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
@@ -29,7 +27,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Check, Shield, ShieldCheck, UserCog, Users } from "lucide-react";
+import { Check, Shield, ShieldAlert, ShieldCheck, UserCog, Users } from "lucide-react";
 
 type UserType = components["schemas"]["User"];
 type PermissionType = components["schemas"]["PermissionType"];
@@ -47,15 +45,8 @@ const PERMISSION_ENTRIES = Object.entries(PERMISSION_LABELS) as Array<
 
 export default function UserManagementPage() {
   const { user: currentUser, isAuthenticated, isLoading: authLoading } = useAuth();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { toast } = useUx();
-
-  useEffect(() => {
-    if (!authLoading && (!isAuthenticated || currentUser?.permission !== 3)) {
-      router.push("/");
-    }
-  }, [authLoading, currentUser, isAuthenticated, router]);
 
   const { data: userData, isLoading: usersLoading } = useQuery({
     queryKey: queryKeys.users,
@@ -75,8 +66,16 @@ export default function UserManagementPage() {
     },
   });
 
-  if (authLoading || !isAuthenticated || currentUser?.permission !== 3) {
-    return null;
+  if (authLoading) {
+    return <EmptyState icon={Users} title="正在校验登录状态" description="请稍候..." className="py-24" />;
+  }
+
+  if (!isAuthenticated) {
+    return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问用户管理页面。" className="py-24" />;
+  }
+
+  if (currentUser?.permission !== 3) {
+    return <EmptyState icon={ShieldAlert} title="权限不足" description="只有超级管理员可以访问用户管理。" className="py-24" />;
   }
 
   const users = userData?.items || [];
