@@ -176,6 +176,23 @@ type DataStore interface {
 	// 用于 Token 过期重刷或安全性重置场景。
 	UpdateToken(uuid string, newToken string) error
 
+	// [多租户范围查询]
+
+	// ResolveDeviceTenant 查询设备所属租户。
+	ResolveDeviceTenant(uuid string) (tenantID string, err error)
+
+	// LoadConfigByTenant 在指定租户范围内读取设备配置。
+	LoadConfigByTenant(tenantID, uuid string) (out DeviceMetadata, err error)
+
+	// ListDevicesByTenant 在指定租户范围内分页列出设备。
+	ListDevicesByTenant(tenantID string, status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
+
+	// QueryMetricsByTenant 在指定租户范围内查询设备指标。
+	QueryMetricsByTenant(tenantID, uuid string, start, end int64) ([]MetricPoint, error)
+
+	// CreateDeviceCommandByTenant 在指定租户范围内创建下行指令日志。
+	CreateDeviceCommandByTenant(tenantID, uuid string, cmdID CmdID, command string, payloadJSON []byte) (int64, error)
+
 	// [用户管理]
 
 	// GetUserCount 获取注册用户总数
