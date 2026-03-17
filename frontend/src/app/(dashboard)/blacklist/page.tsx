@@ -54,7 +54,27 @@ export default function BlacklistPage() {
     },
   });
 
-  if (!isAuthenticated || (user?.permission || 0) < 1) return null;
+  if (!isAuthenticated) {
+    return (
+      <EmptyState
+        icon={ShieldAlert}
+        title="需要登录"
+        description="请先登录后再访问黑名单页面。"
+        className="py-24"
+      />
+    );
+  }
+
+  if ((user?.permission || 0) < 1) {
+    return (
+      <EmptyState
+        icon={ShieldAlert}
+        title="权限不足"
+        description="此页面至少需要只读权限（ReadOnly）。"
+        className="py-24"
+      />
+    );
+  }
 
   const isLoading = revokedLoading || refusedLoading;
   const isFetching = revokedFetching || refusedFetching;

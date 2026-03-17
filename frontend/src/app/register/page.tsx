@@ -37,6 +37,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [captchaConfig, setCaptchaConfig] = useState<CaptchaConfig | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaConfigError, setCaptchaConfigError] = useState<string | null>(null);
 
   const {
     register,
@@ -48,9 +49,24 @@ export default function RegisterPage() {
   });
 
   useEffect(() => {
-    api.get<CaptchaConfig>("/api/v1/auth/captcha/config").then((res) => {
-      setCaptchaConfig(res);
-    }).catch(console.error);
+    let alive = true;
+
+    api
+      .get<CaptchaConfig>("/api/v1/auth/captcha/config")
+      .then((res) => {
+        if (!alive) return;
+        setCaptchaConfig(res);
+        setCaptchaConfigError(null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        // Keep register flow available and surface a non-blocking warning.
+        setCaptchaConfigError("验证码配置加载失败，提交时将由服务端进行最终校验。");
+      });
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const onSubmit = async (data: RegisterFormValues) => {
@@ -180,6 +196,10 @@ export default function RegisterPage() {
                 />
               </div>
             )}
+
+            {captchaConfigError ? (
+              <p className="text-xs text-amber-300 text-center">{captchaConfigError}</p>
+            ) : null}
 
             <Button className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-lg shadow-blue-900/20 transition-all mt-6" type="submit" disabled={loading}>
               {loading ? "正在创建账户..." : "立即注册"}

@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Bell, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
 
@@ -59,7 +59,27 @@ export default function PendingDevicesPage() {
     },
   });
 
-  if (!isAuthenticated || (user?.permission || 0) < 2) return null;
+  if (!isAuthenticated) {
+    return (
+      <EmptyState
+        icon={ShieldAlert}
+        title="需要登录"
+        description="请先登录后再访问待审批页面。"
+        className="py-24"
+      />
+    );
+  }
+
+  if ((user?.permission || 0) < 2) {
+    return (
+      <EmptyState
+        icon={ShieldAlert}
+        title="权限不足"
+        description="此页面需要读写权限（ReadWrite）及以上。"
+        className="py-24"
+      />
+    );
+  }
 
   const devices = deviceData?.items || [];
 

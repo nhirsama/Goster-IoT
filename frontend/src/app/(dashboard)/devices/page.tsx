@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { Fingerprint, RefreshCw, Search, Server, Wifi, WifiOff } from "lucide-react";
+import { Fingerprint, RefreshCw, Search, Server, ShieldAlert, Wifi, WifiOff } from "lucide-react";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
 
@@ -24,7 +24,7 @@ const DEVICE_STATUS_META: Record<number, { label: string; className: string }> =
 };
 
 export default function DevicesPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [keyword, setKeyword] = useState("");
   const [groupId, setGroupId] = useState("");
   const groupFilter = groupId.trim();
@@ -52,7 +52,27 @@ export default function DevicesPage() {
     });
   }, [deviceData?.items, keyword]);
 
-  if (!isAuthenticated) return null;
+  if (authLoading) {
+    return (
+      <EmptyState
+        icon={RefreshCw}
+        title="正在校验会话状态"
+        description="请稍候..."
+        className="py-24"
+      />
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <EmptyState
+        icon={ShieldAlert}
+        title="需要登录"
+        description="请先登录后再访问设备列表。"
+        className="py-24"
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 lg:max-w-4xl">
