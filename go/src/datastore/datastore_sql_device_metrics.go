@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -20,9 +21,9 @@ func (s *DataStoreSql) InitDevice(uuid string, meta inter.DeviceMetadata) error 
 	}
 
 	_, err := s.db.Exec(`
-		INSERT INTO devices (uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		uuid, meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
+		INSERT INTO devices (uuid, tenant_id, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uuid, defaultTenantID, meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
 		meta.SerialNumber, meta.MACAddress, time.Now(), tokenParam, meta.AuthenticateStatus,
 	)
 	return err
@@ -72,7 +73,11 @@ func (s *DataStoreSql) SaveMetadata(uuid string, meta inter.DeviceMetadata) erro
 
 // AppendMetric 插入传感器采样点
 func (s *DataStoreSql) AppendMetric(uuid string, points inter.MetricPoint) error {
-	_, err := s.db.Exec("INSERT INTO metrics (uuid, ts, value, type) VALUES (?, ?, ?, ?)", uuid, points.Timestamp, points.Value, points.Type)
+	tenantID, err := s.ResolveDeviceTenant(uuid)
+	if err != nil {
+		tenantID = defaultTenantID
+	}
+	_, err = s.db.Exec("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)", uuid, tenantID, points.Timestamp, points.Value, points.Type)
 	return err
 }
 
@@ -80,6 +85,89 @@ func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.Metr
 	rows, err := s.db.Query(
 		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
 		uuid, start, end,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var points []inter.MetricPoint
+	for rows.Next() {
+		var p inter.MetricPoint
+		if err := rows.Scan(&p.Timestamp, &p.Value, &p.Type); err != nil {
+			return nil, err
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return points, nil
+}
+
+func (s *DataStoreSql) ResolveDeviceTenant(uuid string) (string, error) {
+	var tenantID sql.NullString
+	err := s.db.QueryRow("SELECT tenant_id FROM devices WHERE uuid = ?", uuid).Scan(&tenantID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", errors.New("device not found")
+		}
+		return "", err
+	}
+	if tenantID.Valid && strings.TrimSpace(tenantID.String) != "" {
+		return strings.TrimSpace(tenantID.String), nil
+	}
+	return defaultTenantID, nil
+}
+
+func (s *DataStoreSql) LoadConfigByTenant(tenantID, uuid string) (out inter.DeviceMetadata, err error) {
+	tenantID = normalizeTenantID(tenantID)
+	var token sql.NullString
+	err = s.db.QueryRow(`
+		SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
+		FROM devices WHERE uuid = ? AND tenant_id = ?`, uuid, tenantID).Scan(
+		&out.Name, &out.HWVersion, &out.SWVersion, &out.ConfigVersion,
+		&out.SerialNumber, &out.MACAddress, &out.CreatedAt, &token, &out.AuthenticateStatus,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return out, errors.New("device not found")
+	}
+	if token.Valid {
+		out.Token = token.String
+	}
+	return out, err
+}
+
+func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {
+	tenantID = normalizeTenantID(tenantID)
+	offset := (page - 1) * size
+
+	if status == nil {
+		rows, err := s.db.Query(`
+			SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
+			FROM devices WHERE tenant_id = ? LIMIT ? OFFSET ?`, tenantID, size, offset)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		return scanDeviceRecords(rows)
+	}
+
+	rows, err := s.db.Query(`
+		SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
+		FROM devices WHERE tenant_id = ? AND auth_status = ? LIMIT ? OFFSET ?`, tenantID, *status, size, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDeviceRecords(rows)
+}
+
+func (s *DataStoreSql) QueryMetricsByTenant(tenantID, uuid string, start, end int64) ([]inter.MetricPoint, error) {
+	tenantID = normalizeTenantID(tenantID)
+	rows, err := s.db.Query(
+		"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
+		tenantID, uuid, start, end,
 	)
 	if err != nil {
 		return nil, err
@@ -172,30 +260,7 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 		return nil, err
 	}
 	defer rows.Close()
-
-	var records []inter.DeviceRecord
-	for rows.Next() {
-		var r inter.DeviceRecord
-		var token sql.NullString
-		err := rows.Scan(
-			&r.UUID, &r.Meta.Name, &r.Meta.HWVersion, &r.Meta.SWVersion,
-			&r.Meta.ConfigVersion, &r.Meta.SerialNumber, &r.Meta.MACAddress,
-			&r.Meta.CreatedAt, &token, &r.Meta.AuthenticateStatus,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if token.Valid {
-			r.Meta.Token = token.String
-		} else {
-			r.Meta.Token = ""
-		}
-		records = append(records, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return records, nil
+	return scanDeviceRecords(rows)
 }
 
 // ListDevicesByStatus 根据认证状态分页查询设备列表
@@ -208,7 +273,48 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 		return nil, err
 	}
 	defer rows.Close()
+	return scanDeviceRecords(rows)
+}
 
+// WriteLog 记录设备运行日志
+func (s *DataStoreSql) WriteLog(uuid string, level string, message string) error {
+	tenantID, err := s.ResolveDeviceTenant(uuid)
+	if err != nil {
+		tenantID = defaultTenantID
+	}
+	_, err = s.db.Exec("INSERT INTO logs (uuid, tenant_id, level, message) VALUES (?, ?, ?, ?)", uuid, tenantID, level, message)
+	return err
+}
+
+// BatchAppendMetrics 批量高效写入
+func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoint) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	tenantID, tenantErr := s.ResolveDeviceTenant(uuid)
+	if tenantErr != nil {
+		tenantID = defaultTenantID
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, p := range points {
+		if _, err := stmt.Exec(uuid, tenantID, p.Timestamp, p.Value, p.Type); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func scanDeviceRecords(rows *sql.Rows) ([]inter.DeviceRecord, error) {
 	var records []inter.DeviceRecord
 	for rows.Next() {
 		var r inter.DeviceRecord
@@ -232,33 +338,4 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 		return nil, err
 	}
 	return records, nil
-}
-
-// WriteLog 记录设备运行日志
-func (s *DataStoreSql) WriteLog(uuid string, level string, message string) error {
-	_, err := s.db.Exec("INSERT INTO logs (uuid, level, message) VALUES (?, ?, ?)", uuid, level, message)
-	return err
-}
-
-// BatchAppendMetrics 批量高效写入
-func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoint) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, ts, value, type) VALUES (?, ?, ?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, p := range points {
-		if _, err := stmt.Exec(uuid, p.Timestamp, p.Value, p.Type); err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
 }

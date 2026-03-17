@@ -208,6 +208,20 @@ func (d *DeviceManager) ListDevices(status *inter.AuthenticateStatusType, page, 
 	return d.DataStore.ListDevicesByStatus(*status, page, size)
 }
 
+func (d *DeviceManager) ListDevicesByScope(scope inter.Scope, status *inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {
+	if strings.TrimSpace(scope.TenantID) == "" {
+		return d.ListDevices(status, page, size)
+	}
+	return d.DataStore.ListDevicesByTenant(scope.TenantID, status, page, size)
+}
+
+func (d *DeviceManager) GetDeviceMetadataByScope(scope inter.Scope, uuid string) (inter.DeviceMetadata, error) {
+	if strings.TrimSpace(scope.TenantID) == "" {
+		return d.GetDeviceMetadata(uuid)
+	}
+	return d.DataStore.LoadConfigByTenant(scope.TenantID, uuid)
+}
+
 func (d *DeviceManager) GenerateExternalUUID(source, entityID string) string {
 	raw := strings.ToLower(strings.TrimSpace(source)) + ":" + strings.TrimSpace(entityID)
 	sum := sha256.Sum256([]byte(raw))
