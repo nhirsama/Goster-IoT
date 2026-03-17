@@ -119,6 +119,8 @@ paths:
       tags: [Auth]
       operationId: getCurrentUser
       summary: 获取当前已认证用户信息。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
       responses:
         '200':
           description: 当前用户信息。
@@ -135,9 +137,11 @@ paths:
       operationId: listDevices
       summary: 按认证状态列出设备。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceStatusFilter'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/GroupID'
       responses:
         '200':
           description: 设备列表。
@@ -156,6 +160,7 @@ paths:
       operationId: getDevice
       summary: 获取设备详情。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
@@ -176,6 +181,7 @@ paths:
       operationId: deleteDevice
       summary: 永久删除设备及其关联数据。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '204':
@@ -193,6 +199,7 @@ paths:
       operationId: approveDevice
       summary: 审批待认证设备。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
@@ -214,6 +221,7 @@ paths:
       operationId: revokeDevice
       summary: 拒绝待认证设备或撤销已认证设备。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
@@ -235,6 +243,7 @@ paths:
       operationId: unblockDevice
       summary: 将设备从已拒绝/已撤销状态移回待认证状态。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
@@ -256,6 +265,7 @@ paths:
       operationId: refreshDeviceToken
       summary: 刷新设备令牌。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       responses:
         '200':
@@ -277,6 +287,7 @@ paths:
       operationId: enqueueDeviceCommand
       summary: 将下行指令推入设备发送队列。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
       requestBody:
         required: true
@@ -308,6 +319,7 @@ paths:
       operationId: getMetrics
       summary: 查询设备指标点数据。
       parameters:
+        - $ref: '#/components/parameters/TenantHeader'
         - $ref: '#/components/parameters/DeviceUUID'
         - $ref: '#/components/parameters/MetricsRange'
         - $ref: '#/components/parameters/StartMs'
@@ -463,6 +475,23 @@ components:
         type: integer
         format: int64
       description: 显式指定结束时间戳（毫秒）。与 `start_ms` 同时提供时会覆盖 `range`。
+
+    TenantHeader:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: |
+        当前请求租户上下文。未传时后端回退为 `tenant_legacy`。
+
+    GroupID:
+      name: group_id
+      in: query
+      required: false
+      schema:
+        type: string
+      description: 设备分组过滤参数（当前阶段仅保留契约位，后续实现组级过滤）。
 
   responses:
     BadRequest:
@@ -652,6 +681,9 @@ components:
           nullable: true
         permission:
           $ref: '#/components/schemas/PermissionType'
+        active_tenant:
+          type: string
+          description: 当前生效租户（由 `X-Tenant-Id` 或服务端默认策略解析）。
         authenticated:
           type: boolean
           default: true
