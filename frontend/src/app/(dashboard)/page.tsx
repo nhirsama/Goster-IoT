@@ -101,10 +101,6 @@ export default function DashboardHome() {
               <p className="text-sm font-semibold text-slate-900">设备列表</p>
               <p className="mt-1 text-xs text-slate-500">查看在线设备与实时状态</p>
             </Link>
-            <Link href="/admin" className="rounded-2xl border border-slate-200 bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
-              <p className="text-sm font-semibold text-slate-900">管理中心</p>
-              <p className="mt-1 text-xs text-slate-500">审批、黑名单与权限管理入口</p>
-            </Link>
             {permission >= 2 ? (
               <Link href="/pending" className="rounded-2xl border border-slate-200 bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
                 <p className="text-sm font-semibold text-slate-900">审批队列</p>
