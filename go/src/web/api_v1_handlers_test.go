@@ -588,3 +588,75 @@ func TestAPIUserPermissionGuardsSelfAndLastAdmin(t *testing.T) {
 		t.Fatalf("last admin demotion expected code 40047, got %d", code)
 	}
 }
+
+func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
+	ws, ds, _ := newTestWS(t)
+	uuid := strings.Repeat("f", 64)
+	seedDevice(t, ds, uuid, inter.Authenticated)
+
+	tenantOtherListReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
+	tenantOtherListReq.Header.Set("X-Tenant-Id", "tenant_other")
+	tenantOtherListReq = ctxWithPerm(tenantOtherListReq, inter.PermissionReadOnly)
+	tenantOtherListRec := httptest.NewRecorder()
+	ws.apiDevicesHandler(tenantOtherListRec, tenantOtherListReq)
+	if tenantOtherListRec.Code != http.StatusOK {
+		t.Fatalf("tenant_other list expected 200, got %d", tenantOtherListRec.Code)
+	}
+	otherListEnv := mustJSONEnvelope(t, tenantOtherListRec)
+	otherListData := otherListEnv.Data.(map[string]interface{})
+	if got := len(otherListData["items"].([]interface{})); got != 0 {
+		t.Fatalf("tenant_other should not see legacy device, got=%d", got)
+	}
+
+	legacyListReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
+	legacyListReq.Header.Set("X-Tenant-Id", "tenant_legacy")
+	legacyListReq = ctxWithPerm(legacyListReq, inter.PermissionReadOnly)
+	legacyListRec := httptest.NewRecorder()
+	ws.apiDevicesHandler(legacyListRec, legacyListReq)
+	if legacyListRec.Code != http.StatusOK {
+		t.Fatalf("tenant_legacy list expected 200, got %d", legacyListRec.Code)
+	}
+	legacyListEnv := mustJSONEnvelope(t, legacyListRec)
+	legacyListData := legacyListEnv.Data.(map[string]interface{})
+	if got := len(legacyListData["items"].([]interface{})); got == 0 {
+		t.Fatalf("tenant_legacy should see seeded device")
+	}
+
+	tenantOtherDetailReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices/"+uuid, nil)
+	tenantOtherDetailReq.Header.Set("X-Tenant-Id", "tenant_other")
+	tenantOtherDetailReq = ctxWithPerm(tenantOtherDetailReq, inter.PermissionReadOnly)
+	tenantOtherDetailRec := httptest.NewRecorder()
+	ws.apiDeviceByUUIDHandler(tenantOtherDetailRec, tenantOtherDetailReq)
+	if tenantOtherDetailRec.Code != http.StatusNotFound {
+		t.Fatalf("cross-tenant detail should return 404, got %d", tenantOtherDetailRec.Code)
+	}
+	if code := mustJSONEnvelope(t, tenantOtherDetailRec).Code; code != 40421 {
+		t.Fatalf("cross-tenant detail code mismatch: got %d want 40421", code)
+	}
+}
+
+func TestAPIMeIncludesActiveTenant(t *testing.T) {
+	ws, _, _ := newTestWS(t)
+	user := &datastore.AuthUser{
+		Username:   "tenant_user",
+		Email:      "tenant_user@test.local",
+		Permission: int(inter.PermissionReadOnly),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	req.Header.Set("X-Tenant-Id", "tenant_demo")
+	req = req.WithContext(context.WithValue(req.Context(), authboss.CTXKeyUser, user))
+	req = req.WithContext(context.WithValue(req.Context(), apiCtxUsername, "tenant_user"))
+	req = req.WithContext(context.WithValue(req.Context(), apiCtxPerm, inter.PermissionReadOnly))
+	rec := httptest.NewRecorder()
+
+	ws.apiMeHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me expected 200, got %d", rec.Code)
+	}
+	env := mustJSONEnvelope(t, rec)
+	data := env.Data.(map[string]interface{})
+	if got := data["active_tenant"]; got != "tenant_demo" {
+		t.Fatalf("active_tenant mismatch: got=%v want=tenant_demo", got)
+	}
+}

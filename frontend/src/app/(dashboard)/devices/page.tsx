@@ -26,10 +26,16 @@ const DEVICE_STATUS_META: Record<number, { label: string; className: string }> =
 export default function DevicesPage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [keyword, setKeyword] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const groupFilter = groupId.trim();
 
   const { data: deviceData, isLoading, isFetching, refetch } = useQuery({
-    queryKey: queryKeys.devicesByStatus("authenticated"),
-    queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "authenticated" }),
+    queryKey: [...queryKeys.devicesByStatus("authenticated"), groupFilter || "__all__"],
+    queryFn: () =>
+      api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", {
+        status: "authenticated",
+        group_id: groupFilter || undefined,
+      }),
     enabled: isAuthenticated,
     refetchInterval: 10000,
   });
@@ -91,13 +97,21 @@ export default function DevicesPage() {
               共 {filteredDevices.length} 台
             </Badge>
           </div>
-          <div className="relative mt-2">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="搜索设备名称 / UUID / SN"
+                className="h-10 pl-9"
+              />
+            </div>
             <Input
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder="搜索设备名称 / UUID / SN"
-              className="h-10 pl-9"
+              value={groupId}
+              onChange={(event) => setGroupId(event.target.value)}
+              placeholder="按分组过滤（group_id）"
+              className="h-10 font-mono"
             />
           </div>
         </CardHeader>

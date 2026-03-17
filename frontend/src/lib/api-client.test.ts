@@ -5,6 +5,7 @@ import { paths } from '../lib/api-types'
 describe('API Client', () => {
   beforeEach(() => {
     global.fetch = vi.fn()
+    setActiveTenantId(null)
   })
 
   it('should include request-id header', async () => {

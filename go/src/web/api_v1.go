@@ -29,6 +29,7 @@ const (
 	apiCtxRequestID apiCtxKey = "request_id"
 	apiCtxUsername  apiCtxKey = "username"
 	apiCtxPerm      apiCtxKey = "permission"
+	apiCtxTenantID  apiCtxKey = "tenant_id"
 )
 
 type apiErrorDetail struct {
@@ -74,6 +75,7 @@ func (ws *webServer) apiMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := ws.getRequestID(r)
 		ctx := context.WithValue(r.Context(), apiCtxRequestID, rid)
+		ctx = context.WithValue(ctx, apiCtxTenantID, ws.apiTenantID(r))
 		ctx = logger.IntoContext(ctx, ws.log().With(
 			inter.String("request_id", rid),
 			inter.String("method", r.Method),
@@ -93,7 +95,7 @@ func (ws *webServer) apiMiddleware(next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Origin", allowOrigin)
 			h.Add("Vary", "Origin")
 			h.Set("Access-Control-Allow-Credentials", "true")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-Id")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-Id, X-Tenant-Id")
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			h.Set("Access-Control-Expose-Headers", "X-Request-Id")
 		}
@@ -183,9 +185,11 @@ func (ws *webServer) apiAuthMiddleware(next http.HandlerFunc, minPerm inter.Perm
 		ctx := context.WithValue(r.Context(), apiCtxRequestID, rid)
 		ctx = context.WithValue(ctx, apiCtxUsername, user.GetUsername())
 		ctx = context.WithValue(ctx, apiCtxPerm, user.GetPermission())
+		ctx = context.WithValue(ctx, apiCtxTenantID, ws.apiTenantID(r))
 		ctx = logger.IntoContext(ctx, logger.FromContext(ctx).With(
 			inter.String("username", user.GetUsername()),
 			inter.Int("permission", int(user.GetPermission())),
+			inter.String("tenant_id", ws.apiTenantID(r)),
 		))
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -504,6 +508,7 @@ func (ws *webServer) apiMeHandler(w http.ResponseWriter, r *http.Request) {
 		"username":      username,
 		"email":         email,
 		"permission":    int(perm),
+		"active_tenant": ws.apiTenantID(r),
 		"authenticated": true,
 	})
 }
@@ -534,7 +539,7 @@ func (ws *webServer) apiDevicesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	devices, err := ws.deviceManager.ListDevices(statusPtr, page, size)
+	devices, err := ws.deviceManager.ListDevicesByScope(ws.apiScopeFromRequest(r), statusPtr, page, size)
 	if err != nil {
 		ws.apiInternalError(w, r, 50011, err)
 		return
@@ -597,6 +602,9 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 				return
 			}
+			if !ws.apiEnsureDeviceInScope(w, r, uuid, 40424) {
+				return
+			}
 			if err := ws.deviceManager.DeleteDevice(uuid); err != nil {
 				if isNotFoundError(err) {
 					ws.apiError(w, r, http.StatusNotFound, 40424, "device not found",
@@ -620,6 +628,9 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
+			return
+		}
+		if !ws.apiEnsureDeviceInScope(w, r, uuid, 40423) {
 			return
 		}
 		action := parts[1]
@@ -666,6 +677,9 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 		if !ws.ensureAPIPerm(w, r, inter.PermissionReadWrite) {
 			return
 		}
+		if !ws.apiEnsureDeviceInScope(w, r, uuid, 40425) {
+			return
+		}
 		token, err := ws.deviceManager.RefreshToken(uuid)
 		if err != nil {
 			if isNotFoundError(err) {
@@ -690,10 +704,9 @@ func (ws *webServer) apiDeviceByUUIDHandler(w http.ResponseWriter, r *http.Reque
 }
 
 func (ws *webServer) apiGetDevice(w http.ResponseWriter, r *http.Request, uuid string) {
-	meta, err := ws.deviceManager.GetDeviceMetadata(uuid)
+	meta, err := ws.deviceManager.GetDeviceMetadataByScope(ws.apiScopeFromRequest(r), uuid)
 	if err != nil {
-		ws.apiError(w, r, http.StatusNotFound, 40421, "device not found",
-			&apiErrorDetail{Type: "not_found", Field: "uuid"})
+		ws.apiDeviceScopeError(w, r, err, 40421)
 		return
 	}
 
@@ -740,8 +753,14 @@ func (ws *webServer) apiEnqueueDeviceCommand(w http.ResponseWriter, r *http.Requ
 	}
 
 	rawPayload := []byte(strings.TrimSpace(string(payload.Payload)))
-	commandID, err := ws.dataStore.CreateDeviceCommand(uuid, cmdID, command, rawPayload)
+	scope := ws.apiScopeFromRequest(r)
+	commandID, err := ws.dataStore.CreateDeviceCommandByTenant(scope.TenantID, uuid, cmdID, command, rawPayload)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "tenant mismatch") {
+			ws.apiError(w, r, http.StatusForbidden, 40321, "forbidden",
+				&apiErrorDetail{Type: "cross_tenant_denied"})
+			return
+		}
 		ws.apiInternalError(w, r, 50026, err)
 		return
 	}
@@ -792,7 +811,7 @@ func (ws *webServer) apiMetricsV1Handler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	points, err := ws.dataStore.QueryMetrics(uuid, start, end)
+	points, err := ws.dataStore.QueryMetricsByTenant(ws.apiTenantID(r), uuid, start, end)
 	if err != nil {
 		ws.apiInternalError(w, r, 50031, err)
 		return
@@ -918,16 +937,48 @@ func (ws *webServer) ensureAPIPerm(w http.ResponseWriter, r *http.Request, minPe
 }
 
 func (ws *webServer) apiEnsureDeviceExists(w http.ResponseWriter, r *http.Request, uuid string) bool {
-	if _, err := ws.deviceManager.GetDeviceMetadata(uuid); err != nil {
-		if isNotFoundError(err) {
-			ws.apiError(w, r, http.StatusNotFound, 40421, "device not found",
-				&apiErrorDetail{Type: "not_found", Field: "uuid"})
-			return false
-		}
-		ws.apiInternalError(w, r, 50024, err)
+	return ws.apiEnsureDeviceInScope(w, r, uuid, 40421)
+}
+
+func (ws *webServer) apiEnsureDeviceInScope(w http.ResponseWriter, r *http.Request, uuid string, notFoundCode int) bool {
+	if _, err := ws.deviceManager.GetDeviceMetadataByScope(ws.apiScopeFromRequest(r), uuid); err != nil {
+		ws.apiDeviceScopeError(w, r, err, notFoundCode)
 		return false
 	}
 	return true
+}
+
+func (ws *webServer) apiTenantID(r *http.Request) string {
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-Id"))
+	if tenantID == "" {
+		if ctxTenant, ok := r.Context().Value(apiCtxTenantID).(string); ok && strings.TrimSpace(ctxTenant) != "" {
+			return strings.TrimSpace(ctxTenant)
+		}
+		return "tenant_legacy"
+	}
+	return tenantID
+}
+
+func (ws *webServer) apiScopeFromRequest(r *http.Request) inter.Scope {
+	return inter.Scope{TenantID: ws.apiTenantID(r)}
+}
+
+func (ws *webServer) apiDeviceScopeError(w http.ResponseWriter, r *http.Request, err error, notFoundCode int) {
+	if err == nil {
+		return
+	}
+	lowerErr := strings.ToLower(err.Error())
+	if strings.Contains(lowerErr, "tenant mismatch") {
+		ws.apiError(w, r, http.StatusForbidden, 40321, "forbidden",
+			&apiErrorDetail{Type: "cross_tenant_denied", Field: "uuid"})
+		return
+	}
+	if strings.Contains(lowerErr, "not found") {
+		ws.apiError(w, r, http.StatusNotFound, notFoundCode, "device not found",
+			&apiErrorDetail{Type: "not_found", Field: "uuid"})
+		return
+	}
+	ws.apiInternalError(w, r, 50024, err)
 }
 
 func isNotFoundError(err error) bool {

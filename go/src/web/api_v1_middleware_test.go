@@ -17,7 +17,7 @@ func TestAPIMiddlewareOptionsRequest(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/devices", nil)
-	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -27,7 +27,7 @@ func TestAPIMiddlewareOptionsRequest(t *testing.T) {
 	if handlerCalled {
 		t.Fatalf("inner handler should not be called for preflight requests")
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
 		t.Fatalf("unexpected allow-origin header: %q", got)
 	}
 	if rec.Header().Get("X-Request-Id") == "" {

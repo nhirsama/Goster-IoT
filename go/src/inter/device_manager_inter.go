@@ -87,6 +87,12 @@ type DeviceManager interface {
 	// ListDevices 分页列出设备，status 为 nil 时列出所有
 	ListDevices(status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
 
+	// ListDevicesByScope 在给定授权范围内列出设备。
+	ListDevicesByScope(scope Scope, status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
+
+	// GetDeviceMetadataByScope 在给定授权范围内查询设备详情。
+	GetDeviceMetadataByScope(scope Scope, uuid string) (DeviceMetadata, error)
+
 	// --- 外部集成实体管理 ---
 
 	// GenerateExternalUUID 为外部实体生成稳定 UUID
