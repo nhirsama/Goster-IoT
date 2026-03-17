@@ -42,6 +42,17 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function getNetworkErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const normalized = error.message?.trim();
+    if (!normalized || normalized === "Failed to fetch") {
+      return "Network request failed";
+    }
+    return normalized;
+  }
+  return "Network request failed";
+}
+
 async function request<T>(
   path: string,
   method: string,
@@ -77,7 +88,7 @@ async function request<T>(
       body: hasJsonBody ? JSON.stringify(body) : undefined,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Network request failed";
+    const message = getNetworkErrorMessage(error);
     throw new ApiError(message, -1, { type: "network_error", reason: message }, requestId);
   }
 

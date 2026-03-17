@@ -85,6 +85,15 @@ describe('API Client', () => {
     } satisfies Partial<ApiError>)
   })
 
+  it('should normalize browser fetch failure message', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'))
+
+    await expect(api.get('/api/v1/auth/me' as keyof paths)).rejects.toMatchObject({
+      message: 'Network request failed',
+      code: -1
+    } satisfies Partial<ApiError>)
+  })
+
   it('should surface envelope business error when http is ok', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
