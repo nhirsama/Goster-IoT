@@ -1,156 +1,50 @@
-package web
+package v1_test
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aarondl/authboss/v3"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	webpkg "github.com/nhirsama/Goster-IoT/src/web"
+	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
 
-func newTestWS(t *testing.T) (*webServer, inter.DataStore, inter.DeviceManager) {
-	t.Helper()
-
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
-	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
-	}
-	dm := device_manager.NewDeviceManager(ds)
-	ab, err := SetupAuthboss(ds)
-	if err != nil {
-		t.Fatalf("failed to setup authboss: %v", err)
-	}
-	authService, err := NewAuthService(ab)
-	if err != nil {
-		t.Fatalf("failed to setup auth service: %v", err)
-	}
-
-	return &webServer{
-		dataStore:     ds,
-		deviceManager: dm,
-		auth:          authService,
-		captcha:       &TurnstileService{},
-	}, ds, dm
-}
-
-func mustJSONEnvelope(t *testing.T, rec *httptest.ResponseRecorder) apiEnvelope {
-	t.Helper()
-	var env apiEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("failed to decode envelope: %v, body=%s", err, rec.Body.String())
-	}
-	return env
-}
-
-func ctxWithPerm(req *http.Request, perm inter.PermissionType) *http.Request {
-	ctx := context.WithValue(req.Context(), apiCtxPerm, perm)
-	ctx = context.WithValue(ctx, apiCtxRequestID, "req_test")
-	return req.WithContext(ctx)
-}
-
-func ctxWithUserPerm(req *http.Request, username string, perm inter.PermissionType) *http.Request {
-	ctx := context.WithValue(req.Context(), apiCtxUsername, username)
-	ctx = context.WithValue(ctx, apiCtxPerm, perm)
-	ctx = context.WithValue(ctx, apiCtxRequestID, "req_test")
-	return req.WithContext(ctx)
-}
-
-func seedDevice(t *testing.T, ds inter.DataStore, uuid string, status inter.AuthenticateStatusType) {
-	t.Helper()
-	meta := inter.DeviceMetadata{
-		Name:               "Device-" + uuid,
-		HWVersion:          "v1",
-		SWVersion:          "v1",
-		ConfigVersion:      "v1",
-		SerialNumber:       "sn-" + uuid,
-		MACAddress:         "mac-" + uuid,
-		CreatedAt:          time.Now().UTC(),
-		Token:              "tk-" + uuid,
-		AuthenticateStatus: status,
-	}
-	if err := ds.InitDevice(uuid, meta); err != nil {
-		t.Fatalf("failed to seed device: %v", err)
-	}
-}
-
-func seedUser(t *testing.T, ds inter.DataStore, username string) {
-	t.Helper()
-	storer, ok := ds.(authboss.CreatingServerStorer)
-	if !ok {
-		t.Fatalf("datastore does not implement CreatingServerStorer")
-	}
-	u := &datastore.AuthUser{
-		Username: username,
-		Password: "plain_pw_for_tests",
-	}
-	if err := storer.Create(context.Background(), u); err != nil && err != authboss.ErrUserFound {
-		t.Fatalf("failed to seed user: %v", err)
-	}
-}
-
-func newAuthFlowWS(t *testing.T) *webServer {
-	t.Helper()
-
-	dbPath := filepath.Join(t.TempDir(), "auth_flow.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
-	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
-	}
-	dm := device_manager.NewDeviceManager(ds)
-	ab, err := SetupAuthboss(ds)
-	if err != nil {
-		t.Fatalf("failed to setup authboss: %v", err)
-	}
-	authService, err := NewAuthService(ab)
-	if err != nil {
-		t.Fatalf("failed to setup auth service: %v", err)
-	}
-
-	return &webServer{
-		dataStore:     ds,
-		deviceManager: dm,
-		auth:          authService,
-		captcha:       &TurnstileService{Enabled: false},
-	}
-}
-
 func TestAPICaptchaConfigHandler(t *testing.T) {
-	ws, _, _ := newTestWS(t)
+	env := newTestAPI(t)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/captcha/config", nil)
-	ws.apiCaptchaConfigHandler(rec, req)
+	env.api.CaptchaConfigHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	env := mustJSONEnvelope(t, rec)
-	data := env.Data.(map[string]interface{})
+	envBody := mustJSONEnvelope(t, rec)
+	data := envBody.Data.(map[string]interface{})
 	if data["provider"] != "none" {
 		t.Fatalf("unexpected provider: %v", data["provider"])
 	}
 
-	ws.captcha = &TurnstileService{Enabled: true, SiteKey: "site_key_x"}
+	env = newTestAPI(t, apiTestOptions{
+		captcha: &webpkg.TurnstileService{Enabled: true, SiteKey: "site_key_x"},
+	})
 	rec = httptest.NewRecorder()
-	ws.apiCaptchaConfigHandler(rec, req)
-	env = mustJSONEnvelope(t, rec)
-	data = env.Data.(map[string]interface{})
+	env.api.CaptchaConfigHandler(rec, req)
+	envBody = mustJSONEnvelope(t, rec)
+	data = envBody.Data.(map[string]interface{})
 	if data["provider"] != "turnstile" || data["site_key"] != "site_key_x" {
 		t.Fatalf("unexpected turnstile config: %+v", data)
 	}
 }
 
 func TestAPIAuthHandlersValidation(t *testing.T) {
-	ws, _, _ := newTestWS(t)
+	env := newTestAPI(t)
 
 	registerCases := []struct {
 		body     string
@@ -164,7 +58,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 	for _, tc := range registerCases {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(tc.body))
-		ws.apiRegisterHandler(rec, req)
+		env.api.RegisterHandler(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("register expected 400, got %d", rec.Code)
 		}
@@ -173,11 +67,13 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 		}
 	}
 
-	ws.captcha = &TurnstileService{Enabled: true}
+	env = newTestAPI(t, apiTestOptions{
+		captcha: &webpkg.TurnstileService{Enabled: true},
+	})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		bytes.NewBufferString(`{"username":"validuser","password":"Admin123!"}`))
-	ws.apiRegisterHandler(rec, req)
+	env.api.RegisterHandler(rec, req)
 	if got := mustJSONEnvelope(t, rec).Code; got != 40005 {
 		t.Fatalf("expected captcha required 40005, got %d", got)
 	}
@@ -194,7 +90,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 	for _, tc := range loginCases {
 		rec = httptest.NewRecorder()
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(tc.body))
-		ws.apiLoginHandler(rec, req)
+		env.api.LoginHandler(rec, req)
 		if rec.Code != tc.wantHTTP {
 			t.Fatalf("login expected %d, got %d", tc.wantHTTP, rec.Code)
 		}
@@ -205,7 +101,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 }
 
 func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
-	ws, _, _ := newTestWS(t)
+	env := newTestAPI(t)
 	user := &datastore.AuthUser{
 		Username:   "admin",
 		Email:      "admin@test.local",
@@ -214,17 +110,17 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	ws.apiLogoutHandler(rec, req)
+	env.api.LogoutHandler(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("logout expected 401 without session, got %d", rec.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	req = req.WithContext(context.WithValue(req.Context(), authboss.CTXKeyUser, user))
-	req = req.WithContext(context.WithValue(req.Context(), apiCtxUsername, "admin"))
-	req = req.WithContext(context.WithValue(req.Context(), apiCtxPerm, inter.PermissionAdmin))
+	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextUsername, "admin"))
+	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextPerm, inter.PermissionAdmin))
 	rec = httptest.NewRecorder()
-	ws.apiMeHandler(rec, req)
+	env.api.MeHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me expected 200, got %d", rec.Code)
 	}
@@ -234,7 +130,7 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 		t.Fatalf("unexpected me data: %+v", meData)
 	}
 
-	unauth := ws.apiAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	unauth := env.api.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("next should not run for unauthorized request")
 	}, inter.PermissionReadOnly)
 	rec = httptest.NewRecorder()
@@ -249,7 +145,7 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 		Permission: int(inter.PermissionReadOnly),
 	}))
 	rec = httptest.NewRecorder()
-	ws.apiAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	env.api.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("next should not run for forbidden request")
 	}, inter.PermissionAdmin).ServeHTTP(rec, forbiddenReq)
 	if mustJSONEnvelope(t, rec).Code != 40301 {
@@ -260,9 +156,9 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 	okReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	okReq = okReq.WithContext(context.WithValue(okReq.Context(), authboss.CTXKeyUser, user))
 	rec = httptest.NewRecorder()
-	ws.apiAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	env.api.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		nextCalled = true
-		if got := r.Context().Value(apiCtxUsername); got != "admin" {
+		if got := r.Context().Value(apiv1.ContextUsername); got != "admin" {
 			t.Fatalf("unexpected context username: %v", got)
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -273,23 +169,23 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 }
 
 func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
-	ws, ds, dm := newTestWS(t)
+	env := newTestAPI(t)
 
 	uuid := strings.Repeat("a", 64)
-	seedDevice(t, ds, uuid, inter.Authenticated)
-	if err := ds.AppendMetric(uuid, inter.MetricPoint{
+	seedDevice(t, env.dataStore, uuid, inter.Authenticated)
+	if err := env.dataStore.AppendMetric(uuid, inter.MetricPoint{
 		Timestamp: time.Now().UnixMilli(),
 		Value:     26.5,
 		Type:      1,
 	}); err != nil {
 		t.Fatalf("seed metric failed: %v", err)
 	}
-	seedUser(t, ds, "admin_seed")
-	seedUser(t, ds, "tester")
+	seedUser(t, env.dataStore, "admin_seed")
+	seedUser(t, env.dataStore, "tester")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
-	ws.apiDevicesHandler(rec, req)
+	env.api.DevicesHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("devices list expected 200, got %d", rec.Code)
 	}
@@ -299,45 +195,45 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/devices/"+uuid, nil)
 	rec = httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("device detail expected 200, got %d", rec.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/approve", nil)
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec = httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("approve expected 200, got %d", rec.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/token/refresh", nil)
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec = httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("refresh token expected 200, got %d", rec.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/commands",
 		bytes.NewBufferString(`{"command":"action_exec","payload":{"op":"reboot"}}`))
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec = httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("enqueue command expected 200, got %d, body=%s", rec.Code, rec.Body.String())
 	}
-	env := mustJSONEnvelope(t, rec)
-	data, ok := env.Data.(map[string]interface{})
+	envBody := mustJSONEnvelope(t, rec)
+	data, ok := envBody.Data.(map[string]interface{})
 	if !ok {
-		t.Fatalf("unexpected enqueue response data: %#v", env.Data)
+		t.Fatalf("unexpected enqueue response data: %#v", envBody.Data)
 	}
 	if data["status"] != string(inter.DeviceCommandStatusQueued) {
 		t.Fatalf("unexpected command status: %v", data["status"])
 	}
 
-	msg, ok := dm.QueuePop(uuid)
+	msg, ok := env.deviceManager.QueuePop(uuid)
 	if !ok {
 		t.Fatal("queued command should be available in device queue")
 	}
@@ -351,44 +247,44 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/metrics/"+uuid+"?range=all", nil)
 	rec = httptest.NewRecorder()
-	ws.apiMetricsV1Handler(rec, req)
+	env.api.MetricsHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("metrics expected 200, got %d", rec.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
 	rec = httptest.NewRecorder()
-	ws.apiUsersHandler(rec, req)
+	env.api.UsersHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("users expected 200, got %d", rec.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/tester/permission", bytes.NewBufferString(`{"permission":1}`))
 	rec = httptest.NewRecorder()
-	ws.apiUserPermissionHandler(rec, req)
+	env.api.UserPermissionHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update permission expected 200, got %d, body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/devices/"+uuid, nil)
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec = httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete expected 204, got %d", rec.Code)
 	}
 }
 
 func TestAPIDeviceCommandValidation(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
+	env := newTestAPI(t)
 	uuid := strings.Repeat("e", 64)
-	seedDevice(t, ds, uuid, inter.Authenticated)
+	seedDevice(t, env.dataStore, uuid, inter.Authenticated)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/commands",
 		bytes.NewBufferString(`{"command":"reboot","payload":{"op":"now"}}`))
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec := httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid command should return 400, got %d", rec.Code)
 	}
@@ -398,16 +294,15 @@ func TestAPIDeviceCommandValidation(t *testing.T) {
 }
 
 func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
-	ws := newAuthFlowWS(t)
-
-	register := ws.auth.LoadClientStateMiddleware(http.HandlerFunc(ws.apiRegisterHandler))
-	login := ws.auth.LoadClientStateMiddleware(http.HandlerFunc(ws.apiLoginHandler))
-	logout := ws.auth.LoadClientStateMiddleware(http.HandlerFunc(ws.apiLogoutHandler))
+	env := newTestAPI(t, apiTestOptions{
+		captcha: &webpkg.TurnstileService{Enabled: false},
+	})
+	mux := newTestMux(env.api)
 
 	registerRec := httptest.NewRecorder()
 	registerReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","email":"admin@test.local"}`))
-	register.ServeHTTP(registerRec, registerReq)
+	mux.ServeHTTP(registerRec, registerReq)
 
 	if registerRec.Code != http.StatusCreated {
 		t.Fatalf("register expected 201, got %d, body=%s", registerRec.Code, registerRec.Body.String())
@@ -419,7 +314,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	conflictRec := httptest.NewRecorder()
 	conflictReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		bytes.NewBufferString(`{"username":"admin","password":"Admin123!"}`))
-	register.ServeHTTP(conflictRec, conflictReq)
+	mux.ServeHTTP(conflictRec, conflictReq)
 	if conflictRec.Code != http.StatusConflict {
 		t.Fatalf("duplicate register expected 409, got %d", conflictRec.Code)
 	}
@@ -430,7 +325,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	loginRec := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 		bytes.NewBufferString(`{"username":"admin","password":"Admin123!","remember_me":false}`))
-	login.ServeHTTP(loginRec, loginReq)
+	mux.ServeHTTP(loginRec, loginReq)
 	if loginRec.Code != http.StatusOK {
 		t.Fatalf("login expected 200, got %d, body=%s", loginRec.Code, loginRec.Body.String())
 	}
@@ -442,7 +337,7 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	badLoginRec := httptest.NewRecorder()
 	badLoginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 		bytes.NewBufferString(`{"username":"admin","password":"wrong-password","remember_me":false}`))
-	login.ServeHTTP(badLoginRec, badLoginReq)
+	mux.ServeHTTP(badLoginRec, badLoginReq)
 	if badLoginRec.Code != http.StatusUnauthorized {
 		t.Fatalf("bad login expected 401, got %d", badLoginRec.Code)
 	}
@@ -455,35 +350,35 @@ func TestAPIAuthRegisterLoginLogoutFlow(t *testing.T) {
 	for _, c := range loginRec.Result().Cookies() {
 		logoutReq.AddCookie(c)
 	}
-	logout.ServeHTTP(logoutRec, logoutReq)
+	mux.ServeHTTP(logoutRec, logoutReq)
 	if logoutRec.Code != http.StatusNoContent {
 		t.Fatalf("logout expected 204, got %d", logoutRec.Code)
 	}
 }
 
 func TestAPIDeviceDeleteNotFound(t *testing.T) {
-	ws, _, _ := newTestWS(t)
+	env := newTestAPI(t)
 	uuid := strings.Repeat("b", 64)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/devices/"+uuid, nil)
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec := httptest.NewRecorder()
 
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete not-found should return 404, got %d", rec.Code)
 	}
 }
 
 func TestAPIRefreshTokenNotFound(t *testing.T) {
-	ws, _, _ := newTestWS(t)
+	env := newTestAPI(t)
 	uuid := strings.Repeat("c", 64)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/token/refresh", nil)
-	req = ctxWithPerm(req, inter.PermissionReadWrite)
+	req = withPerm(req, inter.PermissionReadWrite)
 	rec := httptest.NewRecorder()
 
-	ws.apiDeviceByUUIDHandler(rec, req)
+	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("refresh token not-found should return 404, got %d", rec.Code)
 	}
@@ -493,44 +388,42 @@ func TestAPIRefreshTokenNotFound(t *testing.T) {
 }
 
 func TestAPIUserPermissionValidationAndNotFound(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
-	seedUser(t, ds, "perm_user")
-	beforePerm, err := ds.GetUserPermission("perm_user")
+	env := newTestAPI(t)
+	seedUser(t, env.dataStore, "perm_user")
+	beforePerm, err := env.dataStore.GetUserPermission("perm_user")
 	if err != nil {
 		t.Fatalf("failed to get initial permission: %v", err)
 	}
 
-	// 非法 permission 必须返回 400
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/perm_user/permission",
 		bytes.NewBufferString(`{"permission":"bad"}`))
 	rec := httptest.NewRecorder()
-	ws.apiUserPermissionHandler(rec, req)
+	env.api.UserPermissionHandler(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid permission should return 400, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if perm, err := ds.GetUserPermission("perm_user"); err != nil || perm != beforePerm {
+	if perm, err := env.dataStore.GetUserPermission("perm_user"); err != nil || perm != beforePerm {
 		t.Fatalf("permission should remain unchanged after invalid request: perm=%d err=%v", perm, err)
 	}
 
-	// 用户不存在返回 404
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/not_exist/permission",
 		bytes.NewBufferString(`{"permission":2}`))
 	rec = httptest.NewRecorder()
-	ws.apiUserPermissionHandler(rec, req)
+	env.api.UserPermissionHandler(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("user not found should return 404, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestAPIDeviceTokenVisibilityByPermission(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
+	env := newTestAPI(t)
 	uuid := strings.Repeat("d", 64)
-	seedDevice(t, ds, uuid, inter.Authenticated)
+	seedDevice(t, env.dataStore, uuid, inter.Authenticated)
 
 	readonlyReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
-	readonlyReq = ctxWithPerm(readonlyReq, inter.PermissionReadOnly)
+	readonlyReq = withPerm(readonlyReq, inter.PermissionReadOnly)
 	readonlyRec := httptest.NewRecorder()
-	ws.apiDevicesHandler(readonlyRec, readonlyReq)
+	env.api.DevicesHandler(readonlyRec, readonlyReq)
 	if readonlyRec.Code != http.StatusOK {
 		t.Fatalf("readonly list expected 200, got %d", readonlyRec.Code)
 	}
@@ -544,9 +437,9 @@ func TestAPIDeviceTokenVisibilityByPermission(t *testing.T) {
 	}
 
 	readwriteReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices/"+uuid, nil)
-	readwriteReq = ctxWithPerm(readwriteReq, inter.PermissionReadWrite)
+	readwriteReq = withPerm(readwriteReq, inter.PermissionReadWrite)
 	readwriteRec := httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(readwriteRec, readwriteReq)
+	env.api.DeviceByUUIDHandler(readwriteRec, readwriteReq)
 	if readwriteRec.Code != http.StatusOK {
 		t.Fatalf("readwrite detail expected 200, got %d", readwriteRec.Code)
 	}
@@ -559,15 +452,14 @@ func TestAPIDeviceTokenVisibilityByPermission(t *testing.T) {
 }
 
 func TestAPIUserPermissionGuardsSelfAndLastAdmin(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
-	seedUser(t, ds, "admin_only")
+	env := newTestAPI(t)
+	seedUser(t, env.dataStore, "admin_only")
 
-	// 保护 1：管理员不能自降权
 	selfReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin_only/permission",
 		bytes.NewBufferString(`{"permission":1}`))
-	selfReq = ctxWithUserPerm(selfReq, "admin_only", inter.PermissionAdmin)
+	selfReq = withUserPerm(selfReq, "admin_only", inter.PermissionAdmin)
 	selfRec := httptest.NewRecorder()
-	ws.apiUserPermissionHandler(selfRec, selfReq)
+	env.api.UserPermissionHandler(selfRec, selfReq)
 	if selfRec.Code != http.StatusBadRequest {
 		t.Fatalf("self demotion should return 400, got %d", selfRec.Code)
 	}
@@ -575,12 +467,11 @@ func TestAPIUserPermissionGuardsSelfAndLastAdmin(t *testing.T) {
 		t.Fatalf("self demotion expected code 40046, got %d", code)
 	}
 
-	// 保护 2：最后一个管理员不能被降权
 	lastAdminReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin_only/permission",
 		bytes.NewBufferString(`{"permission":1}`))
-	lastAdminReq = ctxWithUserPerm(lastAdminReq, "other_admin", inter.PermissionAdmin)
+	lastAdminReq = withUserPerm(lastAdminReq, "other_admin", inter.PermissionAdmin)
 	lastAdminRec := httptest.NewRecorder()
-	ws.apiUserPermissionHandler(lastAdminRec, lastAdminReq)
+	env.api.UserPermissionHandler(lastAdminRec, lastAdminReq)
 	if lastAdminRec.Code != http.StatusBadRequest {
 		t.Fatalf("last admin demotion should return 400, got %d", lastAdminRec.Code)
 	}
@@ -590,15 +481,15 @@ func TestAPIUserPermissionGuardsSelfAndLastAdmin(t *testing.T) {
 }
 
 func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
+	env := newTestAPI(t)
 	uuid := strings.Repeat("f", 64)
-	seedDevice(t, ds, uuid, inter.Authenticated)
+	seedDevice(t, env.dataStore, uuid, inter.Authenticated)
 
 	tenantOtherListReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
 	tenantOtherListReq.Header.Set("X-Tenant-Id", "tenant_other")
-	tenantOtherListReq = ctxWithPerm(tenantOtherListReq, inter.PermissionReadOnly)
+	tenantOtherListReq = withPerm(tenantOtherListReq, inter.PermissionReadOnly)
 	tenantOtherListRec := httptest.NewRecorder()
-	ws.apiDevicesHandler(tenantOtherListRec, tenantOtherListReq)
+	env.api.DevicesHandler(tenantOtherListRec, tenantOtherListReq)
 	if tenantOtherListRec.Code != http.StatusOK {
 		t.Fatalf("tenant_other list expected 200, got %d", tenantOtherListRec.Code)
 	}
@@ -610,9 +501,9 @@ func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
 
 	legacyListReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=all&page=1&size=10", nil)
 	legacyListReq.Header.Set("X-Tenant-Id", "tenant_legacy")
-	legacyListReq = ctxWithPerm(legacyListReq, inter.PermissionReadOnly)
+	legacyListReq = withPerm(legacyListReq, inter.PermissionReadOnly)
 	legacyListRec := httptest.NewRecorder()
-	ws.apiDevicesHandler(legacyListRec, legacyListReq)
+	env.api.DevicesHandler(legacyListRec, legacyListReq)
 	if legacyListRec.Code != http.StatusOK {
 		t.Fatalf("tenant_legacy list expected 200, got %d", legacyListRec.Code)
 	}
@@ -624,9 +515,9 @@ func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
 
 	tenantOtherDetailReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices/"+uuid, nil)
 	tenantOtherDetailReq.Header.Set("X-Tenant-Id", "tenant_other")
-	tenantOtherDetailReq = ctxWithPerm(tenantOtherDetailReq, inter.PermissionReadOnly)
+	tenantOtherDetailReq = withPerm(tenantOtherDetailReq, inter.PermissionReadOnly)
 	tenantOtherDetailRec := httptest.NewRecorder()
-	ws.apiDeviceByUUIDHandler(tenantOtherDetailRec, tenantOtherDetailReq)
+	env.api.DeviceByUUIDHandler(tenantOtherDetailRec, tenantOtherDetailReq)
 	if tenantOtherDetailRec.Code != http.StatusNotFound {
 		t.Fatalf("cross-tenant detail should return 404, got %d", tenantOtherDetailRec.Code)
 	}
@@ -636,7 +527,7 @@ func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
 }
 
 func TestAPIMeIncludesActiveTenant(t *testing.T) {
-	ws, _, _ := newTestWS(t)
+	env := newTestAPI(t)
 	user := &datastore.AuthUser{
 		Username:   "tenant_user",
 		Email:      "tenant_user@test.local",
@@ -646,16 +537,16 @@ func TestAPIMeIncludesActiveTenant(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	req.Header.Set("X-Tenant-Id", "tenant_demo")
 	req = req.WithContext(context.WithValue(req.Context(), authboss.CTXKeyUser, user))
-	req = req.WithContext(context.WithValue(req.Context(), apiCtxUsername, "tenant_user"))
-	req = req.WithContext(context.WithValue(req.Context(), apiCtxPerm, inter.PermissionReadOnly))
+	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextUsername, "tenant_user"))
+	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextPerm, inter.PermissionReadOnly))
 	rec := httptest.NewRecorder()
 
-	ws.apiMeHandler(rec, req)
+	env.api.MeHandler(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me expected 200, got %d", rec.Code)
 	}
-	env := mustJSONEnvelope(t, rec)
-	data := env.Data.(map[string]interface{})
+	envBody := mustJSONEnvelope(t, rec)
+	data := envBody.Data.(map[string]interface{})
 	if got := data["active_tenant"]; got != "tenant_demo" {
 		t.Fatalf("active_tenant mismatch: got=%v want=tenant_demo", got)
 	}

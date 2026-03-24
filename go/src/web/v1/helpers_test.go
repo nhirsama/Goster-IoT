@@ -1,4 +1,4 @@
-package web
+package v1_test
 
 import (
 	"bytes"
@@ -11,10 +11,11 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
 
 func TestParseDeviceStatusFilter(t *testing.T) {
-	status, ptr, err := parseDeviceStatusFilter("")
+	status, ptr, err := apiv1.ParseDeviceStatusFilter("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -25,7 +26,7 @@ func TestParseDeviceStatusFilter(t *testing.T) {
 		t.Fatalf("expected authenticated pointer")
 	}
 
-	status, ptr, err = parseDeviceStatusFilter("all")
+	status, ptr, err = apiv1.ParseDeviceStatusFilter("all")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,7 +34,7 @@ func TestParseDeviceStatusFilter(t *testing.T) {
 		t.Fatalf("expected all with nil ptr")
 	}
 
-	if _, _, err := parseDeviceStatusFilter("bad-status"); err == nil {
+	if _, _, err := apiv1.ParseDeviceStatusFilter("bad-status"); err == nil {
 		t.Fatalf("invalid status should return error")
 	}
 }
@@ -43,7 +44,7 @@ func TestDecodeAPIBody(t *testing.T) {
 		Name string `json:"name"`
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/test", bytes.NewBufferString(`{"name":"ok"}`))
-	if err := decodeAPIBody(req, &valid, 1<<20); err != nil {
+	if err := apiv1.DecodeBody(req, &valid, 1<<20); err != nil {
 		t.Fatalf("valid json should pass: %v", err)
 	}
 	if valid.Name != "ok" {
@@ -51,12 +52,12 @@ func TestDecodeAPIBody(t *testing.T) {
 	}
 
 	reqUnknown := httptest.NewRequest(http.MethodPost, "/api/v1/test", bytes.NewBufferString(`{"name":"ok","extra":1}`))
-	if err := decodeAPIBody(reqUnknown, &valid, 1<<20); err == nil {
+	if err := apiv1.DecodeBody(reqUnknown, &valid, 1<<20); err == nil {
 		t.Fatalf("unknown field should fail")
 	}
 
 	reqMulti := httptest.NewRequest(http.MethodPost, "/api/v1/test", bytes.NewBufferString(`{"name":"ok"}{"name":"next"}`))
-	if err := decodeAPIBody(reqMulti, &valid, 1<<20); err == nil {
+	if err := apiv1.DecodeBody(reqMulti, &valid, 1<<20); err == nil {
 		t.Fatalf("multiple json docs should fail")
 	}
 }
@@ -64,14 +65,14 @@ func TestDecodeAPIBody(t *testing.T) {
 func TestSameOriginChecksIgnoreForwardedHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	req.Host = "api.example.com"
-	if !isSameOriginRequest(req, "http://api.example.com") {
+	if !apiv1.IsSameOriginRequest(req, "http://api.example.com") {
 		t.Fatalf("same host + http should be same-origin")
 	}
 
 	reqTLS := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqTLS.Host = "api.example.com"
 	reqTLS.TLS = &tls.ConnectionState{}
-	if !isSameOriginRequest(reqTLS, "https://api.example.com") {
+	if !apiv1.IsSameOriginRequest(reqTLS, "https://api.example.com") {
 		t.Fatalf("tls-backed https should be same-origin")
 	}
 
@@ -79,48 +80,48 @@ func TestSameOriginChecksIgnoreForwardedHeaders(t *testing.T) {
 	reqProxyHost.Host = "internal:8080"
 	reqProxyHost.Header.Set("X-Forwarded-Host", "api.example.com")
 	reqProxyHost.Header.Set("X-Forwarded-Proto", "https")
-	if isSameOriginRequest(reqProxyHost, "https://api.example.com") {
+	if apiv1.IsSameOriginRequest(reqProxyHost, "https://api.example.com") {
 		t.Fatalf("forwarded host must not be trusted for same-origin checks")
 	}
 
-	if isSameOriginRequest(req, "https://other.example.com") {
+	if apiv1.IsSameOriginRequest(req, "https://other.example.com") {
 		t.Fatalf("different host should not be same-origin")
 	}
 
 	reqForwardedProto := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqForwardedProto.Host = "api.example.com"
 	reqForwardedProto.Header.Set("X-Forwarded-Proto", "https")
-	if isSameOriginRequest(reqForwardedProto, "https://api.example.com") {
+	if apiv1.IsSameOriginRequest(reqForwardedProto, "https://api.example.com") {
 		t.Fatalf("forwarded proto must not be trusted for same-origin checks")
 	}
 }
 
 func TestResolveAllowedAPIOrigin(t *testing.T) {
-	ws := &webServer{
+	env := newTestAPI(t, apiTestOptions{
 		config: appcfg.WebConfig{
 			APICORSAllowOrigins: "https://fe.example.com,https://admin.example.com",
 		},
-	}
+	})
 
 	reqSame := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqSame.Host = "api.internal.local:8080"
-	if origin, ok := ws.resolveAllowedAPIOrigin(reqSame, "http://api.internal.local:8080"); !ok || origin == "" {
+	if origin, ok := env.api.ResolveAllowedOrigin(reqSame, "http://api.internal.local:8080"); !ok || origin == "" {
 		t.Fatalf("same-origin should be allowed")
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	req.Host = "api.example.com"
-	if _, ok := ws.resolveAllowedAPIOrigin(req, "https://fe.example.com"); !ok {
+	if _, ok := env.api.ResolveAllowedOrigin(req, "https://fe.example.com"); !ok {
 		t.Fatalf("whitelisted origin should be allowed")
 	}
-	if _, ok := ws.resolveAllowedAPIOrigin(req, "https://evil.example.com"); ok {
+	if _, ok := env.api.ResolveAllowedOrigin(req, "https://evil.example.com"); ok {
 		t.Fatalf("non-whitelisted origin should be rejected")
 	}
 }
 
 func TestAPIDevicesHandlerRejectsInvalidQueries(t *testing.T) {
-	ws, ds, _ := newTestWS(t)
-	seedDevice(t, ds, strings.Repeat("a", 64), inter.Authenticated)
+	env := newTestAPI(t)
+	seedDevice(t, env.dataStore, strings.Repeat("a", 64), inter.Authenticated)
 
 	cases := []struct {
 		name string
@@ -145,17 +146,17 @@ func TestAPIDevicesHandlerRejectsInvalidQueries(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
 			rec := httptest.NewRecorder()
 
-			ws.apiDevicesHandler(rec, req)
+			env.api.DevicesHandler(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d", rec.Code)
 			}
 
-			var env apiEnvelope
-			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			var envBody apiv1.Envelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &envBody); err != nil {
 				t.Fatalf("decode response failed: %v", err)
 			}
-			if env.Code == 0 {
+			if envBody.Code == 0 {
 				t.Fatalf("expected non-zero business code for invalid query")
 			}
 		})

@@ -19,7 +19,6 @@ type CaptchaVerifier interface {
 type WebServerDeps struct {
 	DataStore     inter.DataStore
 	DeviceManager inter.DeviceManager
-	API           inter.Api
 	Auth          AuthService
 	Captcha       CaptchaVerifier
 	Logger        inter.Logger
@@ -32,9 +31,6 @@ func (d *WebServerDeps) normalize() error {
 	}
 	if d.DeviceManager == nil {
 		return errors.New("web deps missing device manager")
-	}
-	if d.API == nil {
-		return errors.New("web deps missing api service")
 	}
 	if d.Auth == nil {
 		return errors.New("web deps missing auth service")

@@ -15,10 +15,6 @@ type testWebDepsDeviceManager struct {
 	inter.DeviceManager
 }
 
-type testWebDepsAPI struct {
-	inter.Api
-}
-
 type testWebDepsAuth struct {
 	AuthService
 }
@@ -27,7 +23,6 @@ func TestWebServerDepsNormalizeLogger(t *testing.T) {
 	deps := WebServerDeps{
 		DataStore:     testWebDepsDataStore{},
 		DeviceManager: testWebDepsDeviceManager{},
-		API:           testWebDepsAPI{},
 		Auth:          testWebDepsAuth{},
 		Captcha:       &TurnstileService{Enabled: false},
 		Logger:        nil,

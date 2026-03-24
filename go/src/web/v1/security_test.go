@@ -1,4 +1,4 @@
-package web
+package v1_test
 
 import (
 	"bytes"
@@ -10,18 +10,21 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	webpkg "github.com/nhirsama/Goster-IoT/src/web"
+	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
 
 func TestProtectedRoutesRejectUnauthorizedTenantSwitch(t *testing.T) {
-	ws := newAuthFlowWS(t)
-	mux := http.NewServeMux()
-	ws.registerAPIRoutes(mux)
+	env := newTestAPI(t, apiTestOptions{
+		captcha: &webpkg.TurnstileService{Enabled: false},
+	})
+	mux := newTestMux(env.api)
 
-	seedDevice(t, ws.dataStore, strings.Repeat("a", 64), inter.Authenticated)
+	seedDevice(t, env.dataStore, strings.Repeat("a", 64), inter.Authenticated)
 
 	registerAPITestUser(t, mux, "admin", "Admin123!")
 	registerAPITestUser(t, mux, "viewer", "Viewer123!")
-	if err := ws.dataStore.UpdateUserPermission("viewer", inter.PermissionReadOnly); err != nil {
+	if err := env.dataStore.UpdateUserPermission("viewer", inter.PermissionReadOnly); err != nil {
 		t.Fatalf("failed to grant viewer read access: %v", err)
 	}
 
@@ -65,17 +68,19 @@ func TestProtectedRoutesRejectUnauthorizedTenantSwitch(t *testing.T) {
 }
 
 func TestLoginGuardLocksRepeatedFailures(t *testing.T) {
-	ws := newAuthFlowWS(t)
-	ws.loginGuard = newLoginAttemptGuard(appcfg.LoginProtectionConfig{
+	guard := apiv1.NewLoginAttemptGuard(appcfg.LoginProtectionConfig{
 		MaxFailures: 2,
 		Window:      time.Minute,
 		Lockout:     time.Minute,
 	})
 	now := time.Unix(1_710_000_000, 0).UTC()
-	ws.loginGuard.SetClockForTest(func() time.Time { return now })
+	guard.SetClockForTest(func() time.Time { return now })
 
-	mux := http.NewServeMux()
-	ws.registerAPIRoutes(mux)
+	env := newTestAPI(t, apiTestOptions{
+		captcha:    &webpkg.TurnstileService{Enabled: false},
+		loginGuard: guard,
+	})
+	mux := newTestMux(env.api)
 
 	registerAPITestUser(t, mux, "admin", "Admin123!")
 
@@ -123,28 +128,4 @@ func TestLoginGuardLocksRepeatedFailures(t *testing.T) {
 	if postSuccessRec.Code != http.StatusUnauthorized {
 		t.Fatalf("single failure after successful login should not stay locked, got %d body=%s", postSuccessRec.Code, postSuccessRec.Body.String())
 	}
-}
-
-func registerAPITestUser(t *testing.T, mux *http.ServeMux, username, password string) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		bytes.NewBufferString(`{"username":"`+username+`","password":"`+password+`","email":"`+username+`@test.local"}`))
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("register %s failed: status=%d body=%s", username, rec.Code, rec.Body.String())
-	}
-}
-
-func loginAPITestUser(t *testing.T, mux *http.ServeMux, username, password, remoteAddr string) []*http.Cookie {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
-		bytes.NewBufferString(`{"username":"`+username+`","password":"`+password+`","remember_me":false}`))
-	req.RemoteAddr = remoteAddr
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("login %s failed: status=%d body=%s", username, rec.Code, rec.Body.String())
-	}
-	return rec.Result().Cookies()
 }

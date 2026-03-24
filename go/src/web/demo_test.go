@@ -16,16 +16,6 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-// MockApi implements inter.Api for testing purposes
-type MockApi struct{}
-
-func (m *MockApi) Start()                                                        {}
-func (m *MockApi) Handshake(uuid, token string) (string, error)                  { return "", nil }
-func (m *MockApi) Heartbeat(uuid string) (bool, error)                           { return false, nil }
-func (m *MockApi) UploadMetrics(uuid string, data inter.MetricsUploadData) error { return nil }
-func (m *MockApi) UploadLog(uuid, level, message string) error                   { return nil }
-func (m *MockApi) GetMessages(uuid string) ([]interface{}, error)                { return nil, nil }
-
 // TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
 // Run with: go test -v ./go/src/web -run TestRunServerAndStressTest
 func TestRunServerAndStressTest(t *testing.T) {
@@ -49,7 +39,6 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 	// 3. Setup Managers
 	dm := device_manager.NewDeviceManager(ds)
-	api := &MockApi{}
 
 	// Hack: Set DeathLine on device_manager implementation manually
 	if impl, ok := dm.(*device_manager.DeviceManager); ok {
@@ -70,7 +59,6 @@ func TestRunServerAndStressTest(t *testing.T) {
 	ws, err := NewWebServer(WebServerDeps{
 		DataStore:     ds,
 		DeviceManager: dm,
-		API:           api,
 		Auth:          authService,
 		Captcha:       &TurnstileService{Enabled: false},
 	})

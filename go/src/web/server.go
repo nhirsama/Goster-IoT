@@ -7,19 +7,12 @@ import (
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
-	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
 
 type webServer struct {
-	dataStore     inter.DataStore
-	deviceManager inter.DeviceManager
-	api           inter.Api
-	auth          AuthService
-	captcha       CaptchaVerifier
-	loginGuard    *apiv1.LoginAttemptGuard
-	apiV1         *apiv1.API
-	logger        inter.Logger
-	config        appcfg.WebConfig
+	apiModules []apiModule
+	logger     inter.Logger
+	config     appcfg.WebConfig
 }
 
 func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
@@ -35,18 +28,13 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 		return nil, err
 	}
 	ws := &webServer{
-		dataStore:     deps.DataStore,
-		deviceManager: deps.DeviceManager,
-		api:           deps.API,
-		auth:          deps.Auth,
-		captcha:       deps.Captcha,
-		logger:        deps.Logger,
-		config:        deps.Config,
+		logger: deps.Logger,
+		config: deps.Config,
 	}
-	if ws.auth == nil {
-		return nil, errors.New("auth service is required")
+	ws.apiModules = buildAPIModules(deps)
+	if len(ws.apiModules) == 0 {
+		return nil, errors.New("web api modules are required")
 	}
-	ws.loginGuard = newLoginAttemptGuard(ws.config.LoginProtection)
 	return ws, nil
 }
 

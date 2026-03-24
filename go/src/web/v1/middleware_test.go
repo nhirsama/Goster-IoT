@@ -1,4 +1,4 @@
-package web
+package v1_test
 
 import (
 	"encoding/json"
@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/nhirsama/Goster-IoT/src/logger"
+	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
 
 func TestAPIMiddlewareOptionsRequest(t *testing.T) {
-	ws := &webServer{}
+	env := newTestAPI(t)
 	handlerCalled := false
-	h := ws.apiMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := env.api.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerCalled = true
 	}))
 
@@ -36,8 +37,8 @@ func TestAPIMiddlewareOptionsRequest(t *testing.T) {
 }
 
 func TestAPIMiddlewareRejectsDisallowedOrigin(t *testing.T) {
-	ws := &webServer{}
-	h := ws.apiMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	env := newTestAPI(t)
+	h := env.api.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("inner handler should not be called for disallowed origin")
 	}))
 
@@ -52,7 +53,7 @@ func TestAPIMiddlewareRejectsDisallowedOrigin(t *testing.T) {
 		t.Fatalf("expected 403 for disallowed origin, got %d", rec.Code)
 	}
 
-	var body apiEnvelope
+	var body apiv1.Envelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("failed to decode response body: %v", err)
 	}
@@ -68,8 +69,8 @@ func TestAPIMiddlewareRejectsDisallowedOrigin(t *testing.T) {
 }
 
 func TestAPIMiddlewareAllowsSameOrigin(t *testing.T) {
-	ws := &webServer{}
-	h := ws.apiMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	env := newTestAPI(t)
+	h := env.api.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -88,12 +89,12 @@ func TestAPIMiddlewareAllowsSameOrigin(t *testing.T) {
 }
 
 func TestAPINoContentAddsRequestIDHeader(t *testing.T) {
-	ws := &webServer{}
+	env := newTestAPI(t)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/devices/a", nil)
 	req.Header.Set("X-Request-Id", "req_test_123")
 	rec := httptest.NewRecorder()
 
-	ws.apiNoContent(rec, req)
+	env.api.NoContent(rec, req)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rec.Code)
@@ -104,8 +105,8 @@ func TestAPINoContentAddsRequestIDHeader(t *testing.T) {
 }
 
 func TestAPIMiddlewareInjectsContextLogger(t *testing.T) {
-	ws := &webServer{}
-	h := ws.apiMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	env := newTestAPI(t)
+	h := env.api.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l := logger.FromContext(r.Context())
 		if l == nil {
 			t.Fatal("context logger should not be nil")

@@ -62,7 +62,6 @@ func start(ctx context.Context) {
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:     db,
 		DeviceManager: dm,
-		API:           api,
 		Auth:          authService,
 		Captcha:       web.NewTurnstileServiceWithConfig(appCfg.Captcha),
 		Logger:        webLogger,
