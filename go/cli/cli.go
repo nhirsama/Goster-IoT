@@ -7,11 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nhirsama/Goster-IoT/src/api"
 	"github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/iot_gateway"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/web"
 )
@@ -55,9 +55,9 @@ func start(ctx context.Context) {
 
 	dm := device_manager.NewDeviceManagerWithConfig(db, appCfg.DeviceManager)
 
-	apiLogger := rootLogger.With(inter.String("module", "api"))
+	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	api := api.NewApiWithConfig(db, dm, apiLogger, appCfg.API)
+	gateway := iot_gateway.NewGatewayFromCoreWithConfig(db, dm, gatewayLogger, appCfg.API)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:     db,
@@ -72,7 +72,7 @@ func start(ctx context.Context) {
 		panic(err)
 	}
 	go webServer.Start()
-	go api.Start()
+	go gateway.Start()
 	select {
 	case <-ctx.Done():
 		return
