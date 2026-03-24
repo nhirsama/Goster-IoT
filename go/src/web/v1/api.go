@@ -61,13 +61,14 @@ type CaptchaVerifier interface {
 
 // Deps 汇总了 v1 路由运行所需的依赖项。
 type Deps struct {
-	DataStore     inter.DataStore
-	DeviceManager inter.DeviceManager
-	Auth          AuthService
-	Captcha       CaptchaVerifier
-	Logger        inter.Logger
-	Config        appcfg.WebConfig
-	LoginGuard    *LoginAttemptGuard // 允许装配层注入共享的登录失败保护器。
+	DataStore         inter.DataStore
+	DeviceManager     inter.DeviceManager
+	Auth              AuthService
+	Captcha           CaptchaVerifier
+	Logger            inter.Logger
+	Config            appcfg.WebConfig
+	LoginAttemptStore LoginAttemptStore  // 允许装配层替换登录失败状态存储，例如 Redis。
+	LoginGuard        *LoginAttemptGuard // 允许测试或高级场景直接注入登录保护器。
 }
 
 // API 负责 `/api/v1` 路由下的中间件、分发和处理逻辑。
@@ -96,7 +97,7 @@ func New(deps Deps) *API {
 	api.tenantAccess = newTenantAccessResolver(api.dataStore)
 	api.loginGuard = deps.LoginGuard
 	if api.loginGuard == nil {
-		api.loginGuard = newLoginAttemptGuard(cfg.LoginProtection)
+		api.loginGuard = NewLoginAttemptGuardWithStore(cfg.LoginProtection, deps.LoginAttemptStore)
 	}
 	return api
 }

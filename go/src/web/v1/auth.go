@@ -197,7 +197,12 @@ func (api *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if retryAfter, allowed := api.loginGuard.Allow(username, r.RemoteAddr); !allowed {
+	retryAfter, allowed, err := api.loginGuard.Allow(username, r.RemoteAddr)
+	if err != nil {
+		api.InternalError(w, r, 50014, err)
+		return
+	}
+	if !allowed {
 		retryAfterSecs := retryAfterSeconds(retryAfter)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSecs))
 		api.Error(w, r, http.StatusTooManyRequests, 42911, "too many login attempts",
@@ -230,7 +235,10 @@ func (api *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	pidUser, err := api.auth.LoadUser(r.Context(), creds.GetPID())
 	if err == authboss.ErrUserNotFound {
-		api.loginGuard.RecordFailure(username, r.RemoteAddr)
+		if err := api.loginGuard.RecordFailure(username, r.RemoteAddr); err != nil {
+			api.InternalError(w, r, 50015, err)
+			return
+		}
 		api.Error(w, r, http.StatusUnauthorized, 40111, "invalid credentials",
 			&ErrorDetail{Type: "invalid_credentials"})
 		return
@@ -248,13 +256,19 @@ func (api *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := api.auth.VerifyPassword(authUser, creds.GetPassword()); err != nil {
-		api.loginGuard.RecordFailure(username, r.RemoteAddr)
+		if storeErr := api.loginGuard.RecordFailure(username, r.RemoteAddr); storeErr != nil {
+			api.InternalError(w, r, 50016, storeErr)
+			return
+		}
 		_, _ = api.auth.FireAfter(authboss.EventAuthFail, w, r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser)))
 		api.Error(w, r, http.StatusUnauthorized, 40112, "invalid credentials",
 			&ErrorDetail{Type: "invalid_credentials"})
 		return
 	}
-	api.loginGuard.Reset(username, r.RemoteAddr)
+	if err := api.loginGuard.Reset(username, r.RemoteAddr); err != nil {
+		api.InternalError(w, r, 50017, err)
+		return
+	}
 
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyUser, pidUser))
 	r = r.WithContext(context.WithValue(r.Context(), authboss.CTXKeyValues, validatable))

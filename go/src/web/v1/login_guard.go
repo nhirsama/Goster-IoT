@@ -4,28 +4,22 @@ import (
 	"math"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 )
 
-// LoginAttemptGuard 在进程内维护一个轻量的登录失败锁定窗口。
+// LoginAttemptGuard 负责登录失败保护策略本身。
+// 具体状态落在哪里，由 LoginAttemptStore 决定。
 type LoginAttemptGuard struct {
-	mu          sync.Mutex
 	maxFailures int
 	window      time.Duration
 	lockout     time.Duration
-	attempts    map[string]*loginAttemptState
+	store       LoginAttemptStore
 	now         func() time.Time
 }
 
-type loginAttemptState struct {
-	failures    []time.Time
-	lockedUntil time.Time
-}
-
-func newLoginAttemptGuard(cfg appcfg.LoginProtectionConfig) *LoginAttemptGuard {
+func newLoginAttemptGuard(cfg appcfg.LoginProtectionConfig, store LoginAttemptStore) *LoginAttemptGuard {
 	defaults := appcfg.DefaultWebConfig().LoginProtection
 	if cfg.MaxFailures <= 0 {
 		cfg.MaxFailures = defaults.MaxFailures
@@ -36,18 +30,26 @@ func newLoginAttemptGuard(cfg appcfg.LoginProtectionConfig) *LoginAttemptGuard {
 	if cfg.Lockout <= 0 {
 		cfg.Lockout = defaults.Lockout
 	}
+	if store == nil {
+		store = NewInMemoryLoginAttemptStore()
+	}
 	return &LoginAttemptGuard{
 		maxFailures: cfg.MaxFailures,
 		window:      cfg.Window,
 		lockout:     cfg.Lockout,
-		attempts:    make(map[string]*loginAttemptState),
+		store:       store,
 		now:         time.Now,
 	}
 }
 
 // NewLoginAttemptGuard 根据标准化后的安全配置创建登录保护器。
 func NewLoginAttemptGuard(cfg appcfg.LoginProtectionConfig) *LoginAttemptGuard {
-	return newLoginAttemptGuard(cfg)
+	return newLoginAttemptGuard(cfg, nil)
+}
+
+// NewLoginAttemptGuardWithStore 使用指定状态存储创建登录保护器。
+func NewLoginAttemptGuardWithStore(cfg appcfg.LoginProtectionConfig, store LoginAttemptStore) *LoginAttemptGuard {
+	return newLoginAttemptGuard(cfg, store)
 }
 
 // SetClockForTest 允许测试注入时钟，从而避免依赖真实时间等待。
@@ -57,67 +59,24 @@ func (g *LoginAttemptGuard) SetClockForTest(now func() time.Time) {
 	}
 }
 
-func (g *LoginAttemptGuard) Allow(username, remoteAddr string) (time.Duration, bool) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	state := g.stateFor(username, remoteAddr)
+func (g *LoginAttemptGuard) Allow(username, remoteAddr string) (time.Duration, bool, error) {
 	now := g.now()
-	g.pruneFailures(now, state)
-	if state.lockedUntil.After(now) {
-		return state.lockedUntil.Sub(now), false
+	state, err := g.store.Snapshot(loginAttemptKey(username, remoteAddr), now, g.window)
+	if err != nil {
+		return 0, false, err
 	}
-	g.cleanup(username, remoteAddr, state)
-	return 0, true
+	if state.LockedUntil.After(now) {
+		return state.LockedUntil.Sub(now), false, nil
+	}
+	return 0, true, nil
 }
 
-func (g *LoginAttemptGuard) RecordFailure(username, remoteAddr string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	state := g.stateFor(username, remoteAddr)
-	now := g.now()
-	g.pruneFailures(now, state)
-	state.failures = append(state.failures, now)
-	if len(state.failures) >= g.maxFailures {
-		state.lockedUntil = now.Add(g.lockout)
-	}
+func (g *LoginAttemptGuard) RecordFailure(username, remoteAddr string) error {
+	return g.store.RecordFailure(loginAttemptKey(username, remoteAddr), g.now(), g.window, g.lockout, g.maxFailures)
 }
 
-func (g *LoginAttemptGuard) Reset(username, remoteAddr string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	delete(g.attempts, loginAttemptKey(username, remoteAddr))
-}
-
-func (g *LoginAttemptGuard) stateFor(username, remoteAddr string) *loginAttemptState {
-	key := loginAttemptKey(username, remoteAddr)
-	state, ok := g.attempts[key]
-	if !ok {
-		state = &loginAttemptState{}
-		g.attempts[key] = state
-	}
-	return state
-}
-
-func (g *LoginAttemptGuard) pruneFailures(now time.Time, state *loginAttemptState) {
-	cutoff := now.Add(-g.window)
-	kept := state.failures[:0]
-	for _, ts := range state.failures {
-		if ts.After(cutoff) {
-			kept = append(kept, ts)
-		}
-	}
-	state.failures = kept
-	if !state.lockedUntil.After(now) {
-		state.lockedUntil = time.Time{}
-	}
-}
-
-func (g *LoginAttemptGuard) cleanup(username, remoteAddr string, state *loginAttemptState) {
-	if len(state.failures) == 0 && state.lockedUntil.IsZero() {
-		delete(g.attempts, loginAttemptKey(username, remoteAddr))
-	}
+func (g *LoginAttemptGuard) Reset(username, remoteAddr string) error {
+	return g.store.Reset(loginAttemptKey(username, remoteAddr))
 }
 
 func retryAfterSeconds(d time.Duration) int {
