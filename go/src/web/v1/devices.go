@@ -37,7 +37,7 @@ func (api *API) DevicesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	devices, err := api.deviceManager.ListDevicesByScope(api.scopeFromRequest(r), statusPtr, page, size)
+	devices, err := api.registry.ListDevicesByScope(api.scopeFromRequest(r), statusPtr, page, size)
 	if err != nil {
 		api.InternalError(w, r, 50011, err)
 		return
@@ -46,7 +46,7 @@ func (api *API) DevicesHandler(w http.ResponseWriter, r *http.Request) {
 	includeToken := canViewDeviceToken(r)
 	items := make([]map[string]interface{}, 0, len(devices))
 	for _, d := range devices {
-		runtimeStatus, _ := api.deviceManager.QueryDeviceStatus(d.UUID)
+		runtimeStatus, _ := api.presence.QueryDeviceStatus(d.UUID)
 		statusText := "offline"
 		switch runtimeStatus {
 		case inter.StatusOnline:
@@ -100,7 +100,7 @@ func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 			if !api.ensurePerm(w, r, inter.PermissionReadWrite) || !api.ensureDeviceInScope(w, r, uuid, 40424) {
 				return
 			}
-			if err := api.deviceManager.DeleteDevice(uuid); err != nil {
+			if err := api.registry.DeleteDevice(uuid); err != nil {
 				if isNotFoundError(err) {
 					api.Error(w, r, http.StatusNotFound, 40424, "device not found",
 						&ErrorDetail{Type: "not_found", Field: "uuid"})
@@ -128,11 +128,11 @@ func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch action {
 		case "approve":
-			err = api.deviceManager.ApproveDevice(uuid)
+			err = api.registry.ApproveDevice(uuid)
 		case "revoke":
-			err = api.deviceManager.RejectDevice(uuid)
+			err = api.registry.RejectDevice(uuid)
 		case "unblock":
-			err = api.deviceManager.UnblockDevice(uuid)
+			err = api.registry.UnblockDevice(uuid)
 		case "commands":
 			api.enqueueDeviceCommand(w, r, uuid)
 			return
@@ -166,7 +166,7 @@ func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 		if !api.ensurePerm(w, r, inter.PermissionReadWrite) || !api.ensureDeviceInScope(w, r, uuid, 40425) {
 			return
 		}
-		token, err := api.deviceManager.RefreshToken(uuid)
+		token, err := api.registry.RefreshToken(uuid)
 		if err != nil {
 			if isNotFoundError(err) {
 				api.Error(w, r, http.StatusNotFound, 40425, "device not found",
@@ -189,13 +189,13 @@ func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) getDevice(w http.ResponseWriter, r *http.Request, uuid string) {
-	meta, err := api.deviceManager.GetDeviceMetadataByScope(api.scopeFromRequest(r), uuid)
+	meta, err := api.registry.GetDeviceMetadataByScope(api.scopeFromRequest(r), uuid)
 	if err != nil {
 		api.deviceScopeError(w, r, err, 40421)
 		return
 	}
 
-	runtimeStatus, _ := api.deviceManager.QueryDeviceStatus(uuid)
+	runtimeStatus, _ := api.presence.QueryDeviceStatus(uuid)
 	statusText := "offline"
 	switch runtimeStatus {
 	case inter.StatusOnline:
@@ -254,7 +254,7 @@ func (api *API) enqueueDeviceCommand(w http.ResponseWriter, r *http.Request, uui
 		CmdID:     cmdID,
 		Payload:   rawPayload,
 	}
-	if err := api.deviceManager.QueuePush(uuid, msg); err != nil {
+	if err := api.commandQueue.QueuePush(uuid, msg); err != nil {
 		_ = api.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusFailed, err.Error())
 		api.Error(w, r, http.StatusConflict, 40921, "queue command failed",
 			&ErrorDetail{Type: "conflict", Field: "command"})
@@ -286,7 +286,7 @@ func (api *API) ensureDeviceExists(w http.ResponseWriter, r *http.Request, uuid 
 }
 
 func (api *API) ensureDeviceInScope(w http.ResponseWriter, r *http.Request, uuid string, notFoundCode int) bool {
-	if _, err := api.deviceManager.GetDeviceMetadataByScope(api.scopeFromRequest(r), uuid); err != nil {
+	if _, err := api.registry.GetDeviceMetadataByScope(api.scopeFromRequest(r), uuid); err != nil {
 		api.deviceScopeError(w, r, err, notFoundCode)
 		return false
 	}

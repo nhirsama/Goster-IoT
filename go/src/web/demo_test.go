@@ -40,9 +40,9 @@ func TestRunServerAndStressTest(t *testing.T) {
 	// 3. Setup Managers
 	dm := device_manager.NewDeviceManager(ds)
 
-	// Hack: Set DeathLine on device_manager implementation manually
+	// 测试里缩短在线判定窗口，便于更快覆盖在线/离线状态切换。
 	if impl, ok := dm.(*device_manager.DeviceManager); ok {
-		impl.DeathLine = 5 * time.Second // Shorten for test
+		impl.SetHeartbeatDeadline(5 * time.Second)
 	}
 
 	// Setup Authboss
@@ -57,10 +57,12 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 	// 4. Create WebServer
 	ws, err := NewWebServer(WebServerDeps{
-		DataStore:     ds,
-		DeviceManager: dm,
-		Auth:          authService,
-		Captcha:       &TurnstileService{Enabled: false},
+		DataStore:          ds,
+		DeviceRegistry:     dm,
+		DevicePresence:     dm,
+		DeviceCommandQueue: dm,
+		Auth:               authService,
+		Captcha:            &TurnstileService{Enabled: false},
 	})
 	if err != nil {
 		t.Fatal(err)

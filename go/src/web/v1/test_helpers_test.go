@@ -62,12 +62,14 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 	}
 
 	api := apiv1.New(apiv1.Deps{
-		DataStore:     ds,
-		DeviceManager: dm,
-		Auth:          authService,
-		Captcha:       option.captcha,
-		Config:        option.config,
-		LoginGuard:    option.loginGuard,
+		DataStore:          ds,
+		DeviceRegistry:     dm,
+		DevicePresence:     dm,
+		DeviceCommandQueue: dm,
+		Auth:               authService,
+		Captcha:            option.captcha,
+		Config:             option.config,
+		LoginGuard:         option.loginGuard,
 	})
 
 	return &apiTestEnv{

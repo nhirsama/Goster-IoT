@@ -61,13 +61,13 @@ func NewGateway(backend inter.GatewayBackend, l inter.Logger) inter.IoTGateway {
 
 // NewGatewayFromCoreWithConfig 使用当前单体核心依赖创建网络层服务。
 // 这层适配器是未来切换到 gRPC backend 前的过渡实现。
-func NewGatewayFromCoreWithConfig(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger, cfg appcfg.APIConfig) inter.IoTGateway {
-	return NewGatewayWithConfig(newLocalBackend(ds, dm), l, cfg)
+func NewGatewayFromCoreWithConfig(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, queue inter.DeviceCommandQueue, l inter.Logger, cfg appcfg.APIConfig) inter.IoTGateway {
+	return NewGatewayWithConfig(newLocalBackend(ds, registry, presence, queue), l, cfg)
 }
 
 // NewGatewayFromCore 使用默认配置创建网络层服务。
-func NewGatewayFromCore(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger) inter.IoTGateway {
-	return NewGatewayFromCoreWithConfig(ds, dm, l, appcfg.DefaultAPIConfig())
+func NewGatewayFromCore(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, queue inter.DeviceCommandQueue, l inter.Logger) inter.IoTGateway {
+	return NewGatewayFromCoreWithConfig(ds, registry, presence, queue, l, appcfg.DefaultAPIConfig())
 }
 
 // Start 启动独立的 TCP 服务监听。

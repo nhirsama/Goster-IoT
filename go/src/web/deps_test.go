@@ -21,11 +21,13 @@ type testWebDepsAuth struct {
 
 func TestWebServerDepsNormalizeLogger(t *testing.T) {
 	deps := WebServerDeps{
-		DataStore:     testWebDepsDataStore{},
-		DeviceManager: testWebDepsDeviceManager{},
-		Auth:          testWebDepsAuth{},
-		Captcha:       &TurnstileService{Enabled: false},
-		Logger:        nil,
+		DataStore:          testWebDepsDataStore{},
+		DeviceRegistry:     testWebDepsDeviceManager{},
+		DevicePresence:     testWebDepsDeviceManager{},
+		DeviceCommandQueue: testWebDepsDeviceManager{},
+		Auth:               testWebDepsAuth{},
+		Captcha:            &TurnstileService{Enabled: false},
+		Logger:             nil,
 	}
 
 	old := logger.Default()

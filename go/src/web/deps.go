@@ -17,20 +17,28 @@ type CaptchaVerifier interface {
 
 // WebServerDeps 描述 web 模块运行所需依赖。
 type WebServerDeps struct {
-	DataStore     inter.DataStore
-	DeviceManager inter.DeviceManager
-	Auth          AuthService
-	Captcha       CaptchaVerifier
-	Logger        inter.Logger
-	Config        appcfg.WebConfig
+	DataStore          inter.DataStore
+	DeviceRegistry     inter.DeviceRegistry
+	DevicePresence     inter.DevicePresence
+	DeviceCommandQueue inter.DeviceCommandQueue
+	Auth               AuthService
+	Captcha            CaptchaVerifier
+	Logger             inter.Logger
+	Config             appcfg.WebConfig
 }
 
 func (d *WebServerDeps) normalize() error {
 	if d.DataStore == nil {
 		return errors.New("web deps missing datastore")
 	}
-	if d.DeviceManager == nil {
-		return errors.New("web deps missing device manager")
+	if d.DeviceRegistry == nil {
+		return errors.New("web deps missing device registry")
+	}
+	if d.DevicePresence == nil {
+		return errors.New("web deps missing device presence")
+	}
+	if d.DeviceCommandQueue == nil {
+		return errors.New("web deps missing device command queue")
 	}
 	if d.Auth == nil {
 		return errors.New("web deps missing auth service")

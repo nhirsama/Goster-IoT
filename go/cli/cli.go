@@ -57,15 +57,17 @@ func start(ctx context.Context) {
 
 	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	gateway := iot_gateway.NewGatewayFromCoreWithConfig(db, dm, gatewayLogger, appCfg.API)
+	gateway := iot_gateway.NewGatewayFromCoreWithConfig(db, dm, dm, dm, gatewayLogger, appCfg.API)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
-		DataStore:     db,
-		DeviceManager: dm,
-		Auth:          authService,
-		Captcha:       web.NewTurnstileServiceWithConfig(appCfg.Captcha),
-		Logger:        webLogger,
-		Config:        appCfg.Web,
+		DataStore:          db,
+		DeviceRegistry:     dm,
+		DevicePresence:     dm,
+		DeviceCommandQueue: dm,
+		Auth:               authService,
+		Captcha:            web.NewTurnstileServiceWithConfig(appCfg.Captcha),
+		Logger:             webLogger,
+		Config:             appCfg.Web,
 	})
 	if err != nil {
 		rootLogger.Error("Web 服务初始化失败", inter.Err(err))

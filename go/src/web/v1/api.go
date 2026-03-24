@@ -61,38 +61,44 @@ type CaptchaVerifier interface {
 
 // Deps 汇总了 v1 路由运行所需的依赖项。
 type Deps struct {
-	DataStore         inter.DataStore
-	DeviceManager     inter.DeviceManager
-	Auth              AuthService
-	Captcha           CaptchaVerifier
-	Logger            inter.Logger
-	Config            appcfg.WebConfig
-	LoginAttemptStore LoginAttemptStore  // 允许装配层替换登录失败状态存储，例如 Redis。
-	LoginGuard        *LoginAttemptGuard // 允许测试或高级场景直接注入登录保护器。
+	DataStore          inter.DataStore
+	DeviceRegistry     inter.DeviceRegistry
+	DevicePresence     inter.DevicePresence
+	DeviceCommandQueue inter.DeviceCommandQueue
+	Auth               AuthService
+	Captcha            CaptchaVerifier
+	Logger             inter.Logger
+	Config             appcfg.WebConfig
+	LoginAttemptStore  LoginAttemptStore  // 允许装配层替换登录失败状态存储，例如 Redis。
+	LoginGuard         *LoginAttemptGuard // 允许测试或高级场景直接注入登录保护器。
 }
 
 // API 负责 `/api/v1` 路由下的中间件、分发和处理逻辑。
 type API struct {
-	dataStore     inter.DataStore
-	deviceManager inter.DeviceManager
-	auth          AuthService
-	captcha       CaptchaVerifier
-	logger        inter.Logger
-	config        appcfg.WebConfig
-	tenantAccess  *tenantAccessResolver
-	loginGuard    *LoginAttemptGuard
+	dataStore    inter.DataStore
+	registry     inter.DeviceRegistry
+	presence     inter.DevicePresence
+	commandQueue inter.DeviceCommandQueue
+	auth         AuthService
+	captcha      CaptchaVerifier
+	logger       inter.Logger
+	config       appcfg.WebConfig
+	tenantAccess *tenantAccessResolver
+	loginGuard   *LoginAttemptGuard
 }
 
 // New 根据 web 层注入的依赖构造一组 v1 API 处理器。
 func New(deps Deps) *API {
 	cfg := appcfg.NormalizeWebConfig(deps.Config)
 	api := &API{
-		dataStore:     deps.DataStore,
-		deviceManager: deps.DeviceManager,
-		auth:          deps.Auth,
-		captcha:       deps.Captcha,
-		logger:        deps.Logger,
-		config:        cfg,
+		dataStore:    deps.DataStore,
+		registry:     deps.DeviceRegistry,
+		presence:     deps.DevicePresence,
+		commandQueue: deps.DeviceCommandQueue,
+		auth:         deps.Auth,
+		captcha:      deps.Captcha,
+		logger:       deps.Logger,
+		config:       cfg,
 	}
 	api.tenantAccess = newTenantAccessResolver(api.dataStore)
 	api.loginGuard = deps.LoginGuard
