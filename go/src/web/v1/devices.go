@@ -238,31 +238,25 @@ func (api *API) enqueueDeviceCommand(w http.ResponseWriter, r *http.Request, uui
 
 	rawPayload := []byte(strings.TrimSpace(string(payload.Payload)))
 	scope := api.scopeFromRequest(r)
-	commandID, err := api.dataStore.CreateDeviceCommandByTenant(scope.TenantID, uuid, cmdID, command, rawPayload)
+	msg, err := api.downlinkCommands.Enqueue(scope, uuid, cmdID, command, rawPayload)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "tenant mismatch") {
 			api.Error(w, r, http.StatusForbidden, 40321, "forbidden",
 				&ErrorDetail{Type: "cross_tenant_denied"})
 			return
 		}
-		api.InternalError(w, r, 50026, err)
-		return
-	}
-
-	msg := inter.DownlinkMessage{
-		CommandID: commandID,
-		CmdID:     cmdID,
-		Payload:   rawPayload,
-	}
-	if err := api.commandQueue.QueuePush(uuid, msg); err != nil {
-		_ = api.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusFailed, err.Error())
+		if strings.Contains(strings.ToLower(err.Error()), "队列") || strings.Contains(strings.ToLower(err.Error()), "queue") {
+			api.Error(w, r, http.StatusConflict, 40921, "queue command failed",
+				&ErrorDetail{Type: "conflict", Field: "command"})
+			return
+		}
 		api.Error(w, r, http.StatusConflict, 40921, "queue command failed",
 			&ErrorDetail{Type: "conflict", Field: "command"})
 		return
 	}
 
 	api.OK(w, r, map[string]interface{}{
-		"command_id":  commandID,
+		"command_id":  msg.CommandID,
 		"uuid":        uuid,
 		"command":     command,
 		"cmd_id":      int(cmdID),

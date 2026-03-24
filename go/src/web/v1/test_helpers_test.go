@@ -26,10 +26,11 @@ type apiTestOptions struct {
 }
 
 type apiTestEnv struct {
-	api           *apiv1.API
-	auth          webpkg.AuthService
-	dataStore     inter.DataStore
-	deviceManager inter.DeviceManager
+	api              *apiv1.API
+	auth             webpkg.AuthService
+	dataStore        inter.DataStore
+	deviceManager    inter.DeviceManager
+	downlinkCommands inter.DownlinkCommandService
 }
 
 func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
@@ -52,6 +53,7 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
+	downlinkCommands := device_manager.NewDownlinkCommandService(ds, dm)
 	ab, err := webpkg.SetupAuthboss(ds)
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
@@ -62,21 +64,22 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 	}
 
 	api := apiv1.New(apiv1.Deps{
-		DataStore:          ds,
-		DeviceRegistry:     dm,
-		DevicePresence:     dm,
-		DeviceCommandQueue: dm,
-		Auth:               authService,
-		Captcha:            option.captcha,
-		Config:             option.config,
-		LoginGuard:         option.loginGuard,
+		DataStore:        ds,
+		DeviceRegistry:   dm,
+		DevicePresence:   dm,
+		DownlinkCommands: downlinkCommands,
+		Auth:             authService,
+		Captcha:          option.captcha,
+		Config:           option.config,
+		LoginGuard:       option.loginGuard,
 	})
 
 	return &apiTestEnv{
-		api:           api,
-		auth:          authService,
-		dataStore:     ds,
-		deviceManager: dm,
+		api:              api,
+		auth:             authService,
+		dataStore:        ds,
+		deviceManager:    dm,
+		downlinkCommands: downlinkCommands,
 	}
 }
 

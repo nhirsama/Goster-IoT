@@ -15,19 +15,23 @@ type testWebDepsDeviceManager struct {
 	inter.DeviceManager
 }
 
+type testWebDepsDownlinkCommands struct {
+	inter.DownlinkCommandService
+}
+
 type testWebDepsAuth struct {
 	AuthService
 }
 
 func TestWebServerDepsNormalizeLogger(t *testing.T) {
 	deps := WebServerDeps{
-		DataStore:          testWebDepsDataStore{},
-		DeviceRegistry:     testWebDepsDeviceManager{},
-		DevicePresence:     testWebDepsDeviceManager{},
-		DeviceCommandQueue: testWebDepsDeviceManager{},
-		Auth:               testWebDepsAuth{},
-		Captcha:            &TurnstileService{Enabled: false},
-		Logger:             nil,
+		DataStore:        testWebDepsDataStore{},
+		DeviceRegistry:   testWebDepsDeviceManager{},
+		DevicePresence:   testWebDepsDeviceManager{},
+		DownlinkCommands: testWebDepsDownlinkCommands{},
+		Auth:             testWebDepsAuth{},
+		Captcha:          &TurnstileService{Enabled: false},
+		Logger:           nil,
 	}
 
 	old := logger.Default()

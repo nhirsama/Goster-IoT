@@ -23,10 +23,11 @@ import (
 )
 
 type gatewayTestHarness struct {
-	gateway *gatewayService
-	ds      inter.DataStore
-	dm      inter.DeviceManager
-	dbPath  string
+	gateway          *gatewayService
+	ds               inter.DataStore
+	dm               inter.DeviceManager
+	downlinkCommands inter.DownlinkCommandService
+	dbPath           string
 }
 
 func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
@@ -38,7 +39,8 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
-	svc := NewGatewayFromCoreWithConfig(ds, dm, dm, dm, logger.NewNoop(), appcfg.APIConfig{
+	downlinkCommands := device_manager.NewDownlinkCommandService(ds, dm)
+	svc := NewGatewayFromCoreWithConfig(ds, dm, dm, downlinkCommands, logger.NewNoop(), appcfg.APIConfig{
 		ReadTimeout:           5 * time.Second,
 		RegisterAckGraceDelay: 5 * time.Millisecond,
 	})
@@ -48,10 +50,11 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 	}
 
 	return &gatewayTestHarness{
-		gateway: impl,
-		ds:      ds,
-		dm:      dm,
-		dbPath:  dbPath,
+		gateway:          impl,
+		ds:               ds,
+		dm:               dm,
+		downlinkCommands: downlinkCommands,
+		dbPath:           dbPath,
 	}
 }
 
@@ -397,17 +400,11 @@ func TestHandleConnectionMarksDownlinkAcked(t *testing.T) {
 	}
 	uuid, token := seedApprovedDevice(t, h, meta)
 
-	commandID, err := h.ds.CreateDeviceCommand(uuid, inter.CmdActionExec, "toggle", []byte(`{"state":"on"}`))
+	msg, err := h.downlinkCommands.Enqueue(inter.Scope{}, uuid, inter.CmdActionExec, "toggle", []byte(`{"state":"on"}`))
 	if err != nil {
-		t.Fatalf("failed to create device command: %v", err)
+		t.Fatalf("failed to enqueue downlink command: %v", err)
 	}
-	if err := h.dm.QueuePush(uuid, inter.DownlinkMessage{
-		CmdID:     inter.CmdActionExec,
-		Payload:   []byte("toggle"),
-		CommandID: commandID,
-	}); err != nil {
-		t.Fatalf("failed to queue downlink command: %v", err)
-	}
+	commandID := msg.CommandID
 
 	conn, codec, sessionKey := startPipeSession(t, h.gateway)
 	defer conn.Close()

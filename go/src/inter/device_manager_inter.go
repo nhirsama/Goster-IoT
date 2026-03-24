@@ -93,6 +93,16 @@ type DeviceCommandQueue interface {
 	QueueIsEmpty(uuid string) bool
 }
 
+// DownlinkCommandService 定义下行命令的编排能力。
+// 它负责命令持久化、入队以及发送状态流转，避免由 Web 或 Gateway 直接操作底层队列和命令表。
+type DownlinkCommandService interface {
+	Enqueue(scope Scope, uuid string, cmdID CmdID, command string, payloadJSON []byte) (DownlinkMessage, error)
+	PopDownlink(uuid string) (DownlinkMessage, bool, error)
+	MarkSent(commandID int64) error
+	MarkAcked(commandID int64) error
+	MarkFailed(commandID int64, errorText string) error
+}
+
 // ExternalEntityService 定义外部集成实体的管理能力。
 type ExternalEntityService interface {
 	// GenerateExternalUUID 为外部实体生成稳定 UUID
@@ -112,7 +122,7 @@ type ExternalEntityService interface {
 }
 
 // DeviceManager 是当前阶段保留的组合接口。
-// 新调用方应优先依赖更小的 DeviceRegistry / DevicePresence / DeviceCommandQueue。
+// 新调用方应优先依赖更小的 DeviceRegistry / DevicePresence / DeviceCommandQueue / DownlinkCommandService。
 type DeviceManager interface {
 	DeviceRegistry
 	DevicePresence

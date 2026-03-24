@@ -39,6 +39,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 	// 3. Setup Managers
 	dm := device_manager.NewDeviceManager(ds)
+	downlinkCommands := device_manager.NewDownlinkCommandService(ds, dm)
 
 	// 测试里缩短在线判定窗口，便于更快覆盖在线/离线状态切换。
 	if impl, ok := dm.(*device_manager.DeviceManager); ok {
@@ -57,12 +58,12 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 	// 4. Create WebServer
 	ws, err := NewWebServer(WebServerDeps{
-		DataStore:          ds,
-		DeviceRegistry:     dm,
-		DevicePresence:     dm,
-		DeviceCommandQueue: dm,
-		Auth:               authService,
-		Captcha:            &TurnstileService{Enabled: false},
+		DataStore:        ds,
+		DeviceRegistry:   dm,
+		DevicePresence:   dm,
+		DownlinkCommands: downlinkCommands,
+		Auth:             authService,
+		Captcha:          &TurnstileService{Enabled: false},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -233,13 +233,12 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 		t.Fatalf("unexpected command status: %v", data["status"])
 	}
 
-	msg, ok := env.deviceManager.QueuePop(uuid)
+	dmsg, ok, err := env.downlinkCommands.PopDownlink(uuid)
+	if err != nil {
+		t.Fatalf("pop downlink failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("queued command should be available in device queue")
-	}
-	dmsg, ok := msg.(inter.DownlinkMessage)
-	if !ok {
-		t.Fatalf("unexpected queued message type: %T", msg)
 	}
 	if dmsg.CmdID != inter.CmdActionExec || dmsg.CommandID <= 0 {
 		t.Fatalf("unexpected queued message: %+v", dmsg)

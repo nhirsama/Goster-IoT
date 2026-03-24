@@ -34,15 +34,15 @@ func buildAPIModules(deps WebServerDeps) []apiModule {
 // 后续新增 v2/v3 时，只需要追加新的 factory，不需要回头改根路由实现。
 func newAPIV1Module(deps WebServerDeps) apiModule {
 	return apiv1.New(apiv1.Deps{
-		DataStore:          deps.DataStore,
-		DeviceRegistry:     deps.DeviceRegistry,
-		DevicePresence:     deps.DevicePresence,
-		DeviceCommandQueue: deps.DeviceCommandQueue,
-		Auth:               deps.Auth,
-		Captcha:            deps.Captcha,
-		Logger:             deps.Logger,
-		Config:             deps.Config,
-		LoginAttemptStore:  apiv1.NewInMemoryLoginAttemptStore(),
+		DataStore:         deps.DataStore,
+		DeviceRegistry:    deps.DeviceRegistry,
+		DevicePresence:    deps.DevicePresence,
+		DownlinkCommands:  deps.DownlinkCommands,
+		Auth:              deps.Auth,
+		Captcha:           deps.Captcha,
+		Logger:            deps.Logger,
+		Config:            deps.Config,
+		LoginAttemptStore: apiv1.NewInMemoryLoginAttemptStore(),
 	})
 }
 

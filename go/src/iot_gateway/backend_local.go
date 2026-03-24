@@ -12,18 +12,18 @@ import (
 // localBackend 是 IoT Gateway 在单体部署下的本地后端适配器。
 // 它把网络层请求转接到当前进程内的核心业务与存储实现。
 type localBackend struct {
-	dataStore inter.DataStore
-	registry  inter.DeviceRegistry
-	presence  inter.DevicePresence
-	queue     inter.DeviceCommandQueue
+	dataStore        inter.DataStore
+	registry         inter.DeviceRegistry
+	presence         inter.DevicePresence
+	downlinkCommands inter.DownlinkCommandService
 }
 
-func newLocalBackend(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, queue inter.DeviceCommandQueue) inter.GatewayBackend {
+func newLocalBackend(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, downlinkCommands inter.DownlinkCommandService) inter.GatewayBackend {
 	return &localBackend{
-		dataStore: ds,
-		registry:  registry,
-		presence:  presence,
-		queue:     queue,
+		dataStore:        ds,
+		registry:         registry,
+		presence:         presence,
+		downlinkCommands: downlinkCommands,
 	}
 }
 
@@ -95,37 +95,19 @@ func (b *localBackend) ReportDeviceError(uuid string, payload []byte) error {
 }
 
 func (b *localBackend) PopDownlink(uuid string) (inter.DownlinkMessage, bool, error) {
-	msg, ok := b.queue.QueuePop(uuid)
-	if !ok {
-		return inter.DownlinkMessage{}, false, nil
-	}
-
-	downlink, ok := msg.(inter.DownlinkMessage)
-	if !ok {
-		return inter.DownlinkMessage{}, false, errors.New("invalid downlink message type")
-	}
-	return downlink, true, nil
+	return b.downlinkCommands.PopDownlink(uuid)
 }
 
 func (b *localBackend) MarkDownlinkSent(commandID int64) error {
-	if commandID <= 0 {
-		return nil
-	}
-	return b.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusSent, "")
+	return b.downlinkCommands.MarkSent(commandID)
 }
 
 func (b *localBackend) MarkDownlinkAcked(commandID int64) error {
-	if commandID <= 0 {
-		return nil
-	}
-	return b.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusAcked, "")
+	return b.downlinkCommands.MarkAcked(commandID)
 }
 
 func (b *localBackend) MarkDownlinkFailed(commandID int64, errorText string) error {
-	if commandID <= 0 {
-		return nil
-	}
-	return b.dataStore.UpdateDeviceCommandStatus(commandID, inter.DeviceCommandStatusFailed, errorText)
+	return b.downlinkCommands.MarkFailed(commandID, errorText)
 }
 
 func mapLogLevel(level inter.LogLevel) string {
