@@ -1,6 +1,7 @@
 package datastore
 
 import (
+	"context"
 	"testing"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -63,5 +64,50 @@ func TestUserPermissionNotFound(t *testing.T) {
 	}
 	if err := store.UpdateUserPermission("missing-user", inter.PermissionAdmin); err == nil {
 		t.Fatal("expected UpdateUserPermission to fail for missing user")
+	}
+}
+
+func TestUserTenantRolesFollowLegacyPermissionMapping(t *testing.T) {
+	store := newTestStore(t)
+	sqlStore := asSQLStore(t, store)
+
+	if err := sqlStore.Create(context.Background(), &AuthUser{
+		Username: "bootstrap_admin",
+		Password: "bootstrap-password",
+	}); err != nil {
+		t.Fatalf("bootstrap create failed: %v", err)
+	}
+	if err := sqlStore.Create(context.Background(), &AuthUser{
+		Username: "member",
+		Password: "member-password",
+	}); err != nil {
+		t.Fatalf("member create failed: %v", err)
+	}
+
+	memberRoles, err := store.GetUserTenantRoles("member")
+	if err != nil {
+		t.Fatalf("GetUserTenantRoles failed: %v", err)
+	}
+	if got := memberRoles["tenant_legacy"]; got != inter.TenantRoleRO {
+		t.Fatalf("unexpected initial tenant role: got=%s want=%s", got, inter.TenantRoleRO)
+	}
+
+	if err := store.UpdateUserPermission("member", inter.PermissionReadWrite); err != nil {
+		t.Fatalf("UpdateUserPermission failed: %v", err)
+	}
+	memberRoles, err = store.GetUserTenantRoles("member")
+	if err != nil {
+		t.Fatalf("GetUserTenantRoles after update failed: %v", err)
+	}
+	if got := memberRoles["tenant_legacy"]; got != inter.TenantRoleRW {
+		t.Fatalf("unexpected updated tenant role: got=%s want=%s", got, inter.TenantRoleRW)
+	}
+
+	adminRoles, err := store.GetUserTenantRoles("bootstrap_admin")
+	if err != nil {
+		t.Fatalf("GetUserTenantRoles bootstrap admin failed: %v", err)
+	}
+	if got := adminRoles["tenant_legacy"]; got != inter.TenantRoleAdmin {
+		t.Fatalf("unexpected bootstrap admin role: got=%s want=%s", got, inter.TenantRoleAdmin)
 	}
 }

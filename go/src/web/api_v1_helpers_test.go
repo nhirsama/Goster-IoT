@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +61,7 @@ func TestDecodeAPIBody(t *testing.T) {
 	}
 }
 
-func TestSameOriginChecksWithProxyHeaders(t *testing.T) {
+func TestSameOriginChecksIgnoreForwardedHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	req.Host = "api.example.com"
 	if !isSameOriginRequest(req, "http://api.example.com") {
@@ -69,21 +70,28 @@ func TestSameOriginChecksWithProxyHeaders(t *testing.T) {
 
 	reqTLS := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqTLS.Host = "api.example.com"
-	reqTLS.Header.Set("X-Forwarded-Proto", "https")
+	reqTLS.TLS = &tls.ConnectionState{}
 	if !isSameOriginRequest(reqTLS, "https://api.example.com") {
-		t.Fatalf("forwarded https should be same-origin")
+		t.Fatalf("tls-backed https should be same-origin")
 	}
 
 	reqProxyHost := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	reqProxyHost.Host = "internal:8080"
 	reqProxyHost.Header.Set("X-Forwarded-Host", "api.example.com")
 	reqProxyHost.Header.Set("X-Forwarded-Proto", "https")
-	if !isSameOriginRequest(reqProxyHost, "https://api.example.com") {
-		t.Fatalf("forwarded host should be used for same-origin checks")
+	if isSameOriginRequest(reqProxyHost, "https://api.example.com") {
+		t.Fatalf("forwarded host must not be trusted for same-origin checks")
 	}
 
 	if isSameOriginRequest(req, "https://other.example.com") {
 		t.Fatalf("different host should not be same-origin")
+	}
+
+	reqForwardedProto := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	reqForwardedProto.Host = "api.example.com"
+	reqForwardedProto.Header.Set("X-Forwarded-Proto", "https")
+	if isSameOriginRequest(reqForwardedProto, "https://api.example.com") {
+		t.Fatalf("forwarded proto must not be trusted for same-origin checks")
 	}
 }
 

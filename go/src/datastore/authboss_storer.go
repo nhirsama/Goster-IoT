@@ -133,7 +133,13 @@ func (s *DataStoreSql) Save(ctx context.Context, user authboss.User) error {
 		rememberToken = sql.NullString{String: u.RememberToken, Valid: true}
 	}
 
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE users SET 
 			email=?, password=?, permission=?, 
 			recover_token=?, recover_token_expiry=?, 
@@ -154,10 +160,17 @@ func (s *DataStoreSql) Save(ctx context.Context, user authboss.User) error {
 	// 如果 UPDATE 影响行数为 0 (用户不存在), 回退到 Create
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
+		if err := tx.Rollback(); err != nil {
+			return err
+		}
 		return s.Create(ctx, u)
 	}
 
-	return nil
+	if err := s.syncLegacyTenantRoleTx(ctx, tx, u.Username, inter.PermissionType(u.Permission)); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // New 创建一个空白用户
@@ -172,9 +185,15 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 		return errors.New("create: 无效的用户类型")
 	}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	// 检查是否为第一个用户 (如果是则设为管理员)
 	var count int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -195,7 +214,7 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 		u.Password = "oauth2_dummy_password_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
-	res, err := s.db.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO users (email, username, password, permission, 
 			oauth2_uid, oauth2_provider, oauth2_access_token, oauth2_refresh_token, oauth2_expiry,
 			created_at, updated_at) 
@@ -216,7 +235,11 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 	}
 	u.ID = int(id)
 
-	return nil
+	if err := s.syncLegacyTenantRoleTx(ctx, tx, u.Username, inter.PermissionType(u.Permission)); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // NewFromOAuth2 根据 OAuth2 详情创建用户

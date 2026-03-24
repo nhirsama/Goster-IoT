@@ -15,6 +15,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("WEB_DEVICE_LIST_MAX_PAGE_SIZE", "")
 	t.Setenv("WEB_METRICS_MIN_VALID_TIMESTAMP_MS", "")
 	t.Setenv("WEB_METRICS_DEFAULT_RANGE_LABEL", "")
+	t.Setenv("WEB_LOGIN_MAX_FAILURES", "")
+	t.Setenv("WEB_LOGIN_WINDOW", "")
+	t.Setenv("WEB_LOGIN_LOCKOUT", "")
 	t.Setenv("API_READ_TIMEOUT", "")
 	t.Setenv("API_REGISTER_ACK_GRACE_DELAY", "")
 	t.Setenv("AUTHBOSS_ROOT_URL", "")
@@ -61,6 +64,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Web.Metrics.MinValidTimestampMs != defaultMetricsMinValidTimestampMs || cfg.Web.Metrics.DefaultRangeLabel != defaultMetricsRangeLabel {
 		t.Fatalf("unexpected web metrics config: %+v", cfg.Web.Metrics)
 	}
+	if cfg.Web.LoginProtection.MaxFailures != defaultLoginMaxFailures || cfg.Web.LoginProtection.Window != defaultLoginFailureWindow || cfg.Web.LoginProtection.Lockout != defaultLoginLockout {
+		t.Fatalf("unexpected login protection config: %+v", cfg.Web.LoginProtection)
+	}
 	if cfg.API.ReadTimeout != 60*time.Second || cfg.API.RegisterAckGraceDelay != 100*time.Millisecond {
 		t.Fatalf("unexpected api runtime config: %+v", cfg.API)
 	}
@@ -97,6 +103,9 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("WEB_DEVICE_LIST_MAX_PAGE_SIZE", "2000")
 	t.Setenv("WEB_METRICS_MIN_VALID_TIMESTAMP_MS", "1700000000000")
 	t.Setenv("WEB_METRICS_DEFAULT_RANGE_LABEL", "24h")
+	t.Setenv("WEB_LOGIN_MAX_FAILURES", "7")
+	t.Setenv("WEB_LOGIN_WINDOW", "20m")
+	t.Setenv("WEB_LOGIN_LOCKOUT", "45m")
 	t.Setenv("API_READ_TIMEOUT", "75s")
 	t.Setenv("API_REGISTER_ACK_GRACE_DELAY", "250ms")
 	t.Setenv("AUTHBOSS_ROOT_URL", "https://iot.example.com")
@@ -143,6 +152,9 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Web.Metrics.MinValidTimestampMs != 1700000000000 || cfg.Web.Metrics.DefaultRangeLabel != "24h" {
 		t.Fatalf("unexpected web metrics config: %+v", cfg.Web.Metrics)
+	}
+	if cfg.Web.LoginProtection.MaxFailures != 7 || cfg.Web.LoginProtection.Window != 20*time.Minute || cfg.Web.LoginProtection.Lockout != 45*time.Minute {
+		t.Fatalf("unexpected login protection config: %+v", cfg.Web.LoginProtection)
 	}
 	if cfg.API.ReadTimeout != 75*time.Second || cfg.API.RegisterAckGraceDelay != 250*time.Millisecond {
 		t.Fatalf("unexpected api config: %+v", cfg.API)

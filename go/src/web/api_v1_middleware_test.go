@@ -43,6 +43,8 @@ func TestAPIMiddlewareRejectsDisallowedOrigin(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
 	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("X-Forwarded-Host", "evil.example")
+	req.Header.Set("X-Forwarded-Proto", "https")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

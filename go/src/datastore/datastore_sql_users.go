@@ -1,8 +1,10 @@
 package datastore
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
@@ -60,7 +62,14 @@ func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType,
 
 // UpdateUserPermission 更新用户权限
 func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.PermissionType) error {
-	res, err := s.db.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
+	username = strings.TrimSpace(username)
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
 	if err != nil {
 		return err
 	}
@@ -71,5 +80,8 @@ func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.Permissi
 	if rows == 0 {
 		return errors.New("user not found")
 	}
-	return nil
+	if err := s.syncLegacyTenantRoleTx(context.Background(), tx, username, perm); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

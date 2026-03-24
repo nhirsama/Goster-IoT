@@ -19,6 +19,9 @@ const (
 	defaultMaxAPIBodyBytes            int64 = 1 << 20
 	defaultMetricsMinValidTimestampMs int64 = 1672531200000
 	defaultMetricsRangeLabel                = "1h"
+	defaultLoginMaxFailures                 = 5
+	defaultLoginFailureWindow               = 10 * time.Minute
+	defaultLoginLockout                     = 15 * time.Minute
 )
 
 type AppConfig struct {
@@ -41,6 +44,7 @@ type WebConfig struct {
 	MaxAPIBodyBytes     int64
 	DeviceListPage      PaginationConfig
 	Metrics             MetricsConfig
+	LoginProtection     LoginProtectionConfig
 }
 
 type APIConfig struct {
@@ -87,6 +91,12 @@ type MetricsConfig struct {
 	DefaultRangeLabel   string
 }
 
+type LoginProtectionConfig struct {
+	MaxFailures int
+	Window      time.Duration
+	Lockout     time.Duration
+}
+
 func DefaultDBConfig() DBConfig {
 	return DBConfig{Path: defaultDBPath}
 }
@@ -103,6 +113,11 @@ func DefaultWebConfig() WebConfig {
 		Metrics: MetricsConfig{
 			MinValidTimestampMs: defaultMetricsMinValidTimestampMs,
 			DefaultRangeLabel:   defaultMetricsRangeLabel,
+		},
+		LoginProtection: LoginProtectionConfig{
+			MaxFailures: defaultLoginMaxFailures,
+			Window:      defaultLoginFailureWindow,
+			Lockout:     defaultLoginLockout,
 		},
 	}
 }
@@ -186,6 +201,13 @@ func NormalizeWebConfig(cfg WebConfig) WebConfig {
 
 	out.Metrics.MinValidTimestampMs = normalizePositiveInt64(out.Metrics.MinValidTimestampMs, base.Metrics.MinValidTimestampMs)
 	out.Metrics.DefaultRangeLabel = normalizeMetricsRangeLabel(out.Metrics.DefaultRangeLabel)
+	out.LoginProtection.MaxFailures = normalizePositiveInt(out.LoginProtection.MaxFailures, base.LoginProtection.MaxFailures)
+	if out.LoginProtection.Window <= 0 {
+		out.LoginProtection.Window = base.LoginProtection.Window
+	}
+	if out.LoginProtection.Lockout <= 0 {
+		out.LoginProtection.Lockout = base.LoginProtection.Lockout
+	}
 	return out
 }
 
@@ -276,6 +298,9 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("web.device_list.max_page_size", 1000)
 	v.SetDefault("web.metrics.min_valid_timestamp_ms", defaultMetricsMinValidTimestampMs)
 	v.SetDefault("web.metrics.default_range_label", defaultMetricsRangeLabel)
+	v.SetDefault("web.login_protection.max_failures", defaultLoginMaxFailures)
+	v.SetDefault("web.login_protection.window", defaultLoginFailureWindow.String())
+	v.SetDefault("web.login_protection.lockout", defaultLoginLockout.String())
 
 	v.SetDefault("api.tcp_addr", defaultAPITCPAddr)
 	v.SetDefault("api.read_timeout", "60s")
@@ -308,6 +333,9 @@ func prepareViper(v *viper.Viper) error {
 		"web.device_list.max_page_size":                     "WEB_DEVICE_LIST_MAX_PAGE_SIZE",
 		"web.metrics.min_valid_timestamp_ms":                "WEB_METRICS_MIN_VALID_TIMESTAMP_MS",
 		"web.metrics.default_range_label":                   "WEB_METRICS_DEFAULT_RANGE_LABEL",
+		"web.login_protection.max_failures":                 "WEB_LOGIN_MAX_FAILURES",
+		"web.login_protection.window":                       "WEB_LOGIN_WINDOW",
+		"web.login_protection.lockout":                      "WEB_LOGIN_LOCKOUT",
 		"api.tcp_addr":                                      "API_TCP_ADDR",
 		"api.read_timeout":                                  "API_READ_TIMEOUT",
 		"api.register_ack_grace_delay":                      "API_REGISTER_ACK_GRACE_DELAY",
@@ -361,6 +389,8 @@ func loadFromViper(v *viper.Viper) AppConfig {
 	registerAckGrace := parseDurationOrDefault(v.GetString("api.register_ack_grace_delay"), base.API.RegisterAckGraceDelay)
 	captchaVerifyTimeout := parseDurationOrDefault(v.GetString("captcha.verify_timeout"), base.Captcha.VerifyTimeout)
 	heartbeatDeadline := parseDurationOrDefault(v.GetString("device_manager.heartbeat_deadline"), base.DeviceManager.HeartbeatDeadline)
+	loginWindow := parseDurationOrDefault(v.GetString("web.login_protection.window"), base.Web.LoginProtection.Window)
+	loginLockout := parseDurationOrDefault(v.GetString("web.login_protection.lockout"), base.Web.LoginProtection.Lockout)
 
 	out := AppConfig{
 		DB: DBConfig{
@@ -377,6 +407,11 @@ func loadFromViper(v *viper.Viper) AppConfig {
 			Metrics: MetricsConfig{
 				MinValidTimestampMs: normalizePositiveInt64(v.GetInt64("web.metrics.min_valid_timestamp_ms"), base.Web.Metrics.MinValidTimestampMs),
 				DefaultRangeLabel:   normalizeMetricsRangeLabel(v.GetString("web.metrics.default_range_label")),
+			},
+			LoginProtection: LoginProtectionConfig{
+				MaxFailures: normalizePositiveInt(v.GetInt("web.login_protection.max_failures"), base.Web.LoginProtection.MaxFailures),
+				Window:      loginWindow,
+				Lockout:     loginLockout,
 			},
 		},
 		API: APIConfig{

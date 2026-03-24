@@ -44,10 +44,8 @@ function getTenantStorage(): Storage | undefined {
 
 export function getActiveTenantId(): string | undefined {
   const storage = getTenantStorage();
-  if (storage) {
-    return normalizeTenantId(storage.getItem(TENANT_STORAGE_KEY)) || tenantMemoryFallback;
-  }
-  return tenantMemoryFallback || normalizeTenantId(process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID);
+  const storageTenantId = storage ? normalizeTenantId(storage.getItem(TENANT_STORAGE_KEY)) : undefined;
+  return storageTenantId || tenantMemoryFallback || normalizeTenantId(process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID);
 }
 
 export function setActiveTenantId(tenantId?: string | null): void {
@@ -119,9 +117,13 @@ async function request<T>(
   const requestId = `req_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substring(2, 10)}`;
   const hasJsonBody = body !== undefined && body !== null;
   const requestHeaders = new Headers(config?.headers);
+  const activeTenantId = getActiveTenantId();
 
   if (hasJsonBody && !requestHeaders.has("Content-Type")) {
     requestHeaders.set("Content-Type", "application/json");
+  }
+  if (activeTenantId && !requestHeaders.has("X-Tenant-Id")) {
+    requestHeaders.set("X-Tenant-Id", activeTenantId);
   }
   requestHeaders.set("X-Request-Id", requestId);
 

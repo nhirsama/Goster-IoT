@@ -204,6 +204,9 @@ type DataStore interface {
 	// GetUserPermission 获取指定用户的当前权限
 	GetUserPermission(username string) (PermissionType, error)
 
+	// GetUserTenantRoles 获取用户在各租户内的角色映射。
+	GetUserTenantRoles(username string) (map[string]TenantRole, error)
+
 	// UpdateUserPermission 更新用户权限（仅管理员可用）
 	UpdateUserPermission(username string, perm PermissionType) error
 }
