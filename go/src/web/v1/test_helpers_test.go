@@ -29,7 +29,8 @@ type apiTestEnv struct {
 	api              *apiv1.API
 	auth             webpkg.AuthService
 	dataStore        inter.DataStore
-	deviceManager    inter.DeviceManager
+	deviceRegistry   inter.DeviceRegistry
+	devicePresence   inter.DevicePresence
 	downlinkCommands inter.DownlinkCommandService
 }
 
@@ -53,7 +54,8 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
-	downlinkCommands := device_manager.NewDownlinkCommandService(ds, dm)
+	downlinkQueue := device_manager.NewDeviceCommandQueue(appcfg.DefaultDeviceManagerConfig().QueueCapacity)
+	downlinkCommands := device_manager.NewDownlinkCommandService(ds, downlinkQueue)
 	ab, err := webpkg.SetupAuthboss(ds)
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
@@ -78,7 +80,8 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 		api:              api,
 		auth:             authService,
 		dataStore:        ds,
-		deviceManager:    dm,
+		deviceRegistry:   dm,
+		devicePresence:   dm,
 		downlinkCommands: downlinkCommands,
 	}
 }

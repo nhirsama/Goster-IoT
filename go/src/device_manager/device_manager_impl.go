@@ -10,7 +10,6 @@ import (
 type DeviceManager struct {
 	registry inter.DeviceRegistry
 	presence *DevicePresenceService
-	message  inter.MessageQueue
 	external inter.ExternalEntityService
 }
 
@@ -23,7 +22,6 @@ func NewDeviceManagerWithConfig(ds inter.DataStore, cfg appcfg.DeviceManagerConf
 	return &DeviceManager{
 		registry: NewDeviceRegistry(ds),
 		presence: NewDevicePresenceWithStore(n.HeartbeatDeadline, NewInMemoryDevicePresenceStore()),
-		message:  NewMessageQueue(n.QueueCapacity),
 		external: NewExternalEntityService(ds, n),
 	}
 }
@@ -125,18 +123,4 @@ func (d *DeviceManager) HandleHeartbeat(uuid string) {
 
 func (d *DeviceManager) QueryDeviceStatus(uuid string) (inter.DeviceStatus, error) {
 	return d.presence.QueryDeviceStatus(uuid)
-}
-
-// --- 消息队列实现 ---
-
-func (d *DeviceManager) QueuePush(uuid string, message interface{}) error {
-	return d.message.Push(uuid, message)
-}
-
-func (d *DeviceManager) QueuePop(uuid string) (interface{}, bool) {
-	return d.message.Pop(uuid)
-}
-
-func (d *DeviceManager) QueueIsEmpty(uuid string) bool {
-	return d.message.IsEmpty(uuid)
 }

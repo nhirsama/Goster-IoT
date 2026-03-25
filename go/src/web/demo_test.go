@@ -39,7 +39,8 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 	// 3. Setup Managers
 	dm := device_manager.NewDeviceManager(ds)
-	downlinkCommands := device_manager.NewDownlinkCommandService(ds, dm)
+	downlinkQueue := device_manager.NewDeviceCommandQueue(128)
+	downlinkCommands := device_manager.NewDownlinkCommandService(ds, downlinkQueue)
 
 	// 测试里缩短在线判定窗口，便于更快覆盖在线/离线状态切换。
 	if impl, ok := dm.(*device_manager.DeviceManager); ok {
@@ -90,7 +91,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	// select {}
 }
 
-func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
+func populateData(t *testing.T, ds inter.DataStore, presence inter.DevicePresence) {
 	// Users
 	// ds.RegisterUser("admin", "admin123", inter.PermissionAdmin)
 	// ds.RegisterUser("viewer", "view123", inter.PermissionReadOnly)
@@ -101,7 +102,7 @@ func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
 		uuid := fmt.Sprintf("dev-online-%03d", i)
 		createDevice(ds, uuid, fmt.Sprintf("Sensor Online %d", i), inter.Authenticated)
 		generateMetrics(ds, uuid, 100)
-		dm.HandleHeartbeat(uuid) // Mark active
+		presence.HandleHeartbeat(uuid) // Mark active
 	}
 
 	// 50 Offline

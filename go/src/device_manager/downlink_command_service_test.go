@@ -8,22 +8,6 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-type testDeviceCommandQueue struct {
-	inter.MessageQueue
-}
-
-func (q testDeviceCommandQueue) QueuePush(uuid string, message interface{}) error {
-	return q.Push(uuid, message)
-}
-
-func (q testDeviceCommandQueue) QueuePop(uuid string) (interface{}, bool) {
-	return q.Pop(uuid)
-}
-
-func (q testDeviceCommandQueue) QueueIsEmpty(uuid string) bool {
-	return q.IsEmpty(uuid)
-}
-
 func TestDownlinkCommandServiceEnqueueAndStatusFlow(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "downlink.db")
 	ds, err := datastore.NewDataStoreSql(dbPath)
@@ -31,7 +15,7 @@ func TestDownlinkCommandServiceEnqueueAndStatusFlow(t *testing.T) {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 
-	queue := testDeviceCommandQueue{MessageQueue: NewMessageQueue(8)}
+	queue := NewDeviceCommandQueue(8)
 	service := NewDownlinkCommandService(ds, queue)
 
 	uuid := "device-1"

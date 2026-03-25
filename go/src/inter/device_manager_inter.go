@@ -84,13 +84,14 @@ type DevicePresence interface {
 }
 
 // DeviceCommandQueue 定义面向设备的下行命令缓冲能力。
+// 当前默认实现仍在内存中，后续可替换为 Redis 等共享队列。
 type DeviceCommandQueue interface {
-	// QueuePush 将指令推入队列
-	QueuePush(uuid string, message interface{}) error
-	// QueuePop 从队列中弹出指令
-	QueuePop(uuid string) (interface{}, bool)
-	// QueueIsEmpty 检查队列是否为空
-	QueueIsEmpty(uuid string) bool
+	// Enqueue 将下行消息推入设备队列。
+	Enqueue(uuid string, message DownlinkMessage) error
+	// Dequeue 从设备队列中弹出最早的一条下行消息。
+	Dequeue(uuid string) (DownlinkMessage, bool, error)
+	// IsEmpty 检查设备队列是否为空。
+	IsEmpty(uuid string) bool
 }
 
 // DownlinkCommandService 定义下行命令的编排能力。
@@ -131,27 +132,11 @@ type TelemetryIngestService interface {
 }
 
 // DeviceManager 是当前阶段保留的组合接口。
-// 新调用方应优先依赖更小的 DeviceRegistry / DevicePresence / DeviceCommandQueue / DownlinkCommandService。
+// 新调用方应优先依赖更小的 DeviceRegistry / DevicePresence / ExternalEntityService。
 type DeviceManager interface {
 	DeviceRegistry
 	DevicePresence
-	DeviceCommandQueue
 	ExternalEntityService
-}
-
-// MessageQueue 定义消息队列的底层操作接口
-// 用于缓冲后端发往设备的指令
-type MessageQueue interface {
-	// Push 入队
-	// 将指令推入指定 UUID 的队列中
-	Push(uuid string, message interface{}) error
-
-	// Pop 出队
-	// 从指定 UUID 的队列中取出最早的一条指令 (FIFO)
-	// 返回: (指令内容, 是否存在指令)
-	Pop(uuid string) (interface{}, bool)
-
-	IsEmpty(uuid string) bool
 }
 
 // DevicePresenceStore 抽象设备在线状态的运行时存储。

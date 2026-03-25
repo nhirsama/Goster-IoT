@@ -55,7 +55,8 @@ func start(ctx context.Context) {
 
 	dm := device_manager.NewDeviceManagerWithConfig(db, appCfg.DeviceManager)
 	telemetryIngest := device_manager.NewTelemetryIngestService(db)
-	downlinkCommands := device_manager.NewDownlinkCommandService(db, dm)
+	downlinkQueue := device_manager.NewDeviceCommandQueue(appCfg.DeviceManager.QueueCapacity)
+	downlinkCommands := device_manager.NewDownlinkCommandService(db, downlinkQueue)
 
 	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))

@@ -7,28 +7,30 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-type MessageQueue struct {
+// InMemoryDeviceCommandQueue 是设备下行队列的默认内存实现。
+type InMemoryDeviceCommandQueue struct {
 	queues   sync.Map
 	capacity int
 }
 
-func NewMessageQueue(cap int) inter.MessageQueue {
-	return &MessageQueue{
+// NewDeviceCommandQueue 创建默认内存态的设备下行队列。
+func NewDeviceCommandQueue(cap int) inter.DeviceCommandQueue {
+	return &InMemoryDeviceCommandQueue{
 		capacity: cap,
 	}
 }
 
-func (m *MessageQueue) Push(uuid string, message interface{}) error {
-	actual, _ := m.queues.LoadOrStore(uuid, make(chan interface{}, m.capacity))
-	q := actual.(chan interface{})
+func (m *InMemoryDeviceCommandQueue) Enqueue(uuid string, message inter.DownlinkMessage) error {
+	actual, _ := m.queues.LoadOrStore(uuid, make(chan inter.DownlinkMessage, m.capacity))
+	q := actual.(chan inter.DownlinkMessage)
 
 	select {
 	case q <- message:
 		return nil
 	default:
-		// 队列满策略：丢弃最早的一条并压入新指令
+		// 队列满策略：丢弃最早的一条并压入新指令。
 		select {
-		case <-q: // 弹出最早的
+		case <-q:
 		default:
 		}
 
@@ -41,25 +43,25 @@ func (m *MessageQueue) Push(uuid string, message interface{}) error {
 	}
 }
 
-func (m *MessageQueue) Pop(uuid string) (interface{}, bool) {
+func (m *InMemoryDeviceCommandQueue) Dequeue(uuid string) (inter.DownlinkMessage, bool, error) {
 	actual, exists := m.queues.Load(uuid)
 	if !exists {
-		return nil, false
+		return inter.DownlinkMessage{}, false, nil
 	}
-	q := actual.(chan interface{})
+	q := actual.(chan inter.DownlinkMessage)
 	select {
 	case msg := <-q:
-		return msg, true
+		return msg, true, nil
 	default:
-		return nil, false
+		return inter.DownlinkMessage{}, false, nil
 	}
 }
 
-func (m *MessageQueue) IsEmpty(uuid string) bool {
+func (m *InMemoryDeviceCommandQueue) IsEmpty(uuid string) bool {
 	actual, exists := m.queues.Load(uuid)
 	if !exists {
 		return true
 	}
-	q := actual.(chan interface{})
+	q := actual.(chan inter.DownlinkMessage)
 	return len(q) == 0
 }

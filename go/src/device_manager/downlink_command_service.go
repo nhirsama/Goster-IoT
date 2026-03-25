@@ -1,7 +1,6 @@
 package device_manager
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -33,7 +32,7 @@ func (s *DownlinkCommandService) Enqueue(scope inter.Scope, uuid string, cmdID i
 		CmdID:     cmdID,
 		Payload:   payloadJSON,
 	}
-	if err := s.queue.QueuePush(uuid, msg); err != nil {
+	if err := s.queue.Enqueue(uuid, msg); err != nil {
 		_ = s.MarkFailed(commandID, err.Error())
 		return inter.DownlinkMessage{}, err
 	}
@@ -42,16 +41,7 @@ func (s *DownlinkCommandService) Enqueue(scope inter.Scope, uuid string, cmdID i
 
 // PopDownlink 从设备队列中获取待发送命令。
 func (s *DownlinkCommandService) PopDownlink(uuid string) (inter.DownlinkMessage, bool, error) {
-	msg, ok := s.queue.QueuePop(uuid)
-	if !ok {
-		return inter.DownlinkMessage{}, false, nil
-	}
-
-	downlink, ok := msg.(inter.DownlinkMessage)
-	if !ok {
-		return inter.DownlinkMessage{}, false, errors.New("invalid downlink message type")
-	}
-	return downlink, true, nil
+	return s.queue.Dequeue(uuid)
 }
 
 // MarkSent 标记下行命令已发往设备。
