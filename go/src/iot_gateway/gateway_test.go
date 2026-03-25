@@ -39,8 +39,9 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
 	dm := device_manager.NewDeviceManager(ds)
+	telemetry := device_manager.NewTelemetryIngestService(ds)
 	downlinkCommands := device_manager.NewDownlinkCommandService(ds, dm)
-	svc := NewGatewayFromCoreWithConfig(ds, dm, dm, downlinkCommands, logger.NewNoop(), appcfg.APIConfig{
+	svc := NewGatewayFromCoreWithConfig(ds, dm, dm, telemetry, downlinkCommands, logger.NewNoop(), appcfg.APIConfig{
 		ReadTimeout:           5 * time.Second,
 		RegisterAckGraceDelay: 5 * time.Millisecond,
 	})

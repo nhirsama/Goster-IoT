@@ -54,11 +54,12 @@ func start(ctx context.Context) {
 	}
 
 	dm := device_manager.NewDeviceManagerWithConfig(db, appCfg.DeviceManager)
+	telemetryIngest := device_manager.NewTelemetryIngestService(db)
 	downlinkCommands := device_manager.NewDownlinkCommandService(db, dm)
 
 	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	gateway := iot_gateway.NewGatewayFromCoreWithConfig(db, dm, dm, downlinkCommands, gatewayLogger, appCfg.API)
+	gateway := iot_gateway.NewGatewayFromCoreWithConfig(db, dm, dm, telemetryIngest, downlinkCommands, gatewayLogger, appCfg.API)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:        db,

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
@@ -15,14 +14,16 @@ type localBackend struct {
 	dataStore        inter.DataStore
 	registry         inter.DeviceRegistry
 	presence         inter.DevicePresence
+	telemetry        inter.TelemetryIngestService
 	downlinkCommands inter.DownlinkCommandService
 }
 
-func newLocalBackend(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, downlinkCommands inter.DownlinkCommandService) inter.GatewayBackend {
+func newLocalBackend(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, telemetry inter.TelemetryIngestService, downlinkCommands inter.DownlinkCommandService) inter.GatewayBackend {
 	return &localBackend{
 		dataStore:        ds,
 		registry:         registry,
 		presence:         presence,
+		telemetry:        telemetry,
 		downlinkCommands: downlinkCommands,
 	}
 }
@@ -78,20 +79,19 @@ func (b *localBackend) ReportHeartbeat(uuid string) error {
 }
 
 func (b *localBackend) ReportMetrics(uuid string, points []inter.MetricPoint) error {
-	return b.dataStore.BatchAppendMetrics(uuid, points)
+	return b.telemetry.IngestMetrics(uuid, points)
 }
 
 func (b *localBackend) ReportLog(uuid string, data inter.LogUploadData) error {
-	finalMsg := fmt.Sprintf("[%s] %s", time.UnixMilli(data.Timestamp).Format(time.DateTime), data.Message)
-	return b.dataStore.WriteLog(uuid, mapLogLevel(data.Level), finalMsg)
+	return b.telemetry.IngestLog(uuid, data)
 }
 
 func (b *localBackend) ReportEvent(uuid string, payload []byte) error {
-	return b.dataStore.WriteLog(uuid, "EVENT", string(payload))
+	return b.telemetry.IngestEvent(uuid, payload)
 }
 
 func (b *localBackend) ReportDeviceError(uuid string, payload []byte) error {
-	return b.dataStore.WriteLog(uuid, "ERROR", string(payload))
+	return b.telemetry.IngestDeviceError(uuid, payload)
 }
 
 func (b *localBackend) PopDownlink(uuid string) (inter.DownlinkMessage, bool, error) {
@@ -108,19 +108,4 @@ func (b *localBackend) MarkDownlinkAcked(commandID int64) error {
 
 func (b *localBackend) MarkDownlinkFailed(commandID int64, errorText string) error {
 	return b.downlinkCommands.MarkFailed(commandID, errorText)
-}
-
-func mapLogLevel(level inter.LogLevel) string {
-	switch level {
-	case inter.LogLevelDebug:
-		return "DEBUG"
-	case inter.LogLevelInfo:
-		return "INFO"
-	case inter.LogLevelWarn:
-		return "WARN"
-	case inter.LogLevelError:
-		return "ERROR"
-	default:
-		return "UNKNOWN"
-	}
 }

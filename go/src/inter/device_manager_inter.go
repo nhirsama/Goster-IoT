@@ -121,6 +121,15 @@ type ExternalEntityService interface {
 	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
 }
 
+// TelemetryIngestService 定义设备遥测数据的接收与落库能力。
+// 网络层只负责协议与会话，这里的服务负责把解析后的数据沉淀到核心系统。
+type TelemetryIngestService interface {
+	IngestMetrics(uuid string, points []MetricPoint) error
+	IngestLog(uuid string, data LogUploadData) error
+	IngestEvent(uuid string, payload []byte) error
+	IngestDeviceError(uuid string, payload []byte) error
+}
+
 // DeviceManager 是当前阶段保留的组合接口。
 // 新调用方应优先依赖更小的 DeviceRegistry / DevicePresence / DeviceCommandQueue / DownlinkCommandService。
 type DeviceManager interface {
