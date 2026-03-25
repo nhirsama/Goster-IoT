@@ -33,6 +33,9 @@ func StartWithContext(ctx context.Context) {
 }
 
 func start(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	appCfg, err := config.Load()
 	if err != nil {
 		panic(fmt.Errorf("配置加载失败: %w", err))
@@ -86,10 +89,23 @@ func start(ctx context.Context) {
 		rootLogger.Error("Web 服务初始化失败", inter.Err(err))
 		panic(err)
 	}
-	go webServer.Start()
-	go gateway.Start()
+
+	errCh := make(chan error, 2)
+	go func() {
+		errCh <- webServer.Start(ctx)
+	}()
+	go func() {
+		errCh <- gateway.Start(ctx)
+	}()
+
 	select {
 	case <-ctx.Done():
+		return
+	case err := <-errCh:
+		if err != nil {
+			rootLogger.Error("后端服务异常退出", inter.Err(err))
+		}
+		cancel()
 		return
 	}
 }

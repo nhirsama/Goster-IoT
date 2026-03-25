@@ -1,12 +1,15 @@
 package iot_gateway
 
 import (
+	"context"
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +27,9 @@ type gatewayService struct {
 	protocol   inter.ProtocolCodec
 	privateKey *ecdh.PrivateKey
 	connSeq    atomic.Uint64
+	shutdown   atomic.Bool
+	connMu     sync.Mutex
+	conns      map[net.Conn]struct{}
 	config     appcfg.APIConfig
 }
 
@@ -50,6 +56,7 @@ func NewGatewayWithConfig(backend inter.GatewayBackend, l inter.Logger, cfg appc
 		logger:     l,
 		protocol:   protocol.NewGosterCodec(),
 		privateKey: privKey,
+		conns:      make(map[net.Conn]struct{}),
 		config:     cfg,
 	}
 }
@@ -70,23 +77,56 @@ func NewGatewayFromCore(registry inter.DeviceRegistry, presence inter.DevicePres
 	return NewGatewayFromCoreWithConfig(registry, presence, telemetry, downlinkCommands, l, appcfg.DefaultAPIConfig())
 }
 
-// Start 启动独立的 TCP 服务监听。
-func (g *gatewayService) Start() {
+// Start 启动独立的 TCP 服务监听，并在 ctx 取消后主动停止监听和连接。
+func (g *gatewayService) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	addr := g.config.TCPAddr
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		g.logger.Error("IoT Gateway 监听失败", inter.String("addr", addr), inter.Err(err))
-		panic(err)
+		return err
 	}
-	g.logger.Info("IoT Gateway 已启动", inter.String("addr", addr))
+	defer listener.Close()
+
+	g.shutdown.Store(false)
+	g.logger.Info("IoT Gateway 已启动", inter.String("addr", listener.Addr().String()))
+
+	stopShutdown := make(chan struct{})
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		select {
+		case <-ctx.Done():
+			g.shutdown.Store(true)
+			_ = listener.Close()
+			g.closeActiveConnections()
+		case <-stopShutdown:
+		}
+	}()
+	defer close(stopShutdown)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				<-shutdownDone
+				return nil
+			}
 			g.logger.Warn("IoT Gateway 接受连接失败", inter.Err(err))
-			continue
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
+			return err
 		}
-		go g.handleConnection(conn)
+		g.trackConnection(conn)
+		go func() {
+			defer g.untrackConnection(conn)
+			g.handleConnection(conn)
+		}()
 	}
 }
 
@@ -116,6 +156,9 @@ func (g *gatewayService) handleConnection(conn net.Conn) {
 
 		packet, err := g.protocol.Unpack(conn, sessionKey)
 		if err != nil {
+			if g.shutdown.Load() {
+				return
+			}
 			if err != io.EOF && err != io.ErrUnexpectedEOF {
 				connLogger.Warn("IoT Gateway 解包失败", inter.Err(err))
 			}
@@ -266,5 +309,25 @@ func (g *gatewayService) handleConnection(conn net.Conn) {
 					inter.Int64("command_id", msg.CommandID))
 			}
 		}
+	}
+}
+
+func (g *gatewayService) trackConnection(conn net.Conn) {
+	g.connMu.Lock()
+	defer g.connMu.Unlock()
+	g.conns[conn] = struct{}{}
+}
+
+func (g *gatewayService) untrackConnection(conn net.Conn) {
+	g.connMu.Lock()
+	defer g.connMu.Unlock()
+	delete(g.conns, conn)
+}
+
+func (g *gatewayService) closeActiveConnections() {
+	g.connMu.Lock()
+	defer g.connMu.Unlock()
+	for conn := range g.conns {
+		_ = conn.Close()
 	}
 }

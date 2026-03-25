@@ -1,5 +1,7 @@
 package inter
 
+import "context"
+
 type WebServer interface {
-	Start()
+	Start(ctx context.Context) error
 }

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -80,7 +81,13 @@ func TestRunServerAndStressTest(t *testing.T) {
 	populateData(t, ds, services.DevicePresence)
 
 	// 6. Start Server in Goroutine
-	go ws.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		if err := ws.Start(ctx); err != nil {
+			t.Errorf("web server exited with error: %v", err)
+		}
+	}()
 
 	// Wait for server to start
 	time.Sleep(1 * time.Second)
