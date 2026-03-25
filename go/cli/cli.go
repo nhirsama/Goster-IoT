@@ -59,7 +59,7 @@ func start(ctx context.Context) {
 
 	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	gateway := iot_gateway.NewGatewayFromCoreWithConfig(db, dm, dm, telemetryIngest, downlinkCommands, gatewayLogger, appCfg.API)
+	gateway := iot_gateway.NewGatewayFromCoreWithConfig(dm, dm, telemetryIngest, downlinkCommands, gatewayLogger, appCfg.API)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:        db,

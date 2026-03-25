@@ -11,16 +11,14 @@ import (
 // localBackend 是 IoT Gateway 在单体部署下的本地后端适配器。
 // 它把网络层请求转接到当前进程内的核心业务与存储实现。
 type localBackend struct {
-	dataStore        inter.DataStore
 	registry         inter.DeviceRegistry
 	presence         inter.DevicePresence
 	telemetry        inter.TelemetryIngestService
 	downlinkCommands inter.DownlinkCommandService
 }
 
-func newLocalBackend(ds inter.DataStore, registry inter.DeviceRegistry, presence inter.DevicePresence, telemetry inter.TelemetryIngestService, downlinkCommands inter.DownlinkCommandService) inter.GatewayBackend {
+func newLocalBackend(registry inter.DeviceRegistry, presence inter.DevicePresence, telemetry inter.TelemetryIngestService, downlinkCommands inter.DownlinkCommandService) inter.GatewayBackend {
 	return &localBackend{
-		dataStore:        ds,
 		registry:         registry,
 		presence:         presence,
 		telemetry:        telemetry,
@@ -34,7 +32,7 @@ func (b *localBackend) AuthenticateDevice(token string) (string, error) {
 
 func (b *localBackend) RegisterDevice(meta inter.DeviceMetadata) (inter.DeviceRegistrationResult, error) {
 	uuid := b.registry.GenerateUUID(meta)
-	existingMeta, err := b.dataStore.LoadConfig(uuid)
+	existingMeta, err := b.registry.GetDeviceMetadata(uuid)
 	if err != nil {
 		if registerErr := b.registry.RegisterDevice(meta); registerErr != nil {
 			return inter.DeviceRegistrationResult{}, fmt.Errorf("init device failed: %w", registerErr)

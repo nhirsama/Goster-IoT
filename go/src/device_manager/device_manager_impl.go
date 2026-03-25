@@ -8,8 +8,6 @@ import (
 )
 
 type DeviceManager struct {
-	DataStore inter.DataStore
-
 	registry inter.DeviceRegistry
 	presence *DevicePresenceService
 	message  inter.MessageQueue
@@ -23,11 +21,10 @@ func NewDeviceManager(ds inter.DataStore) inter.DeviceManager {
 func NewDeviceManagerWithConfig(ds inter.DataStore, cfg appcfg.DeviceManagerConfig) inter.DeviceManager {
 	n := appcfg.NormalizeDeviceManagerConfig(cfg)
 	return &DeviceManager{
-		DataStore: ds,
-		registry:  NewDeviceRegistry(ds),
-		presence:  NewDevicePresenceWithStore(n.HeartbeatDeadline, NewInMemoryDevicePresenceStore()),
-		message:   NewMessageQueue(n.QueueCapacity),
-		external:  NewExternalEntityService(ds, n),
+		registry: NewDeviceRegistry(ds),
+		presence: NewDevicePresenceWithStore(n.HeartbeatDeadline, NewInMemoryDevicePresenceStore()),
+		message:  NewMessageQueue(n.QueueCapacity),
+		external: NewExternalEntityService(ds, n),
 	}
 }
 
