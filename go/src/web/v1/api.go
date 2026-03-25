@@ -1,11 +1,10 @@
 package v1
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/aarondl/authboss/v3"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -38,20 +37,6 @@ type Envelope struct {
 	Meta      interface{}  `json:"meta,omitempty"`
 }
 
-// AuthService 定义了 v1 API 依赖的认证能力边界。
-type AuthService interface {
-	LoadClientStateMiddleware(next http.Handler) http.Handler
-	CurrentUser(r *http.Request) (authboss.User, error)
-	NewAuthableUser(ctx context.Context) (authboss.AuthableUser, error)
-	CreateUser(ctx context.Context, user authboss.User) error
-	HashPassword(password string) (string, error)
-	LoadUser(ctx context.Context, pid string) (authboss.User, error)
-	VerifyPassword(user authboss.AuthableUser, password string) error
-	FireBefore(event authboss.Event, w http.ResponseWriter, r *http.Request) (bool, error)
-	FireAfter(event authboss.Event, w http.ResponseWriter, r *http.Request) (bool, error)
-	ClearRememberTokens(ctx context.Context, pid string) error
-}
-
 // CaptchaVerifier 抽象了公开认证接口使用的验证码校验能力。
 type CaptchaVerifier interface {
 	IsEnabled() bool
@@ -65,26 +50,27 @@ type Deps struct {
 	DeviceRegistry    inter.DeviceRegistry
 	DevicePresence    inter.DevicePresence
 	DownlinkCommands  inter.DownlinkCommandService
-	Auth              AuthService
+	Auth              identity.Service
 	Captcha           CaptchaVerifier
 	Logger            inter.Logger
 	Config            appcfg.WebConfig
+	PrincipalResolver identity.PrincipalResolver
 	LoginAttemptStore LoginAttemptStore  // 允许装配层替换登录失败状态存储，例如 Redis。
 	LoginGuard        *LoginAttemptGuard // 允许测试或高级场景直接注入登录保护器。
 }
 
 // API 负责 `/api/v1` 路由下的中间件、分发和处理逻辑。
 type API struct {
-	dataStore        inter.WebV1Store
-	registry         inter.DeviceRegistry
-	presence         inter.DevicePresence
-	downlinkCommands inter.DownlinkCommandService
-	auth             AuthService
-	captcha          CaptchaVerifier
-	logger           inter.Logger
-	config           appcfg.WebConfig
-	tenantAccess     *tenantAccessResolver
-	loginGuard       *LoginAttemptGuard
+	dataStore         inter.WebV1Store
+	registry          inter.DeviceRegistry
+	presence          inter.DevicePresence
+	downlinkCommands  inter.DownlinkCommandService
+	auth              identity.Service
+	captcha           CaptchaVerifier
+	logger            inter.Logger
+	config            appcfg.WebConfig
+	principalResolver identity.PrincipalResolver
+	loginGuard        *LoginAttemptGuard
 }
 
 // New 根据 web 层注入的依赖构造一组 v1 API 处理器。
@@ -100,7 +86,10 @@ func New(deps Deps) *API {
 		logger:           deps.Logger,
 		config:           cfg,
 	}
-	api.tenantAccess = newTenantAccessResolver(api.dataStore)
+	api.principalResolver = deps.PrincipalResolver
+	if api.principalResolver == nil {
+		api.principalResolver = identity.NewTenantPrincipalResolver(api.dataStore)
+	}
 	api.loginGuard = deps.LoginGuard
 	if api.loginGuard == nil {
 		api.loginGuard = NewLoginAttemptGuardWithStore(cfg.LoginProtection, deps.LoginAttemptStore)

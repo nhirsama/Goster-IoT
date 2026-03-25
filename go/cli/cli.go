@@ -84,14 +84,22 @@ func serve(ctx context.Context) error {
 	dbCfg := appCfg.DB
 	dbCfg.SchemaMode = "managed"
 
-	db, err := persistence.OpenStore(dbCfg)
+	authStore, err := persistence.OpenAuthStore(dbCfg)
 	if err != nil {
-		rootLogger.Error("数据存储初始化失败", inter.Err(err))
+		rootLogger.Error("认证存储初始化失败", inter.Err(err))
 		return err
 	}
+	defer persistence.CloseIfPossible(authStore)
+
+	runtimeStore, err := persistence.OpenRuntimeStore(dbCfg)
+	if err != nil {
+		rootLogger.Error("业务存储初始化失败", inter.Err(err), inter.String("backend", dbCfg.StoreBackend))
+		return err
+	}
+	defer persistence.CloseIfPossible(runtimeStore)
 
 	// Initialize Authboss (Encapsulated in web package)
-	ab, err := web.SetupAuthbossWithConfig(db, appCfg.Auth)
+	ab, err := web.SetupAuthbossWithConfig(authStore, appCfg.Auth)
 	if err != nil {
 		rootLogger.Error("Authboss 初始化失败", inter.Err(err))
 		return err
@@ -102,7 +110,7 @@ func serve(ctx context.Context) error {
 		return err
 	}
 
-	services := core.NewServicesWithConfig(db, appCfg.DeviceManager)
+	services := core.NewServicesWithConfig(runtimeStore, appCfg.DeviceManager)
 
 	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
@@ -116,7 +124,7 @@ func serve(ctx context.Context) error {
 	)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
-		DataStore:        db,
+		DataStore:        runtimeStore,
 		DeviceRegistry:   services.DeviceRegistry,
 		DevicePresence:   services.DevicePresence,
 		DownlinkCommands: services.DownlinkCommands,

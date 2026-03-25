@@ -15,6 +15,8 @@ const (
 	defaultDBPath                           = "./data.db"
 	defaultSQLiteSchemaMode                 = "bootstrap"
 	defaultPostgresSchemaMode               = "managed"
+	defaultSQLiteStoreBackend               = "sql"
+	defaultPostgresStoreBackend             = "bun"
 	defaultWebHTTPAddr                      = ":8080"
 	defaultAPITCPAddr                       = ":8081"
 	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
@@ -38,10 +40,11 @@ type AppConfig struct {
 }
 
 type DBConfig struct {
-	Driver     string
-	Path       string
-	DSN        string
-	SchemaMode string
+	Driver       string
+	Path         string
+	DSN          string
+	SchemaMode   string
+	StoreBackend string
 }
 
 type WebConfig struct {
@@ -105,9 +108,10 @@ type LoginProtectionConfig struct {
 
 func DefaultDBConfig() DBConfig {
 	return DBConfig{
-		Driver:     defaultDBDriver,
-		Path:       defaultDBPath,
-		SchemaMode: defaultSQLiteSchemaMode,
+		Driver:       defaultDBDriver,
+		Path:         defaultDBPath,
+		SchemaMode:   defaultSQLiteSchemaMode,
+		StoreBackend: defaultSQLiteStoreBackend,
 	}
 }
 
@@ -284,11 +288,13 @@ func NormalizeDBConfig(cfg DBConfig) DBConfig {
 		out.DSN = strings.TrimSpace(out.DSN)
 		out.Path = strings.TrimSpace(out.Path)
 		out.SchemaMode = normalizeDBSchemaMode(out.SchemaMode, defaultPostgresSchemaMode)
+		out.StoreBackend = normalizeDBStoreBackend(out.StoreBackend, defaultPostgresStoreBackend)
 	default:
 		out.Driver = "sqlite"
 		out.Path = normalizeOrDefault(out.Path, base.Path)
 		out.DSN = strings.TrimSpace(out.DSN)
 		out.SchemaMode = normalizeDBSchemaMode(out.SchemaMode, defaultSQLiteSchemaMode)
+		out.StoreBackend = normalizeDBStoreBackend(out.StoreBackend, defaultSQLiteStoreBackend)
 	}
 	return out
 }
@@ -296,6 +302,15 @@ func NormalizeDBConfig(cfg DBConfig) DBConfig {
 func normalizeDBSchemaMode(raw string, fallback string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "bootstrap", "managed":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return fallback
+	}
+}
+
+func normalizeDBStoreBackend(raw string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "sql", "bun":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
 		return fallback
@@ -331,6 +346,7 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("db.driver", defaultDBDriver)
 	v.SetDefault("db.path", defaultDBPath)
 	v.SetDefault("db.dsn", "")
+	v.SetDefault("db.store_backend", "")
 	v.SetDefault("web.http_addr", defaultWebHTTPAddr)
 	v.SetDefault("web.api_cors_allow_origins", defaultAPICORSAllowOrigins)
 	v.SetDefault("web.max_api_body_bytes", defaultMaxAPIBodyBytes)
@@ -369,6 +385,7 @@ func prepareViper(v *viper.Viper) error {
 		"db.path":                                           "DB_PATH",
 		"db.dsn":                                            "DB_DSN",
 		"db.schema_mode":                                    "DB_SCHEMA_MODE",
+		"db.store_backend":                                  "DB_STORE_BACKEND",
 		"web.http_addr":                                     "WEB_HTTP_ADDR",
 		"web.api_cors_allow_origins":                        "API_CORS_ALLOW_ORIGINS",
 		"web.max_api_body_bytes":                            "WEB_API_MAX_BODY_BYTES",
@@ -437,10 +454,11 @@ func loadFromViper(v *viper.Viper) AppConfig {
 
 	out := AppConfig{
 		DB: DBConfig{
-			Driver:     strings.TrimSpace(v.GetString("db.driver")),
-			Path:       strings.TrimSpace(v.GetString("db.path")),
-			DSN:        strings.TrimSpace(v.GetString("db.dsn")),
-			SchemaMode: strings.TrimSpace(v.GetString("db.schema_mode")),
+			Driver:       strings.TrimSpace(v.GetString("db.driver")),
+			Path:         strings.TrimSpace(v.GetString("db.path")),
+			DSN:          strings.TrimSpace(v.GetString("db.dsn")),
+			SchemaMode:   strings.TrimSpace(v.GetString("db.schema_mode")),
+			StoreBackend: strings.TrimSpace(v.GetString("db.store_backend")),
 		},
 		Web: WebConfig{
 			HTTPAddr:            strings.TrimSpace(v.GetString("web.http_addr")),

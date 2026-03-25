@@ -73,7 +73,7 @@ func (api *API) AuthMiddleware(next http.HandlerFunc, minPerm inter.PermissionTy
 		}
 
 		requestedTenant := api.requestedTenantID(r)
-		scope, _, err := api.tenantAccess.Resolve(r.Context(), user.GetUsername(), user.GetPermission(), requestedTenant)
+		principal, err := api.principalResolver.Resolve(r.Context(), user, requestedTenant)
 		if err != nil {
 			if isTenantAccessError(err) {
 				api.ErrorWithRequestID(w, http.StatusForbidden, rid, 40303, "forbidden",
@@ -85,14 +85,14 @@ func (api *API) AuthMiddleware(next http.HandlerFunc, minPerm inter.PermissionTy
 		}
 
 		ctx := context.WithValue(r.Context(), ContextRequestID, rid)
-		ctx = context.WithValue(ctx, ContextUsername, user.GetUsername())
-		ctx = context.WithValue(ctx, ContextPerm, user.GetPermission())
-		ctx = context.WithValue(ctx, ContextTenantID, scope.TenantID)
+		ctx = context.WithValue(ctx, ContextUsername, principal.Username)
+		ctx = context.WithValue(ctx, ContextPerm, principal.Permission)
+		ctx = context.WithValue(ctx, ContextTenantID, principal.Scope.TenantID)
 		ctx = logger.IntoContext(ctx, logger.FromContext(ctx).With(
-			inter.String("username", user.GetUsername()),
-			inter.Int("permission", int(user.GetPermission())),
+			inter.String("username", principal.Username),
+			inter.Int("permission", int(principal.Permission)),
 			inter.String("requested_tenant_id", requestedTenant),
-			inter.String("tenant_id", scope.TenantID),
+			inter.String("tenant_id", principal.Scope.TenantID),
 		))
 
 		next.ServeHTTP(w, r.WithContext(ctx))

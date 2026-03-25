@@ -15,6 +15,13 @@ type DataStoreSql struct {
 	dialect sqlDialect
 }
 
+func (ds *DataStoreSql) Close() error {
+	if ds == nil || ds.db == nil {
+		return nil
+	}
+	return ds.db.Close()
+}
+
 // OpenDataStoreSql 只打开现有的 SQLite 数据库，不隐式建表。
 func OpenDataStoreSql(dbPath string) (inter.DataStore, error) {
 	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
