@@ -6,12 +6,12 @@ import (
 	"time"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
 func TestNewServicesWithConfigBuildsAllCoreServices(t *testing.T) {
-	ds, err := datastore.NewDataStoreSql(filepath.Join(t.TempDir(), "core_services.db"))
+	ds, err := persistence.OpenSQLite(filepath.Join(t.TempDir(), "core_services.db"))
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestNewServicesWithConfigBuildsAllCoreServices(t *testing.T) {
 }
 
 func TestNewServicesDeleteDeviceClearsPresenceState(t *testing.T) {
-	ds, err := datastore.NewDataStoreSql(filepath.Join(t.TempDir(), "core_presence.db"))
+	ds, err := persistence.OpenSQLite(filepath.Join(t.TempDir(), "core_presence.db"))
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}

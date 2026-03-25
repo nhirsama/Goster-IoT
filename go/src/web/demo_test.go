@@ -13,8 +13,8 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
 type heartbeatDeadlineSetter interface {
@@ -36,7 +36,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	defer os.RemoveAll(tempDir) // Clean up after test
 	dbPath := filepath.Join(tempDir, "test_data.db")
 
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open datastore at %s: %v", dbPath, err)
 	}

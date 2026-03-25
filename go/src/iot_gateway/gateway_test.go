@@ -16,9 +16,9 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 	"github.com/nhirsama/Goster-IoT/src/protocol"
 )
 
@@ -34,7 +34,7 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "gateway_test.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}

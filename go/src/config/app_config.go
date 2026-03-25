@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	defaultDBDriver                         = "sqlite"
 	defaultDBPath                           = "./data.db"
 	defaultWebHTTPAddr                      = ":8080"
 	defaultAPITCPAddr                       = ":8081"
@@ -35,7 +36,9 @@ type AppConfig struct {
 }
 
 type DBConfig struct {
-	Path string
+	Driver string
+	Path   string
+	DSN    string
 }
 
 type WebConfig struct {
@@ -98,7 +101,10 @@ type LoginProtectionConfig struct {
 }
 
 func DefaultDBConfig() DBConfig {
-	return DBConfig{Path: defaultDBPath}
+	return DBConfig{
+		Driver: defaultDBDriver,
+		Path:   defaultDBPath,
+	}
 }
 
 func DefaultWebConfig() WebConfig {
@@ -264,6 +270,23 @@ func NormalizeDeviceManagerConfig(cfg DeviceManagerConfig) DeviceManagerConfig {
 	return out
 }
 
+func NormalizeDBConfig(cfg DBConfig) DBConfig {
+	base := DefaultDBConfig()
+	out := cfg
+	out.Driver = strings.ToLower(normalizeOrDefault(out.Driver, base.Driver))
+	switch out.Driver {
+	case "postgres", "postgresql":
+		out.Driver = "postgres"
+		out.DSN = strings.TrimSpace(out.DSN)
+		out.Path = strings.TrimSpace(out.Path)
+	default:
+		out.Driver = "sqlite"
+		out.Path = normalizeOrDefault(out.Path, base.Path)
+		out.DSN = strings.TrimSpace(out.DSN)
+	}
+	return out
+}
+
 // ResolveCookieSecure 根据配置值推导 Cookie Secure 标志。
 func ResolveCookieSecure(rawCookieSecure, rawEnv, rawRootURL string) bool {
 	if raw := strings.TrimSpace(rawCookieSecure); raw != "" {
@@ -290,7 +313,9 @@ func Load() (AppConfig, error) {
 }
 
 func prepareViper(v *viper.Viper) error {
+	v.SetDefault("db.driver", defaultDBDriver)
 	v.SetDefault("db.path", defaultDBPath)
+	v.SetDefault("db.dsn", "")
 	v.SetDefault("web.http_addr", defaultWebHTTPAddr)
 	v.SetDefault("web.api_cors_allow_origins", defaultAPICORSAllowOrigins)
 	v.SetDefault("web.max_api_body_bytes", defaultMaxAPIBodyBytes)
@@ -325,7 +350,9 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("logger.service", "goster-iot")
 
 	binds := map[string]string{
+		"db.driver":                                         "DB_DRIVER",
 		"db.path":                                           "DB_PATH",
+		"db.dsn":                                            "DB_DSN",
 		"web.http_addr":                                     "WEB_HTTP_ADDR",
 		"web.api_cors_allow_origins":                        "API_CORS_ALLOW_ORIGINS",
 		"web.max_api_body_bytes":                            "WEB_API_MAX_BODY_BYTES",
@@ -394,7 +421,9 @@ func loadFromViper(v *viper.Viper) AppConfig {
 
 	out := AppConfig{
 		DB: DBConfig{
-			Path: normalizeOrDefault(v.GetString("db.path"), base.DB.Path),
+			Driver: strings.TrimSpace(v.GetString("db.driver")),
+			Path:   strings.TrimSpace(v.GetString("db.path")),
+			DSN:    strings.TrimSpace(v.GetString("db.dsn")),
 		},
 		Web: WebConfig{
 			HTTPAddr:            strings.TrimSpace(v.GetString("web.http_addr")),
@@ -453,6 +482,7 @@ func loadFromViper(v *viper.Viper) AppConfig {
 			Env:       normalizeOrDefault(logEnv, base.Logger.Env),
 		},
 	}
+	out.DB = NormalizeDBConfig(out.DB)
 	out.Web = NormalizeWebConfig(out.Web)
 	out.API = NormalizeAPIConfig(out.API)
 	out.Auth = NormalizeAuthConfig(out.Auth)

@@ -15,6 +15,7 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/core"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 	webpkg "github.com/nhirsama/Goster-IoT/src/web"
 	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
@@ -49,7 +50,7 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}

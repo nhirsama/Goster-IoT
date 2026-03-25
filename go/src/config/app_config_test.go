@@ -6,7 +6,9 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
+	t.Setenv("DB_DRIVER", "")
 	t.Setenv("DB_PATH", "")
+	t.Setenv("DB_DSN", "")
 	t.Setenv("WEB_HTTP_ADDR", "")
 	t.Setenv("API_TCP_ADDR", "")
 	t.Setenv("API_CORS_ALLOW_ORIGINS", "")
@@ -43,8 +45,8 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if cfg.DB.Path != defaultDBPath {
-		t.Fatalf("unexpected db path: %s", cfg.DB.Path)
+	if cfg.DB.Driver != defaultDBDriver || cfg.DB.Path != defaultDBPath || cfg.DB.DSN != "" {
+		t.Fatalf("unexpected db config: %+v", cfg.DB)
 	}
 	if cfg.Web.HTTPAddr != defaultWebHTTPAddr {
 		t.Fatalf("unexpected web http addr: %s", cfg.Web.HTTPAddr)
@@ -94,7 +96,9 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadEnvOverrides(t *testing.T) {
+	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_PATH", "/tmp/custom.db")
+	t.Setenv("DB_DSN", "")
 	t.Setenv("WEB_HTTP_ADDR", ":9000")
 	t.Setenv("API_TCP_ADDR", ":9001")
 	t.Setenv("API_CORS_ALLOW_ORIGINS", "https://fe.example.com")
@@ -135,8 +139,8 @@ func TestLoadEnvOverrides(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if cfg.DB.Path != "/tmp/custom.db" {
-		t.Fatalf("unexpected db path: %s", cfg.DB.Path)
+	if cfg.DB.Driver != "sqlite" || cfg.DB.Path != "/tmp/custom.db" || cfg.DB.DSN != "" {
+		t.Fatalf("unexpected db config: %+v", cfg.DB)
 	}
 	if cfg.Web.HTTPAddr != ":9000" || cfg.API.TCPAddr != ":9001" {
 		t.Fatalf("unexpected listen addrs web=%s api=%s", cfg.Web.HTTPAddr, cfg.API.TCPAddr)
@@ -194,5 +198,23 @@ func TestResolveCookieSecureFallback(t *testing.T) {
 	}
 	if ResolveCookieSecure("", "dev", "http://localhost:8080") {
 		t.Fatal("dev + http should default secure cookie to false")
+	}
+}
+
+func TestLoadPostgresDBConfig(t *testing.T) {
+	t.Setenv("DB_DRIVER", "postgres")
+	t.Setenv("DB_PATH", "")
+	t.Setenv("DB_DSN", "postgres://iot:iot@localhost:5432/goster?sslmode=disable")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if cfg.DB.Driver != "postgres" {
+		t.Fatalf("unexpected db driver: %s", cfg.DB.Driver)
+	}
+	if cfg.DB.DSN != "postgres://iot:iot@localhost:5432/goster?sslmode=disable" {
+		t.Fatalf("unexpected db dsn: %s", cfg.DB.DSN)
 	}
 }

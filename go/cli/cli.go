@@ -9,10 +9,10 @@ import (
 
 	"github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/iot_gateway"
 	"github.com/nhirsama/Goster-IoT/src/logger"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 	"github.com/nhirsama/Goster-IoT/src/web"
 )
 
@@ -35,7 +35,7 @@ func start(ctx context.Context) {
 	rootLogger := initRootLogger(appCfg.Logger)
 	rootLogger.Info("日志系统已初始化")
 
-	db, err := datastore.NewDataStoreSql(appCfg.DB.Path)
+	db, err := persistence.OpenStore(appCfg.DB)
 	if err != nil {
 		rootLogger.Error("数据存储初始化失败", inter.Err(err))
 		panic(err)
