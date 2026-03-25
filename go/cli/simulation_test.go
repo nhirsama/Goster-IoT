@@ -71,6 +71,10 @@ func TestCLIStartBootstrapsHTTPAndTCP(t *testing.T) {
 	t.Setenv("API_TCP_ADDR", apiAddr)
 	t.Setenv("AUTHBOSS_ROOT_URL", "http://"+webAddr)
 
+	if err := RunWithArgs(context.Background(), []string{"db", "init"}); err != nil {
+		t.Fatalf("db init failed: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

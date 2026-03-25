@@ -12,13 +12,13 @@ import (
 // GetUserCount 获取注册用户总数
 func (s *DataStoreSql) GetUserCount() (int, error) {
 	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	err := s.queryRow("SELECT COUNT(*) FROM users").Scan(&count)
 	return count, err
 }
 
 // ListUsers 获取所有用户列表
 func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
-	rows, err := s.db.Query("SELECT username, permission, created_at FROM users")
+	rows, err := s.query("SELECT username, permission, created_at FROM users")
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 // GetUserPermission 获取指定用户的当前权限 (Using username for legacy support in UI)
 func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType, error) {
 	var perm int
-	err := s.db.QueryRow("SELECT permission FROM users WHERE username = ?", username).Scan(&perm)
+	err := s.queryRow("SELECT permission FROM users WHERE username = ?", username).Scan(&perm)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return inter.PermissionNone, errors.New("user not found")
@@ -63,13 +63,13 @@ func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType,
 // UpdateUserPermission 更新用户权限
 func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.PermissionType) error {
 	username = strings.TrimSpace(username)
-	tx, err := s.db.BeginTx(context.Background(), nil)
+	tx, err := s.beginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
+	res, err := s.execTx(tx, "UPDATE users SET permission = ? WHERE username = ?", perm, username)
 	if err != nil {
 		return err
 	}

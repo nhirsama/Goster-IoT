@@ -20,7 +20,7 @@ func (s *DataStoreSql) InitDevice(uuid string, meta inter.DeviceMetadata) error 
 		tokenParam = meta.Token
 	}
 
-	_, err := s.db.Exec(`
+	_, err := s.exec(`
 		INSERT INTO devices (uuid, tenant_id, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		uuid, defaultTenantID, meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
@@ -33,7 +33,7 @@ func (s *DataStoreSql) InitDevice(uuid string, meta inter.DeviceMetadata) error 
 func (s *DataStoreSql) LoadConfig(uuid string) (out inter.DeviceMetadata, err error) {
 	var token sql.NullString // 使用 NullString 接收数据库中的 NULL 值
 
-	err = s.db.QueryRow(`
+	err = s.queryRow(`
 		SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
 		FROM devices WHERE uuid = ?`, uuid).Scan(
 		&out.Name, &out.HWVersion, &out.SWVersion, &out.ConfigVersion,
@@ -61,7 +61,7 @@ func (s *DataStoreSql) SaveMetadata(uuid string, meta inter.DeviceMetadata) erro
 		tokenParam = meta.Token
 	}
 
-	_, err := s.db.Exec(`
+	_, err := s.exec(`
 		UPDATE devices SET
 			name=?, hw_version=?, sw_version=?, config_version=?, sn=?, mac=?, auth_status=?, token=?
 		WHERE uuid=?`,
@@ -77,12 +77,12 @@ func (s *DataStoreSql) AppendMetric(uuid string, points inter.MetricPoint) error
 	if err != nil {
 		tenantID = defaultTenantID
 	}
-	_, err = s.db.Exec("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)", uuid, tenantID, points.Timestamp, points.Value, points.Type)
+	_, err = s.exec("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)", uuid, tenantID, points.Timestamp, points.Value, points.Type)
 	return err
 }
 
 func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.MetricPoint, error) {
-	rows, err := s.db.Query(
+	rows, err := s.query(
 		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
 		uuid, start, end,
 	)
@@ -107,7 +107,7 @@ func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.Metr
 
 func (s *DataStoreSql) ResolveDeviceTenant(uuid string) (string, error) {
 	var tenantID sql.NullString
-	err := s.db.QueryRow("SELECT tenant_id FROM devices WHERE uuid = ?", uuid).Scan(&tenantID)
+	err := s.queryRow("SELECT tenant_id FROM devices WHERE uuid = ?", uuid).Scan(&tenantID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errors.New("device not found")
@@ -123,7 +123,7 @@ func (s *DataStoreSql) ResolveDeviceTenant(uuid string) (string, error) {
 func (s *DataStoreSql) LoadConfigByTenant(tenantID, uuid string) (out inter.DeviceMetadata, err error) {
 	tenantID = normalizeTenantID(tenantID)
 	var token sql.NullString
-	err = s.db.QueryRow(`
+	err = s.queryRow(`
 		SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
 		FROM devices WHERE uuid = ? AND tenant_id = ?`, uuid, tenantID).Scan(
 		&out.Name, &out.HWVersion, &out.SWVersion, &out.ConfigVersion,
@@ -143,7 +143,7 @@ func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.Authen
 	offset := (page - 1) * size
 
 	if status == nil {
-		rows, err := s.db.Query(`
+		rows, err := s.query(`
 			SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
 			FROM devices WHERE tenant_id = ? LIMIT ? OFFSET ?`, tenantID, size, offset)
 		if err != nil {
@@ -153,7 +153,7 @@ func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.Authen
 		return scanDeviceRecords(rows)
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.query(`
 		SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
 		FROM devices WHERE tenant_id = ? AND auth_status = ? LIMIT ? OFFSET ?`, tenantID, *status, size, offset)
 	if err != nil {
@@ -165,7 +165,7 @@ func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.Authen
 
 func (s *DataStoreSql) QueryMetricsByTenant(tenantID, uuid string, start, end int64) ([]inter.MetricPoint, error) {
 	tenantID = normalizeTenantID(tenantID)
-	rows, err := s.db.Query(
+	rows, err := s.query(
 		"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
 		tenantID, uuid, start, end,
 	)
@@ -195,7 +195,7 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 	var authStatus int // SQLite 中的 INTEGER 对应 Go 的 int
 
 	query := "SELECT uuid, auth_status FROM devices WHERE token = ?"
-	err := s.db.QueryRow(query, token).Scan(&uuid, &authStatus)
+	err := s.queryRow(query, token).Scan(&uuid, &authStatus)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", 0, fmt.Errorf("token not found: %w", err)
@@ -207,7 +207,7 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 }
 
 func (s *DataStoreSql) UpdateToken(uuid string, newToken string) error {
-	res, err := s.db.Exec("UPDATE devices SET token = ? WHERE uuid = ?", newToken, uuid)
+	res, err := s.exec("UPDATE devices SET token = ? WHERE uuid = ?", newToken, uuid)
 	if err != nil {
 		return err
 	}
@@ -223,13 +223,13 @@ func (s *DataStoreSql) UpdateToken(uuid string, newToken string) error {
 
 // DestroyDevice 物理删除设备及其所有关联数据
 func (s *DataStoreSql) DestroyDevice(uuid string) error {
-	tx, err := s.db.Begin()
+	tx, err := s.begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	deviceRes, err := tx.Exec("DELETE FROM devices WHERE uuid = ?", uuid)
+	deviceRes, err := s.execTx(tx, "DELETE FROM devices WHERE uuid = ?", uuid)
 	if err != nil {
 		return err
 	}
@@ -240,10 +240,10 @@ func (s *DataStoreSql) DestroyDevice(uuid string) error {
 	if deviceRows == 0 {
 		return errors.New("device not found")
 	}
-	if _, err := tx.Exec("DELETE FROM metrics WHERE uuid = ?", uuid); err != nil {
+	if _, err := s.execTx(tx, "DELETE FROM metrics WHERE uuid = ?", uuid); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM logs WHERE uuid = ?", uuid); err != nil {
+	if _, err := s.execTx(tx, "DELETE FROM logs WHERE uuid = ?", uuid); err != nil {
 		return err
 	}
 
@@ -253,7 +253,7 @@ func (s *DataStoreSql) DestroyDevice(uuid string) error {
 // ListDevices 分页查询设备列表并组装结构体
 func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error) {
 	offset := (page - 1) * size
-	rows, err := s.db.Query(`
+	rows, err := s.query(`
         SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
         FROM devices LIMIT ? OFFSET ?`, size, offset)
 	if err != nil {
@@ -266,7 +266,7 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 // ListDevicesByStatus 根据认证状态分页查询设备列表
 func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {
 	offset := (page - 1) * size
-	rows, err := s.db.Query(`
+	rows, err := s.query(`
         SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
         FROM devices WHERE auth_status = ? LIMIT ? OFFSET ?`, status, size, offset)
 	if err != nil {
@@ -282,13 +282,13 @@ func (s *DataStoreSql) WriteLog(uuid string, level string, message string) error
 	if err != nil {
 		tenantID = defaultTenantID
 	}
-	_, err = s.db.Exec("INSERT INTO logs (uuid, tenant_id, level, message) VALUES (?, ?, ?, ?)", uuid, tenantID, level, message)
+	_, err = s.exec("INSERT INTO logs (uuid, tenant_id, level, message) VALUES (?, ?, ?, ?)", uuid, tenantID, level, message)
 	return err
 }
 
 // BatchAppendMetrics 批量高效写入
 func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoint) error {
-	tx, err := s.db.Begin()
+	tx, err := s.begin()
 	if err != nil {
 		return err
 	}
@@ -299,7 +299,7 @@ func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoin
 		tenantID = defaultTenantID
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)")
+	stmt, err := s.prepareTx(tx, "INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}

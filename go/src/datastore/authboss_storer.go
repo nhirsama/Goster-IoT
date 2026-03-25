@@ -48,7 +48,7 @@ func (s *DataStoreSql) Load(ctx context.Context, key string) (authboss.User, err
 		args = []interface{}{key}
 	}
 
-	err := s.db.QueryRowContext(ctx, query, args...).Scan(
+	err := s.queryRowContext(ctx, query, args...).Scan(
 		&user.ID, &email, &user.Username, &user.Password, &user.Permission,
 		&recoverToken, &recoverExpiry, &confirmToken, &user.Confirmed, &user.CreatedAt, &user.UpdatedAt,
 		&oauth2Uid, &oauth2Provider, &oauth2Access, &oauth2Refresh, &oauth2Expiry, &rememberToken,
@@ -133,13 +133,13 @@ func (s *DataStoreSql) Save(ctx context.Context, user authboss.User) error {
 		rememberToken = sql.NullString{String: u.RememberToken, Valid: true}
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	res, err := tx.ExecContext(ctx, `
+	res, err := s.execTxContext(ctx, tx, `
 		UPDATE users SET 
 			email=?, password=?, permission=?, 
 			recover_token=?, recover_token_expiry=?, 
@@ -185,7 +185,7 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 		return errors.New("create: 无效的用户类型")
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 
 	// 检查是否为第一个用户 (如果是则设为管理员)
 	var count int
-	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	err = s.queryRowTxContext(ctx, tx, "SELECT COUNT(*) FROM users").Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -214,23 +214,19 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 		u.Password = "oauth2_dummy_password_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
-	res, err := tx.ExecContext(ctx, `
+	id, err := s.insertReturningIDContext(ctx, tx, `
 		INSERT INTO users (email, username, password, permission, 
 			oauth2_uid, oauth2_provider, oauth2_access_token, oauth2_refresh_token, oauth2_expiry,
 			created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		RETURNING id`,
 		u.Email, u.Username, u.Password, u.Permission,
 		u.OAuth2UID, u.OAuth2Provider, u.OAuth2AccessToken, u.OAuth2RefreshToken, u.OAuth2Expiry,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if isUniqueConstraintError(err) {
 			return authboss.ErrUserFound
 		}
-		return err
-	}
-
-	id, err := res.LastInsertId()
-	if err != nil {
 		return err
 	}
 	u.ID = int(id)
@@ -291,7 +287,7 @@ func (s *DataStoreSql) LoadByRememberToken(ctx context.Context, token string) (a
 		FROM users 
 		WHERE remember_token=?`
 
-	err := s.db.QueryRowContext(ctx, query, token).Scan(
+	err := s.queryRowContext(ctx, query, token).Scan(
 		&user.ID, &email, &user.Username, &user.Password, &user.Permission,
 		&recoverToken, &recoverExpiry, &confirmToken, &user.Confirmed, &user.CreatedAt, &user.UpdatedAt,
 		&oauth2Uid, &oauth2Provider, &oauth2Access, &oauth2Refresh, &oauth2Expiry, &rememberToken,

@@ -99,7 +99,7 @@ func (s *DataStoreSql) UpsertExternalEntity(entity inter.ExternalEntity) error {
 		lastText = *entity.LastText
 	}
 
-	_, err = s.db.Exec(`
+	_, err = s.exec(`
 		INSERT INTO integration_external_entities (
 			source, entity_id, domain, goster_uuid, device_id, model, name, room_name,
 			unit, value_type, device_class, state_class, attributes_json,
@@ -138,7 +138,7 @@ func (s *DataStoreSql) GetExternalEntity(source, entityID string) (inter.Externa
 	var lastNum sql.NullFloat64
 	var lastBool sql.NullInt64
 
-	err := s.db.QueryRow(`
+	err := s.queryRow(`
 		SELECT source, entity_id, domain, goster_uuid, device_id, model, name, room_name,
 		       unit, value_type, device_class, state_class, attributes_json,
 		       last_state_text, last_state_num, last_state_bool, last_seen_ts
@@ -206,7 +206,7 @@ func (s *DataStoreSql) ListExternalEntities(source, domain string, limit, offset
 	base += " ORDER BY last_seen_ts DESC, id DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
-	rows, err := s.db.Query(base, args...)
+	rows, err := s.query(base, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -248,22 +248,24 @@ func (s *DataStoreSql) ListExternalEntities(source, domain string, limit, offset
 	return items, nil
 }
 
-// BatchAppendExternalObservations 批量写入外部观测值（INSERT OR IGNORE）
+// BatchAppendExternalObservations 批量写入外部观测值。
+// 这里统一使用 ON CONFLICT DO NOTHING，避免把 SQLite 方言写死在公共实现里。
 func (s *DataStoreSql) BatchAppendExternalObservations(items []inter.ExternalObservation) error {
 	if len(items) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
-		INSERT OR IGNORE INTO integration_external_observations (
+	stmt, err := s.prepareTx(tx, `
+		INSERT INTO integration_external_observations (
 			source, entity_id, ts, value_num, value_text, value_bool, value_json, unit, value_sig, raw_event_json
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source, entity_id, ts, value_sig) DO NOTHING
 	`)
 	if err != nil {
 		return err
@@ -328,7 +330,7 @@ func (s *DataStoreSql) QueryExternalObservations(source, entityID string, start,
 		limit = 1000
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.query(`
 		SELECT source, entity_id, ts, value_num, value_text, value_bool, value_json, unit, value_sig, raw_event_json
 		FROM integration_external_observations
 		WHERE source = ? AND entity_id = ? AND ts BETWEEN ? AND ?
@@ -429,15 +431,12 @@ func (s *DataStoreSql) createDeviceCommandRecord(tenantID, uuid string, cmdID in
 		payload = trimmedPayload
 	}
 
-	result, err := s.db.Exec(`
+	commandID, err := s.insertReturningID(`
 		INSERT INTO integration_external_commands (
 			tenant_id, source, entity_id, command, payload_json, status, error_text, requested_at, executed_at
 		) VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, NULL)
+		RETURNING id
 	`, tenantID, "goster_device", uuid, fmt.Sprintf("%s:%d", command, cmdID), payload, inter.DeviceCommandStatusQueued)
-	if err != nil {
-		return 0, err
-	}
-	commandID, err := result.LastInsertId()
 	if err != nil {
 		return 0, err
 	}
@@ -463,7 +462,7 @@ func (s *DataStoreSql) UpdateDeviceCommandStatus(commandID int64, status inter.D
 		executedAt = time.Now().UTC()
 	}
 
-	result, err := s.db.Exec(`
+	result, err := s.exec(`
 		UPDATE integration_external_commands
 		SET status = ?, error_text = ?, executed_at = COALESCE(?, executed_at)
 		WHERE id = ? AND source = ?

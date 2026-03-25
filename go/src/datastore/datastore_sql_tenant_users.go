@@ -11,7 +11,7 @@ import (
 const legacyTenantID = "tenant_legacy"
 
 func (s *DataStoreSql) GetUserTenantRoles(username string) (map[string]inter.TenantRole, error) {
-	rows, err := s.db.Query(`SELECT tenant_id, role FROM tenant_users WHERE username = ?`, username)
+	rows, err := s.query(`SELECT tenant_id, role FROM tenant_users WHERE username = ?`, username)
 	if err != nil {
 		return nil, err
 	}
@@ -65,17 +65,17 @@ func (s *DataStoreSql) syncLegacyTenantRoleTx(ctx context.Context, tx *sql.Tx, u
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO tenants (id, name, status) VALUES (?, ?, 'active')`,
+		s.rebind(`INSERT INTO tenants (id, name, status) VALUES (?, ?, 'active') ON CONFLICT(id) DO NOTHING`),
 		legacyTenantID, "legacy",
 	); err != nil {
 		return err
 	}
 
-	_, err := tx.ExecContext(ctx, `
+	_, err := tx.ExecContext(ctx, s.rebind(`
 		INSERT INTO tenant_users (tenant_id, username, role)
 		VALUES (?, ?, ?)
 		ON CONFLICT(tenant_id, username) DO UPDATE SET role = excluded.role`,
-		legacyTenantID, username, string(permissionToTenantRole(perm)),
+	), legacyTenantID, username, string(permissionToTenantRole(perm)),
 	)
 	return err
 }

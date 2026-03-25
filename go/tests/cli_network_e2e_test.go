@@ -49,6 +49,10 @@ func startCLIRuntime(t *testing.T) *cliRuntime {
 	t.Setenv("API_TCP_ADDR", tcpAddr)
 	t.Setenv("AUTHBOSS_ROOT_URL", "http://"+webAddr)
 
+	if err := cli.RunWithArgs(context.Background(), []string{"db", "init"}); err != nil {
+		t.Fatalf("db init failed: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 

@@ -13,6 +13,8 @@ import (
 const (
 	defaultDBDriver                         = "sqlite"
 	defaultDBPath                           = "./data.db"
+	defaultSQLiteSchemaMode                 = "bootstrap"
+	defaultPostgresSchemaMode               = "managed"
 	defaultWebHTTPAddr                      = ":8080"
 	defaultAPITCPAddr                       = ":8081"
 	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
@@ -36,9 +38,10 @@ type AppConfig struct {
 }
 
 type DBConfig struct {
-	Driver string
-	Path   string
-	DSN    string
+	Driver     string
+	Path       string
+	DSN        string
+	SchemaMode string
 }
 
 type WebConfig struct {
@@ -102,8 +105,9 @@ type LoginProtectionConfig struct {
 
 func DefaultDBConfig() DBConfig {
 	return DBConfig{
-		Driver: defaultDBDriver,
-		Path:   defaultDBPath,
+		Driver:     defaultDBDriver,
+		Path:       defaultDBPath,
+		SchemaMode: defaultSQLiteSchemaMode,
 	}
 }
 
@@ -279,12 +283,23 @@ func NormalizeDBConfig(cfg DBConfig) DBConfig {
 		out.Driver = "postgres"
 		out.DSN = strings.TrimSpace(out.DSN)
 		out.Path = strings.TrimSpace(out.Path)
+		out.SchemaMode = normalizeDBSchemaMode(out.SchemaMode, defaultPostgresSchemaMode)
 	default:
 		out.Driver = "sqlite"
 		out.Path = normalizeOrDefault(out.Path, base.Path)
 		out.DSN = strings.TrimSpace(out.DSN)
+		out.SchemaMode = normalizeDBSchemaMode(out.SchemaMode, defaultSQLiteSchemaMode)
 	}
 	return out
+}
+
+func normalizeDBSchemaMode(raw string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "bootstrap", "managed":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return fallback
+	}
 }
 
 // ResolveCookieSecure 根据配置值推导 Cookie Secure 标志。
@@ -353,6 +368,7 @@ func prepareViper(v *viper.Viper) error {
 		"db.driver":                                         "DB_DRIVER",
 		"db.path":                                           "DB_PATH",
 		"db.dsn":                                            "DB_DSN",
+		"db.schema_mode":                                    "DB_SCHEMA_MODE",
 		"web.http_addr":                                     "WEB_HTTP_ADDR",
 		"web.api_cors_allow_origins":                        "API_CORS_ALLOW_ORIGINS",
 		"web.max_api_body_bytes":                            "WEB_API_MAX_BODY_BYTES",
@@ -421,9 +437,10 @@ func loadFromViper(v *viper.Viper) AppConfig {
 
 	out := AppConfig{
 		DB: DBConfig{
-			Driver: strings.TrimSpace(v.GetString("db.driver")),
-			Path:   strings.TrimSpace(v.GetString("db.path")),
-			DSN:    strings.TrimSpace(v.GetString("db.dsn")),
+			Driver:     strings.TrimSpace(v.GetString("db.driver")),
+			Path:       strings.TrimSpace(v.GetString("db.path")),
+			DSN:        strings.TrimSpace(v.GetString("db.dsn")),
+			SchemaMode: strings.TrimSpace(v.GetString("db.schema_mode")),
 		},
 		Web: WebConfig{
 			HTTPAddr:            strings.TrimSpace(v.GetString("web.http_addr")),
