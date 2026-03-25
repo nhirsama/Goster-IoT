@@ -13,15 +13,18 @@ type DeviceManager struct {
 	external inter.ExternalEntityService
 }
 
-func NewDeviceManager(ds inter.DataStore) inter.DeviceManager {
+func NewDeviceManager(ds inter.DeviceManagerStore) inter.DeviceManager {
 	return NewDeviceManagerWithConfig(ds, appcfg.DefaultDeviceManagerConfig())
 }
 
-func NewDeviceManagerWithConfig(ds inter.DataStore, cfg appcfg.DeviceManagerConfig) inter.DeviceManager {
+func NewDeviceManagerWithConfig(ds inter.DeviceManagerStore, cfg appcfg.DeviceManagerConfig) inter.DeviceManager {
 	n := appcfg.NormalizeDeviceManagerConfig(cfg)
+	presence := NewDevicePresenceWithStore(n.HeartbeatDeadline, NewInMemoryDevicePresenceStore())
 	return &DeviceManager{
-		registry: NewDeviceRegistry(ds),
-		presence: NewDevicePresenceWithStore(n.HeartbeatDeadline, NewInMemoryDevicePresenceStore()),
+		registry: NewDeviceRegistryWithHooks(ds, DeviceRegistryHooks{
+			OnDelete: presence.RemoveDevice,
+		}),
+		presence: presence,
 		external: NewExternalEntityService(ds, n),
 	}
 }
@@ -76,13 +79,7 @@ func (d *DeviceManager) UnblockDevice(uuid string) error {
 }
 
 func (d *DeviceManager) DeleteDevice(uuid string) error {
-	if err := d.registry.DeleteDevice(uuid); err != nil {
-		return err
-	}
-	if d.presence != nil {
-		d.presence.delete(uuid)
-	}
-	return nil
+	return d.registry.DeleteDevice(uuid)
 }
 
 func (d *DeviceManager) ListDevices(status *inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {

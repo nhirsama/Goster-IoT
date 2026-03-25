@@ -12,8 +12,8 @@ import (
 
 	"github.com/aarondl/authboss/v3"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/core"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	webpkg "github.com/nhirsama/Goster-IoT/src/web"
 	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
@@ -53,9 +53,7 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
-	dm := device_manager.NewDeviceManager(ds)
-	downlinkQueue := device_manager.NewDeviceCommandQueue(appcfg.DefaultDeviceManagerConfig().QueueCapacity)
-	downlinkCommands := device_manager.NewDownlinkCommandService(ds, downlinkQueue)
+	services := core.NewServices(ds)
 	ab, err := webpkg.SetupAuthboss(ds)
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
@@ -67,9 +65,9 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 
 	api := apiv1.New(apiv1.Deps{
 		DataStore:        ds,
-		DeviceRegistry:   dm,
-		DevicePresence:   dm,
-		DownlinkCommands: downlinkCommands,
+		DeviceRegistry:   services.DeviceRegistry,
+		DevicePresence:   services.DevicePresence,
+		DownlinkCommands: services.DownlinkCommands,
 		Auth:             authService,
 		Captcha:          option.captcha,
 		Config:           option.config,
@@ -80,9 +78,9 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 		api:              api,
 		auth:             authService,
 		dataStore:        ds,
-		deviceRegistry:   dm,
-		devicePresence:   dm,
-		downlinkCommands: downlinkCommands,
+		deviceRegistry:   services.DeviceRegistry,
+		devicePresence:   services.DevicePresence,
+		downlinkCommands: services.DownlinkCommands,
 	}
 }
 

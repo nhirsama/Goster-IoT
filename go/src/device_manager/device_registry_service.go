@@ -13,14 +13,21 @@ import (
 
 // DeviceRegistryService 负责设备身份、生命周期与管理端查询。
 type DeviceRegistryService struct {
-	dataStore  inter.DataStore
+	dataStore  inter.DeviceRegistryStore
+	hooks      DeviceRegistryHooks
 	tokenCache sync.Map
 }
 
 // NewDeviceRegistry 创建设备身份与生命周期服务。
-func NewDeviceRegistry(ds inter.DataStore) inter.DeviceRegistry {
+func NewDeviceRegistry(ds inter.DeviceRegistryStore) inter.DeviceRegistry {
+	return NewDeviceRegistryWithHooks(ds, DeviceRegistryHooks{})
+}
+
+// NewDeviceRegistryWithHooks 创建设备身份服务，并允许注入生命周期副作用钩子。
+func NewDeviceRegistryWithHooks(ds inter.DeviceRegistryStore, hooks DeviceRegistryHooks) inter.DeviceRegistry {
 	return &DeviceRegistryService{
 		dataStore: ds,
+		hooks:     hooks,
 	}
 }
 
@@ -131,7 +138,13 @@ func (s *DeviceRegistryService) DeleteDevice(uuid string) error {
 	if err == nil && meta.Token != "" {
 		s.tokenCache.Delete(meta.Token)
 	}
-	return s.dataStore.DestroyDevice(uuid)
+	if err := s.dataStore.DestroyDevice(uuid); err != nil {
+		return err
+	}
+	if s.hooks.OnDelete != nil {
+		s.hooks.OnDelete(uuid)
+	}
+	return nil
 }
 
 func (s *DeviceRegistryService) ListDevices(status *inter.AuthenticateStatusType, page, size int) ([]inter.DeviceRecord, error) {

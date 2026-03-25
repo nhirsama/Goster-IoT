@@ -35,6 +35,12 @@ func (s *DevicePresenceService) SetDeadline(deadline time.Duration) {
 	}
 }
 
+// RemoveDevice 清理设备在运行时在线状态中的残留记录。
+// 设备被删除后，装配层可以通过它同步清理内存态或共享态的在线信息。
+func (s *DevicePresenceService) RemoveDevice(uuid string) {
+	s.delete(uuid)
+}
+
 // HandleHeartbeat 记录最新心跳时间。
 func (s *DevicePresenceService) HandleHeartbeat(uuid string) {
 	uuid = strings.TrimSpace(uuid)

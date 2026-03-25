@@ -17,7 +17,7 @@ type CaptchaVerifier interface {
 
 // WebServerDeps 描述 web 模块运行所需依赖。
 type WebServerDeps struct {
-	DataStore        inter.DataStore
+	DataStore        inter.WebV1Store
 	DeviceRegistry   inter.DeviceRegistry
 	DevicePresence   inter.DevicePresence
 	DownlinkCommands inter.DownlinkCommandService

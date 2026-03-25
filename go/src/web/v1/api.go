@@ -61,7 +61,7 @@ type CaptchaVerifier interface {
 
 // Deps 汇总了 v1 路由运行所需的依赖项。
 type Deps struct {
-	DataStore         inter.DataStore
+	DataStore         inter.WebV1Store
 	DeviceRegistry    inter.DeviceRegistry
 	DevicePresence    inter.DevicePresence
 	DownlinkCommands  inter.DownlinkCommandService
@@ -75,7 +75,7 @@ type Deps struct {
 
 // API 负责 `/api/v1` 路由下的中间件、分发和处理逻辑。
 type API struct {
-	dataStore        inter.DataStore
+	dataStore        inter.WebV1Store
 	registry         inter.DeviceRegistry
 	presence         inter.DevicePresence
 	downlinkCommands inter.DownlinkCommandService

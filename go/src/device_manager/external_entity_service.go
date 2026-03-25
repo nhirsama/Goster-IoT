@@ -15,7 +15,7 @@ import (
 
 // ExternalEntityService 负责外部实体与观测值相关业务。
 type ExternalEntityService struct {
-	dataStore               inter.DataStore
+	dataStore               inter.ExternalEntityRepository
 	listDefaultSize         int
 	listMaxSize             int
 	observationDefaultLimit int
@@ -23,7 +23,7 @@ type ExternalEntityService struct {
 }
 
 // NewExternalEntityService 创建外部实体服务。
-func NewExternalEntityService(ds inter.DataStore, cfg appcfg.DeviceManagerConfig) inter.ExternalEntityService {
+func NewExternalEntityService(ds inter.ExternalEntityRepository, cfg appcfg.DeviceManagerConfig) inter.ExternalEntityService {
 	n := appcfg.NormalizeDeviceManagerConfig(cfg)
 	return &ExternalEntityService{
 		dataStore:               ds,

@@ -13,10 +13,10 @@ import (
 const defaultTenantID = "tenant_legacy"
 
 type tenantAccessResolver struct {
-	dataStore inter.DataStore
+	dataStore inter.TenantRoleRepository
 }
 
-func newTenantAccessResolver(dataStore inter.DataStore) *tenantAccessResolver {
+func newTenantAccessResolver(dataStore inter.TenantRoleRepository) *tenantAccessResolver {
 	return &tenantAccessResolver{dataStore: dataStore}
 }
 

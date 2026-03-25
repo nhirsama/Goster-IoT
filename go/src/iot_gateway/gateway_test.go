@@ -15,8 +15,8 @@ import (
 	"time"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/core"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/protocol"
@@ -38,11 +38,8 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
-	dm := device_manager.NewDeviceManager(ds)
-	telemetry := device_manager.NewTelemetryIngestService(ds)
-	downlinkQueue := device_manager.NewDeviceCommandQueue(appcfg.DefaultDeviceManagerConfig().QueueCapacity)
-	downlinkCommands := device_manager.NewDownlinkCommandService(ds, downlinkQueue)
-	svc := NewGatewayFromCoreWithConfig(dm, dm, telemetry, downlinkCommands, logger.NewNoop(), appcfg.APIConfig{
+	services := core.NewServices(ds)
+	svc := NewGatewayFromCoreWithConfig(services.DeviceRegistry, services.DevicePresence, services.TelemetryIngest, services.DownlinkCommands, logger.NewNoop(), appcfg.APIConfig{
 		ReadTimeout:           5 * time.Second,
 		RegisterAckGraceDelay: 5 * time.Millisecond,
 	})
@@ -54,8 +51,8 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 	return &gatewayTestHarness{
 		gateway:          impl,
 		ds:               ds,
-		registry:         dm,
-		downlinkCommands: downlinkCommands,
+		registry:         services.DeviceRegistry,
+		downlinkCommands: services.DownlinkCommands,
 		dbPath:           dbPath,
 	}
 }

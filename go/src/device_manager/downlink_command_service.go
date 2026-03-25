@@ -8,12 +8,12 @@ import (
 
 // DownlinkCommandService 负责下行命令的落库、入队和状态推进。
 type DownlinkCommandService struct {
-	dataStore inter.DataStore
+	dataStore inter.DeviceCommandRepository
 	queue     inter.DeviceCommandQueue
 }
 
 // NewDownlinkCommandService 创建默认的下行命令编排服务。
-func NewDownlinkCommandService(ds inter.DataStore, queue inter.DeviceCommandQueue) inter.DownlinkCommandService {
+func NewDownlinkCommandService(ds inter.DeviceCommandRepository, queue inter.DeviceCommandQueue) inter.DownlinkCommandService {
 	return &DownlinkCommandService{
 		dataStore: ds,
 		queue:     queue,

@@ -94,90 +94,35 @@ type ExternalObservation struct {
 	RawEvent  map[string]interface{} `json:"raw_event,omitempty"`
 }
 
-// DataStore 定义了底层数据持久化的标准接口，用于管理设备生命周期、配置、时序指标及日志。
-// 该接口旨在兼容多种存储后端（如 SQLite, PostgreSQL 或时序数据库）。
-type DataStore interface {
-	// [生命周期管理]
-
+// DeviceRepository 描述设备主档、令牌与生命周期相关的持久化能力。
+type DeviceRepository interface {
 	// InitDevice 初始化一个新的设备存储空间。
-	// uuid 是设备的唯一标识符，meta 包含设备的初始元数据（如型号、硬件版本等）。
-	// 如果设备已存在，应返回错误。
 	InitDevice(uuid string, meta DeviceMetadata) error
 
-	// DestroyDevice 彻底删除指定设备的所有数据，包括配置、时序指标和日志。
+	// DestroyDevice 彻底删除指定设备的所有数据。
 	DestroyDevice(uuid string) error
-
-	// [配置与元数据管理]
 
 	// LoadConfig 从存储中读取指定设备的配置信息。
 	LoadConfig(uuid string) (out DeviceMetadata, err error)
 
-	// SaveMetadata 将元信息持久化到存储中（冷数据存储）。
-	// meta 是要保存的配置对象，该方法会覆盖原有的配置。
+	// SaveMetadata 将元信息持久化到存储中。
 	SaveMetadata(uuid string, meta DeviceMetadata) error
 
 	// ListDevices 分页查询已注册的设备列表。
-	// page 指定页码（通常从 1 开始），size 指定每页返回的条数。
 	ListDevices(page, size int) ([]DeviceRecord, error)
 
-	// ListDevicesByStatus 根据认证状态分页查询设备列表
+	// ListDevicesByStatus 根据认证状态分页查询设备列表。
 	ListDevicesByStatus(status AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
-
-	// [时序数据管理]
-
-	// AppendMetric 向指定设备追加一条时序数据。
-	// ts 为 Unix 时间戳（秒或毫秒，取决于系统实现），value 为传感器采集的浮点数值。
-	AppendMetric(uuid string, points MetricPoint) error
-
-	// BatchAppendMetrics 同时插入多条数据
-	BatchAppendMetrics(uuid string, points []MetricPoint) error
-
-	// QueryMetrics 查询指定时间范围内的时序数据。
-	// start 和 end 分别为开始和结束的时间戳（闭区间）。
-	QueryMetrics(uuid string, start, end int64) ([]MetricPoint, error)
-
-	// [外部集成实体与观测]
-
-	// UpsertExternalEntity 创建或更新外部实体主档
-	UpsertExternalEntity(entity ExternalEntity) error
-
-	// GetExternalEntity 查询单个外部实体
-	GetExternalEntity(source, entityID string) (ExternalEntity, error)
-
-	// ListExternalEntities 按 source/domain 分页查询外部实体
-	ListExternalEntities(source, domain string, limit, offset int) ([]ExternalEntity, error)
-
-	// BatchAppendExternalObservations 批量追加外部观测值（支持去重）
-	BatchAppendExternalObservations(items []ExternalObservation) error
-
-	// QueryExternalObservations 查询外部实体时序观测值
-	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
-
-	// [设备指令日志]
-
-	// CreateDeviceCommand 创建一条设备下行指令日志，返回指令 ID。
-	CreateDeviceCommand(uuid string, cmdID CmdID, command string, payloadJSON []byte) (int64, error)
-
-	// UpdateDeviceCommandStatus 更新设备下行指令状态。
-	UpdateDeviceCommandStatus(commandID int64, status DeviceCommandStatus, errorText string) error
-
-	// [日志管理]
-
-	// WriteLog 记录一条与设备相关的运行日志。
-	// level 通常为 "info", "warn", "error" 等级别，用于后续过滤。
-	WriteLog(uuid string, level string, message string) error
-
-	// [权限与映射管理]
 
 	// GetDeviceByToken 根据 Token 查找对应的设备 UUID。
 	GetDeviceByToken(token string) (uuid string, Status AuthenticateStatusType, err error)
 
 	// UpdateToken 更新指定设备的 Token。
-	// 用于 Token 过期重刷或安全性重置场景。
 	UpdateToken(uuid string, newToken string) error
+}
 
-	// [多租户范围查询]
-
+// ScopedDeviceRepository 描述带租户范围约束的设备查询能力。
+type ScopedDeviceRepository interface {
 	// ResolveDeviceTenant 查询设备所属租户。
 	ResolveDeviceTenant(uuid string) (tenantID string, err error)
 
@@ -186,29 +131,94 @@ type DataStore interface {
 
 	// ListDevicesByTenant 在指定租户范围内分页列出设备。
 	ListDevicesByTenant(tenantID string, status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
+}
 
-	// QueryMetricsByTenant 在指定租户范围内查询设备指标。
+// MetricsRepository 描述设备时序指标的持久化能力。
+type MetricsRepository interface {
+	AppendMetric(uuid string, points MetricPoint) error
+	BatchAppendMetrics(uuid string, points []MetricPoint) error
+	QueryMetrics(uuid string, start, end int64) ([]MetricPoint, error)
 	QueryMetricsByTenant(tenantID, uuid string, start, end int64) ([]MetricPoint, error)
+}
 
-	// CreateDeviceCommandByTenant 在指定租户范围内创建下行指令日志。
+// DeviceLogRepository 描述设备日志的持久化能力。
+type DeviceLogRepository interface {
+	WriteLog(uuid string, level string, message string) error
+}
+
+// DeviceCommandRepository 描述设备下行指令日志的持久化能力。
+type DeviceCommandRepository interface {
+	CreateDeviceCommand(uuid string, cmdID CmdID, command string, payloadJSON []byte) (int64, error)
 	CreateDeviceCommandByTenant(tenantID, uuid string, cmdID CmdID, command string, payloadJSON []byte) (int64, error)
+	UpdateDeviceCommandStatus(commandID int64, status DeviceCommandStatus, errorText string) error
+}
 
-	// [用户管理]
+// ExternalEntityRepository 描述外部集成实体与观测值的持久化能力。
+type ExternalEntityRepository interface {
+	UpsertExternalEntity(entity ExternalEntity) error
+	GetExternalEntity(source, entityID string) (ExternalEntity, error)
+	ListExternalEntities(source, domain string, limit, offset int) ([]ExternalEntity, error)
+	BatchAppendExternalObservations(items []ExternalObservation) error
+	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
+}
 
-	// GetUserCount 获取注册用户总数
+// UserRepository 描述平台用户与权限的持久化能力。
+type UserRepository interface {
 	GetUserCount() (int, error)
-
-	// ListUsers 获取所有用户列表（仅管理员可用）
 	ListUsers() ([]User, error)
-
-	// GetUserPermission 获取指定用户的当前权限
 	GetUserPermission(username string) (PermissionType, error)
-
-	// GetUserTenantRoles 获取用户在各租户内的角色映射。
-	GetUserTenantRoles(username string) (map[string]TenantRole, error)
-
-	// UpdateUserPermission 更新用户权限（仅管理员可用）
 	UpdateUserPermission(username string, perm PermissionType) error
+}
+
+// TenantRoleRepository 描述用户与租户角色关系的查询能力。
+type TenantRoleRepository interface {
+	GetUserTenantRoles(username string) (map[string]TenantRole, error)
+}
+
+// DeviceRegistryStore 是设备注册服务依赖的最小仓储组合。
+type DeviceRegistryStore interface {
+	DeviceRepository
+	ScopedDeviceRepository
+}
+
+// TelemetryStore 是遥测接收服务依赖的最小仓储组合。
+type TelemetryStore interface {
+	MetricsRepository
+	DeviceLogRepository
+}
+
+// DeviceManagerStore 是旧版设备管理 façade 依赖的最小仓储组合。
+type DeviceManagerStore interface {
+	DeviceRegistryStore
+	ExternalEntityRepository
+}
+
+// CoreStore 是核心业务装配依赖的最小仓储组合。
+type CoreStore interface {
+	DeviceRegistryStore
+	TelemetryStore
+	DeviceCommandRepository
+	ExternalEntityRepository
+}
+
+// WebV1Store 是当前 v1 HTTP 接口依赖的最小仓储组合。
+type WebV1Store interface {
+	MetricsRepository
+	UserRepository
+	TenantRoleRepository
+}
+
+// DataStore 是当前阶段保留的组合仓储接口。
+// 新代码应尽量依赖更小的 repository 组合接口，避免再次把所有能力耦合到一起。
+type DataStore interface {
+	DeviceRepository
+	ScopedDeviceRepository
+	MetricsRepository
+	DeviceLogRepository
+	DeviceCommandRepository
+	ExternalEntityRepository
+	UserRepository
+	TenantRoleRepository
 }
 
 // User 用户信息

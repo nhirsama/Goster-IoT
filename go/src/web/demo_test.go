@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/core"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
@@ -42,12 +43,13 @@ func TestRunServerAndStressTest(t *testing.T) {
 	fmt.Printf("Using temporary database: %s\n", dbPath)
 
 	// 3. Setup Managers
-	dm := device_manager.NewDeviceManager(ds)
-	downlinkQueue := device_manager.NewDeviceCommandQueue(128)
-	downlinkCommands := device_manager.NewDownlinkCommandService(ds, downlinkQueue)
+	services := core.NewServicesWithConfig(ds, appcfg.DeviceManagerConfig{
+		QueueCapacity:     128,
+		HeartbeatDeadline: 60 * time.Second,
+	})
 
 	// 测试里缩短在线判定窗口，便于更快覆盖在线/离线状态切换。
-	if impl, ok := dm.(heartbeatDeadlineSetter); ok {
+	if impl, ok := services.DevicePresence.(heartbeatDeadlineSetter); ok {
 		impl.SetHeartbeatDeadline(5 * time.Second)
 	}
 
@@ -64,9 +66,9 @@ func TestRunServerAndStressTest(t *testing.T) {
 	// 4. Create WebServer
 	ws, err := NewWebServer(WebServerDeps{
 		DataStore:        ds,
-		DeviceRegistry:   dm,
-		DevicePresence:   dm,
-		DownlinkCommands: downlinkCommands,
+		DeviceRegistry:   services.DeviceRegistry,
+		DevicePresence:   services.DevicePresence,
+		DownlinkCommands: services.DownlinkCommands,
 		Auth:             authService,
 		Captcha:          &TurnstileService{Enabled: false},
 	})
@@ -75,7 +77,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	}
 
 	// 5. Populate Data
-	populateData(t, ds, dm)
+	populateData(t, ds, services.DevicePresence)
 
 	// 6. Start Server in Goroutine
 	go ws.Start()

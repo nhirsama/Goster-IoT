@@ -8,8 +8,8 @@ import (
 	"syscall"
 
 	"github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/core"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/iot_gateway"
 	"github.com/nhirsama/Goster-IoT/src/logger"
@@ -53,20 +53,24 @@ func start(ctx context.Context) {
 		panic(err)
 	}
 
-	dm := device_manager.NewDeviceManagerWithConfig(db, appCfg.DeviceManager)
-	telemetryIngest := device_manager.NewTelemetryIngestService(db)
-	downlinkQueue := device_manager.NewDeviceCommandQueue(appCfg.DeviceManager.QueueCapacity)
-	downlinkCommands := device_manager.NewDownlinkCommandService(db, downlinkQueue)
+	services := core.NewServicesWithConfig(db, appCfg.DeviceManager)
 
 	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	gateway := iot_gateway.NewGatewayFromCoreWithConfig(dm, dm, telemetryIngest, downlinkCommands, gatewayLogger, appCfg.API)
+	gateway := iot_gateway.NewGatewayFromCoreWithConfig(
+		services.DeviceRegistry,
+		services.DevicePresence,
+		services.TelemetryIngest,
+		services.DownlinkCommands,
+		gatewayLogger,
+		appCfg.API,
+	)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:        db,
-		DeviceRegistry:   dm,
-		DevicePresence:   dm,
-		DownlinkCommands: downlinkCommands,
+		DeviceRegistry:   services.DeviceRegistry,
+		DevicePresence:   services.DevicePresence,
+		DownlinkCommands: services.DownlinkCommands,
 		Auth:             authService,
 		Captcha:          web.NewTurnstileServiceWithConfig(appCfg.Captcha),
 		Logger:           webLogger,

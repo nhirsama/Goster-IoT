@@ -9,11 +9,11 @@ import (
 
 // TelemetryIngestService 负责把设备解析后的指标、日志、事件沉淀到数据存储。
 type TelemetryIngestService struct {
-	dataStore inter.DataStore
+	dataStore inter.TelemetryStore
 }
 
 // NewTelemetryIngestService 创建默认遥测接收服务。
-func NewTelemetryIngestService(ds inter.DataStore) inter.TelemetryIngestService {
+func NewTelemetryIngestService(ds inter.TelemetryStore) inter.TelemetryIngestService {
 	return &TelemetryIngestService{dataStore: ds}
 }
 
