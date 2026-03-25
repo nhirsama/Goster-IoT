@@ -16,6 +16,10 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
+type heartbeatDeadlineSetter interface {
+	SetHeartbeatDeadline(deadline time.Duration)
+}
+
 // TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
 // Run with: go test -v ./go/src/web -run TestRunServerAndStressTest
 func TestRunServerAndStressTest(t *testing.T) {
@@ -43,7 +47,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	downlinkCommands := device_manager.NewDownlinkCommandService(ds, downlinkQueue)
 
 	// 测试里缩短在线判定窗口，便于更快覆盖在线/离线状态切换。
-	if impl, ok := dm.(*device_manager.DeviceManager); ok {
+	if impl, ok := dm.(heartbeatDeadlineSetter); ok {
 		impl.SetHeartbeatDeadline(5 * time.Second)
 	}
 

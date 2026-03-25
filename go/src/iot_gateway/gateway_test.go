@@ -25,7 +25,7 @@ import (
 type gatewayTestHarness struct {
 	gateway          *gatewayService
 	ds               inter.DataStore
-	dm               inter.DeviceManager
+	registry         inter.DeviceRegistry
 	downlinkCommands inter.DownlinkCommandService
 	dbPath           string
 }
@@ -54,7 +54,7 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 	return &gatewayTestHarness{
 		gateway:          impl,
 		ds:               ds,
-		dm:               dm,
+		registry:         dm,
 		downlinkCommands: downlinkCommands,
 		dbPath:           dbPath,
 	}
@@ -106,11 +106,11 @@ func startPipeSession(t *testing.T, gateway *gatewayService) (net.Conn, inter.Pr
 func seedApprovedDevice(t *testing.T, h *gatewayTestHarness, meta inter.DeviceMetadata) (string, string) {
 	t.Helper()
 
-	if err := h.dm.RegisterDevice(meta); err != nil {
+	if err := h.registry.RegisterDevice(meta); err != nil {
 		t.Fatalf("failed to register device: %v", err)
 	}
-	uuid := h.dm.GenerateUUID(meta)
-	if err := h.dm.ApproveDevice(uuid); err != nil {
+	uuid := h.registry.GenerateUUID(meta)
+	if err := h.registry.ApproveDevice(uuid); err != nil {
 		t.Fatalf("failed to approve device: %v", err)
 	}
 	stored, err := h.ds.LoadConfig(uuid)
@@ -359,7 +359,7 @@ func TestHandleConnectionSupportsRegistrationLifecycle(t *testing.T) {
 		SWVersion:     "sw-1",
 		ConfigVersion: "cfg-1",
 	}
-	uuid := h.dm.GenerateUUID(meta)
+	uuid := h.registry.GenerateUUID(meta)
 
 	stored, err := h.ds.LoadConfig(uuid)
 	if err != nil {
@@ -369,7 +369,7 @@ func TestHandleConnectionSupportsRegistrationLifecycle(t *testing.T) {
 		t.Fatalf("unexpected device status: got %v want pending", stored.AuthenticateStatus)
 	}
 
-	if err := h.dm.ApproveDevice(uuid); err != nil {
+	if err := h.registry.ApproveDevice(uuid); err != nil {
 		t.Fatalf("failed to approve device: %v", err)
 	}
 	stored, err = h.ds.LoadConfig(uuid)
