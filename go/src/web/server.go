@@ -41,23 +41,33 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 	return ws, nil
 }
 
-// Start 启动标准 HTTP 服务器，并在 ctx 取消后优雅关闭。
+// Start 按配置创建监听器，再进入统一的 Serve 生命周期。
 func (ws *webServer) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	addr := appcfg.NormalizeWebConfig(ws.config).HTTPAddr
-
-	mux := http.NewServeMux()
-	ws.registerRoutes(mux)
-
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		ws.log().Error("Web 服务监听失败", inter.Err(err))
 		return err
 	}
+	return ws.Serve(ctx, listener)
+}
+
+// Serve 使用已有监听器启动 HTTP 服务，并在 ctx 取消后优雅关闭。
+func (ws *webServer) Serve(ctx context.Context, listener net.Listener) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if listener == nil {
+		return errors.New("web listener is required")
+	}
 	defer listener.Close()
+
+	mux := http.NewServeMux()
+	ws.registerRoutes(mux)
 
 	server := &http.Server{
 		Handler: mux,

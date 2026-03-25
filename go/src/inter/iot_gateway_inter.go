@@ -1,6 +1,9 @@
 package inter
 
-import "context"
+import (
+	"context"
+	"net"
+)
 
 // IoT Gateway 负责设备接入层网络通信。
 // 当前实现仍与核心服务同进程运行，但接口已经按未来 gRPC 微服务边界抽象。
@@ -66,6 +69,8 @@ type GatewayBackend interface {
 
 // IoTGateway 定义网络接入层服务接口。
 type IoTGateway interface {
-	// Start 启动设备接入服务监听，并在 ctx 取消时退出。
+	// Start 按配置自行监听并启动设备接入服务。
 	Start(ctx context.Context) error
+	// Serve 使用已有监听器启动设备接入服务，便于独立装配和测试复用。
+	Serve(ctx context.Context, listener net.Listener) error
 }

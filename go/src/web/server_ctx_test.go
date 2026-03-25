@@ -14,7 +14,8 @@ import (
 )
 
 func TestWebServerStartStopsOnContextCancel(t *testing.T) {
-	addr := reserveWebTCPAddr(t)
+	listener := newWebListener(t)
+	addr := listener.Addr().String()
 	dbPath := filepath.Join(t.TempDir(), "web_ctx.db")
 
 	ds, err := persistence.OpenSQLite(dbPath)
@@ -50,7 +51,7 @@ func TestWebServerStartStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- ws.Start(ctx)
+		errCh <- ws.Serve(ctx, listener)
 	}()
 
 	waitForWebHTTPServer(t, "http://"+addr+"/api/v1/auth/captcha/config")
@@ -66,15 +67,14 @@ func TestWebServerStartStopsOnContextCancel(t *testing.T) {
 	}
 }
 
-func reserveWebTCPAddr(t *testing.T) string {
+func newWebListener(t *testing.T) net.Listener {
 	t.Helper()
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to reserve tcp address: %v", err)
 	}
-	defer l.Close()
-	return l.Addr().String()
+	return l
 }
 
 func waitForWebHTTPServer(t *testing.T, url string) {

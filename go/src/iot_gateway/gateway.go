@@ -77,7 +77,7 @@ func NewGatewayFromCore(registry inter.DeviceRegistry, presence inter.DevicePres
 	return NewGatewayFromCoreWithConfig(registry, presence, telemetry, downlinkCommands, l, appcfg.DefaultAPIConfig())
 }
 
-// Start 启动独立的 TCP 服务监听，并在 ctx 取消后主动停止监听和连接。
+// Start 按配置创建监听器，再进入统一的 Serve 生命周期。
 func (g *gatewayService) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -88,6 +88,17 @@ func (g *gatewayService) Start(ctx context.Context) error {
 	if err != nil {
 		g.logger.Error("IoT Gateway 监听失败", inter.String("addr", addr), inter.Err(err))
 		return err
+	}
+	return g.Serve(ctx, listener)
+}
+
+// Serve 使用已有监听器启动设备接入服务，并在 ctx 取消后主动停止监听和连接。
+func (g *gatewayService) Serve(ctx context.Context, listener net.Listener) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if listener == nil {
+		return errors.New("iot gateway listener is required")
 	}
 	defer listener.Close()
 

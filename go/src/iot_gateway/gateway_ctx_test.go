@@ -60,9 +60,9 @@ func (noopGatewayBackend) MarkDownlinkFailed(int64, string) error {
 }
 
 func TestGatewayStartStopsOnContextCancel(t *testing.T) {
-	addr := reserveGatewayTCPAddr(t)
+	listener := newGatewayListener(t)
+	addr := listener.Addr().String()
 	svc := NewGatewayWithConfig(noopGatewayBackend{}, logger.NewNoop(), appcfg.APIConfig{
-		TCPAddr:               addr,
 		ReadTimeout:           5 * time.Second,
 		RegisterAckGraceDelay: 5 * time.Millisecond,
 	})
@@ -70,7 +70,7 @@ func TestGatewayStartStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- svc.Start(ctx)
+		errCh <- svc.Serve(ctx, listener)
 	}()
 
 	waitForGatewayTCPServer(t, addr)
@@ -109,15 +109,14 @@ func TestGatewayStartStopsOnContextCancel(t *testing.T) {
 	}
 }
 
-func reserveGatewayTCPAddr(t *testing.T) string {
+func newGatewayListener(t *testing.T) net.Listener {
 	t.Helper()
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to reserve tcp address: %v", err)
 	}
-	defer l.Close()
-	return l.Addr().String()
+	return l
 }
 
 func waitForGatewayTCPServer(t *testing.T, address string) {
