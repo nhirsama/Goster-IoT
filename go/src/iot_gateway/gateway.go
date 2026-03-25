@@ -215,10 +215,11 @@ func (g *gatewayService) handleConnection(conn net.Conn) {
 				connLogger.Warn("密钥重协商失败", inter.Err(err))
 				return
 			}
-			sessionKey = secret
 			writeSeq++
+			// 重协商响应仍使用当前会话密钥发送，设备收到服务端公钥后再切换到新密钥。
 			respBuf, _ := g.protocol.Pack(g.privateKey.PublicKey().Bytes(), inter.CmdKeyExchangeDownlink, 1, sessionKey, writeSeq, true)
 			conn.Write(respBuf)
+			sessionKey = secret
 
 		case inter.CmdConfigPush, inter.CmdOtaData, inter.CmdActionExec, inter.CmdScreenWy:
 			if packet.IsAck {

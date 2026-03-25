@@ -22,8 +22,14 @@ func Run() {
 		stop()
 		fmt.Println("系统正常关闭")
 	}()
-	go start(ctx)
+	go StartWithContext(ctx)
 	<-ctx.Done()
+}
+
+// StartWithContext 以给定上下文启动整套 Go 后端服务。
+// 该入口主要供集成测试和未来的外部进程托管场景复用。
+func StartWithContext(ctx context.Context) {
+	start(ctx)
 }
 
 func start(ctx context.Context) {
