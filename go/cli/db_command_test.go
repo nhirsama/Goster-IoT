@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,6 +49,17 @@ func TestRunWithArgsServeRequiresInitializedSchema(t *testing.T) {
 }
 
 func TestRunWithArgsServeSupportsBunRuntimeStore(t *testing.T) {
+	probeWeb, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("tcp listener is unavailable in current environment: %v", err)
+	}
+	_ = probeWeb.Close()
+	probeAPI, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("tcp listener is unavailable in current environment: %v", err)
+	}
+	_ = probeAPI.Close()
+
 	dbPath := filepath.Join(t.TempDir(), "bun_runtime.db")
 	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_PATH", dbPath)

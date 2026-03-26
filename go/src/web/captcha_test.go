@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,25 +48,27 @@ func TestTurnstileVerifyRejectsMissingFormToken(t *testing.T) {
 }
 
 func TestTurnstileVerifyTokenAcceptsSuccessfulResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm failed: %v", err)
-		}
-		if got := r.FormValue("response"); got != "token-ok" {
-			t.Fatalf("unexpected response token: %s", got)
-		}
-		if got := r.FormValue("remoteip"); got != "1.2.3.4" {
-			t.Fatalf("unexpected remote ip: %s", got)
-		}
-		_, _ = io.WriteString(w, `{"success":true}`)
-	}))
-	defer server.Close()
-
 	svc := &TurnstileService{
 		Enabled:   true,
 		SecretKey: "secret",
 		timeout:   time.Second,
-		client:    &http.Client{Transport: rewriteTransport(t, server.URL)},
+		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("ReadAll failed: %v", err)
+			}
+			values, err := url.ParseQuery(string(body))
+			if err != nil {
+				t.Fatalf("ParseQuery failed: %v", err)
+			}
+			if got := values.Get("response"); got != "token-ok" {
+				t.Fatalf("unexpected response token: %s", got)
+			}
+			if got := values.Get("remoteip"); got != "1.2.3.4" {
+				t.Fatalf("unexpected remote ip: %s", got)
+			}
+			return httpResponse(http.StatusOK, `{"success":true}`), nil
+		})},
 	}
 	if !svc.VerifyToken("token-ok", "1.2.3.4") {
 		t.Fatal("expected successful verification")
@@ -74,15 +77,12 @@ func TestTurnstileVerifyTokenAcceptsSuccessfulResponse(t *testing.T) {
 
 func TestTurnstileVerifyTokenRejectsHTTPFailureAndInvalidJSON(t *testing.T) {
 	t.Run("status_non_200", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "nope", http.StatusBadGateway)
-		}))
-		defer server.Close()
-
 		svc := &TurnstileService{
 			Enabled: true,
 			timeout: time.Second,
-			client:  &http.Client{Transport: rewriteTransport(t, server.URL)},
+			client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				return httpResponse(http.StatusBadGateway, `nope`), nil
+			})},
 		}
 		if svc.VerifyToken("token", "1.2.3.4") {
 			t.Fatal("expected non-200 response to fail")
@@ -90,15 +90,12 @@ func TestTurnstileVerifyTokenRejectsHTTPFailureAndInvalidJSON(t *testing.T) {
 	})
 
 	t.Run("invalid_json", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.WriteString(w, `not-json`)
-		}))
-		defer server.Close()
-
 		svc := &TurnstileService{
 			Enabled: true,
 			timeout: time.Second,
-			client:  &http.Client{Transport: rewriteTransport(t, server.URL)},
+			client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				return httpResponse(http.StatusOK, `not-json`), nil
+			})},
 		}
 		if svc.VerifyToken("token", "1.2.3.4") {
 			t.Fatal("expected invalid json to fail")
@@ -117,28 +114,16 @@ func TestClientIPFromRequestPrefersForwardedHeaders(t *testing.T) {
 	}
 }
 
-type rewriteRoundTripper struct {
-	base   http.RoundTripper
-	target *url.URL
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
-func (rt rewriteRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	cloned.URL.Scheme = rt.target.Scheme
-	cloned.URL.Host = rt.target.Host
-	cloned.Host = rt.target.Host
-	return rt.base.RoundTrip(cloned)
-}
-
-func rewriteTransport(t *testing.T, rawURL string) http.RoundTripper {
-	t.Helper()
-
-	target, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse target url failed: %v", err)
-	}
-	return rewriteRoundTripper{
-		base:   http.DefaultTransport,
-		target: target,
+func httpResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
 	}
 }
