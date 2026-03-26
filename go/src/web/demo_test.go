@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +26,12 @@ type heartbeatDeadlineSetter interface {
 // TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
 // Run with: go test -v ./go/src/web -run TestRunServerAndStressTest
 func TestRunServerAndStressTest(t *testing.T) {
+	probe, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		t.Skipf("tcp listener on :8080 is unavailable in current environment: %v", err)
+	}
+	_ = probe.Close()
+
 	// 1. 打印当前测试工作目录，便于定位调试信息。
 	wd, _ := os.Getwd()
 	fmt.Println("Starting Test in:", wd)

@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,19 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
+func TestOpenStoreDelegatesToLegacyStore(t *testing.T) {
+	store, err := OpenStore(appcfg.DBConfig{
+		Driver: "sqlite",
+		Path:   filepath.Join(t.TempDir(), "compat.db"),
+	})
+	if err != nil {
+		t.Fatalf("OpenStore failed: %v", err)
+	}
+	if store == nil {
+		t.Fatal("OpenStore should return a store")
+	}
+}
+
 func TestOpenStoreSupportsSQLite(t *testing.T) {
 	store, err := OpenLegacyStore(appcfg.DBConfig{
 		Driver: "sqlite",
@@ -24,6 +38,16 @@ func TestOpenStoreSupportsSQLite(t *testing.T) {
 	}
 	if store == nil {
 		t.Fatal("sqlite store should not be nil")
+	}
+}
+
+func TestOpenSQLiteWrapperSupportsSQLite(t *testing.T) {
+	store, err := OpenSQLite(filepath.Join(t.TempDir(), "sqlite-wrapper.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite failed: %v", err)
+	}
+	if store == nil {
+		t.Fatal("OpenSQLite should return a store")
 	}
 }
 
@@ -57,6 +81,52 @@ func TestOpenStoreSupportsManagedSQLiteAfterExplicitEnsure(t *testing.T) {
 	}
 	if store == nil {
 		t.Fatal("managed sqlite store should not be nil")
+	}
+}
+
+func TestOpenRuntimeStoreSupportsSQLManagedSQLiteAfterExplicitEnsure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "managed_sql.db")
+	if err := EnsureSchema(appcfg.DBConfig{
+		Driver: "sqlite",
+		Path:   dbPath,
+	}); err != nil {
+		t.Fatalf("EnsureSchema(sqlite) failed: %v", err)
+	}
+
+	store, err := OpenRuntimeStore(appcfg.DBConfig{
+		Driver:       "sqlite",
+		Path:         dbPath,
+		SchemaMode:   "managed",
+		StoreBackend: "sql",
+	})
+	if err != nil {
+		t.Fatalf("OpenRuntimeStore(sqlite sql) failed: %v", err)
+	}
+	if store == nil {
+		t.Fatal("managed sql runtime store should not be nil")
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+}
+
+func TestOpenRuntimeStoreSupportsBunBootstrapSQLite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bootstrap_bun.db")
+	store, err := OpenRuntimeStore(appcfg.DBConfig{
+		Driver:       "sqlite",
+		Path:         dbPath,
+		SchemaMode:   "bootstrap",
+		StoreBackend: "bun",
+	})
+	if err != nil {
+		t.Fatalf("OpenRuntimeStore(sqlite bun bootstrap) failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected sqlite db file to exist after bootstrap: %v", err)
 	}
 }
 
@@ -104,6 +174,43 @@ func TestOpenRuntimeStoreSupportsBunManagedSQLiteAfterExplicitEnsure(t *testing.
 	}
 }
 
+func TestOpenRuntimeStoreFallsBackToDefaultBackend(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fallback_backend.db")
+	store, err := OpenRuntimeStore(appcfg.DBConfig{
+		Driver:       "sqlite",
+		Path:         dbPath,
+		SchemaMode:   "bootstrap",
+		StoreBackend: "bad",
+	})
+	if err != nil {
+		t.Fatalf("expected fallback backend to work, got: %v", err)
+	}
+	if store == nil {
+		t.Fatal("fallback backend store should not be nil")
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+}
+
+func TestOpenRuntimeStoreFallsBackToSQLiteDriver(t *testing.T) {
+	store, err := OpenRuntimeStore(appcfg.DBConfig{
+		Driver:       "mysql",
+		Path:         filepath.Join(t.TempDir(), "fallback_driver.db"),
+		SchemaMode:   "bootstrap",
+		StoreBackend: "bun",
+	})
+	if err != nil {
+		t.Fatalf("expected fallback sqlite driver to work, got: %v", err)
+	}
+	if store == nil {
+		t.Fatal("fallback driver store should not be nil")
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+}
+
 func TestOpenAuthStoreSupportsRememberingSQLiteAfterExplicitEnsure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "managed_auth.db")
 	if err := EnsureSchema(appcfg.DBConfig{
@@ -145,10 +252,77 @@ func TestOpenAuthStoreSupportsRememberingSQLiteAfterExplicitEnsure(t *testing.T)
 	}
 }
 
+func TestOpenAuthStoreSupportsBootstrapSQLite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bootstrap_auth.db")
+	store, err := OpenAuthStore(appcfg.DBConfig{
+		Driver:     "sqlite",
+		Path:       dbPath,
+		SchemaMode: "bootstrap",
+	})
+	if err != nil {
+		t.Fatalf("OpenAuthStore(sqlite bootstrap) failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+}
+
+func TestOpenAuthStoreFallsBackToSQLiteDriver(t *testing.T) {
+	store, err := OpenAuthStore(appcfg.DBConfig{
+		Driver:     "mysql",
+		Path:       filepath.Join(t.TempDir(), "fallback_auth.db"),
+		SchemaMode: "bootstrap",
+	})
+	if err != nil {
+		t.Fatalf("expected fallback sqlite auth store to work, got: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+}
+
+func TestEnsureSchemaFallsBackToSQLiteDriver(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fallback_schema.db")
+	if err := EnsureSchema(appcfg.DBConfig{Driver: "mysql", Path: dbPath}); err != nil {
+		t.Fatalf("expected fallback sqlite ensure schema to work, got: %v", err)
+	}
+}
+
+func TestEnsureSchemaRejectsEmptyPostgresDSN(t *testing.T) {
+	err := EnsureSchema(appcfg.DBConfig{Driver: "postgres"})
+	if err == nil {
+		t.Fatal("expected postgres dsn error")
+	}
+}
+
 func TestOpenStoreRejectsEmptyPostgresDSN(t *testing.T) {
 	_, err := OpenLegacyStore(appcfg.DBConfig{Driver: "postgres"})
 	if err == nil {
 		t.Fatal("expected postgres backend to reject empty dsn")
+	}
+}
+
+func TestOpenPostgresRejectsEmptyDSN(t *testing.T) {
+	_, err := OpenPostgres("")
+	if err == nil {
+		t.Fatal("expected OpenPostgres to reject empty dsn")
+	}
+}
+
+func TestCloseIfPossibleHandlesNilAndNonCloser(t *testing.T) {
+	if err := CloseIfPossible(nil); err != nil {
+		t.Fatalf("CloseIfPossible(nil) failed: %v", err)
+	}
+	if err := CloseIfPossible(struct{}{}); err != nil {
+		t.Fatalf("CloseIfPossible(non-closer) failed: %v", err)
+	}
+}
+
+func TestCloseIfPossiblePropagatesCloserError(t *testing.T) {
+	want := errors.New("close failed")
+	err := CloseIfPossible(testCloser{err: want})
+	if !errors.Is(err, want) {
+		t.Fatalf("expected close error %v, got %v", want, err)
 	}
 }
 
@@ -242,4 +416,12 @@ func TestOpenRuntimeStoreSupportsPostgresBunWhenDSNProvided(t *testing.T) {
 	if loaded.Name != meta.Name || loaded.Token != meta.Token {
 		t.Fatalf("unexpected postgres bun metadata: %+v", loaded)
 	}
+}
+
+type testCloser struct {
+	err error
+}
+
+func (c testCloser) Close() error {
+	return c.err
 }
