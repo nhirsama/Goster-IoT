@@ -39,20 +39,21 @@ func OpenPostgres(dsn string) (inter.DataStore, error) {
 func openLegacySQLStore(cfg appcfg.DBConfig) (inter.DataStore, error) {
 	cfg = appcfg.NormalizeDBConfig(cfg)
 
+	if cfg.SchemaMode != "managed" {
+		if err := EnsureSchema(cfg); err != nil {
+			return nil, err
+		}
+		cfg.SchemaMode = "managed"
+	}
+
 	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
 	case "sqlite":
-		if cfg.SchemaMode == "managed" {
-			return datastore.OpenDataStoreSql(cfg.Path)
-		}
-		return datastore.NewDataStoreSql(cfg.Path)
+		return datastore.OpenDataStoreSql(cfg.Path)
 	case "postgres":
 		if strings.TrimSpace(cfg.DSN) == "" {
 			return nil, fmt.Errorf("postgres datastore requires a non-empty dsn")
 		}
-		if cfg.SchemaMode == "managed" {
-			return datastore.OpenDataStorePostgres(cfg.DSN)
-		}
-		return datastore.NewDataStorePostgres(cfg.DSN)
+		return datastore.OpenDataStorePostgres(cfg.DSN)
 	default:
 		return nil, fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
 	}

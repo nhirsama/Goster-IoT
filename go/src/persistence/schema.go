@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
+	"github.com/nhirsama/Goster-IoT/src/dbschema"
 )
 
 // EnsureSchema 显式初始化数据库表结构。
@@ -15,12 +15,12 @@ func EnsureSchema(cfg appcfg.DBConfig) error {
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
 	case "sqlite":
-		return datastore.EnsureSQLiteSchema(cfg.Path)
+		return dbschema.EnsureSQLite(cfg.Path)
 	case "postgres":
 		if strings.TrimSpace(cfg.DSN) == "" {
 			return fmt.Errorf("postgres datastore requires a non-empty dsn")
 		}
-		return datastore.EnsurePostgresSchema(cfg.DSN)
+		return dbschema.EnsurePostgres(cfg.DSN)
 	default:
 		return fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
 	}

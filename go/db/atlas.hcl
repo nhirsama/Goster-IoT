@@ -17,7 +17,7 @@ env "postgres" {
   dev = "docker://postgres/16/dev?search_path=public"
 
   migration {
-    dir = "file://migrations"
+    dir = "file://migrations/postgres"
   }
 
   schema {
@@ -30,7 +30,7 @@ env "sqlite" {
   dev = "sqlite://file?mode=memory"
 
   migration {
-    dir = "file://migrations"
+    dir = "file://migrations/sqlite"
   }
 
   schema {

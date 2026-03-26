@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	storageidentity "github.com/nhirsama/Goster-IoT/src/storage/identity"
 )
@@ -18,7 +17,7 @@ func OpenAuthStore(cfg appcfg.DBConfig) (identitycore.Store, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
 	case "sqlite":
 		if cfg.SchemaMode == "bootstrap" {
-			if err := datastore.EnsureSQLiteSchema(cfg.Path); err != nil {
+			if err := EnsureSchema(cfg); err != nil {
 				return nil, err
 			}
 		}
@@ -28,7 +27,7 @@ func OpenAuthStore(cfg appcfg.DBConfig) (identitycore.Store, error) {
 			return nil, fmt.Errorf("postgres datastore requires a non-empty dsn")
 		}
 		if cfg.SchemaMode == "bootstrap" {
-			if err := datastore.EnsurePostgresSchema(cfg.DSN); err != nil {
+			if err := EnsureSchema(cfg); err != nil {
 				return nil, err
 			}
 		}
