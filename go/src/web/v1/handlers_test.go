@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/aarondl/authboss/v3"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	webpkg "github.com/nhirsama/Goster-IoT/src/web"
 	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
@@ -102,7 +102,7 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 
 func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 	env := newTestAPI(t)
-	user := &datastore.AuthUser{
+	user := &identitycore.AuthUser{
 		Username:   "admin",
 		Email:      "admin@test.local",
 		Permission: int(inter.PermissionAdmin),
@@ -140,7 +140,7 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 	}
 
 	forbiddenReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
-	forbiddenReq = forbiddenReq.WithContext(context.WithValue(forbiddenReq.Context(), authboss.CTXKeyUser, &datastore.AuthUser{
+	forbiddenReq = forbiddenReq.WithContext(context.WithValue(forbiddenReq.Context(), authboss.CTXKeyUser, &identitycore.AuthUser{
 		Username:   "viewer",
 		Permission: int(inter.PermissionReadOnly),
 	}))
@@ -527,7 +527,7 @@ func TestAPIDeviceHandlersRespectTenantScope(t *testing.T) {
 
 func TestAPIMeIncludesActiveTenant(t *testing.T) {
 	env := newTestAPI(t)
-	user := &datastore.AuthUser{
+	user := &identitycore.AuthUser{
 		Username:   "tenant_user",
 		Email:      "tenant_user@test.local",
 		Permission: int(inter.PermissionReadOnly),

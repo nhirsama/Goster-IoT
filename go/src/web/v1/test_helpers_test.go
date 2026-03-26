@@ -13,7 +13,7 @@ import (
 	"github.com/aarondl/authboss/v3"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 	webpkg "github.com/nhirsama/Goster-IoT/src/web"
@@ -137,7 +137,7 @@ func seedUser(t *testing.T, ds inter.DataStore, username string) {
 	if !ok {
 		t.Fatalf("datastore does not implement CreatingServerStorer")
 	}
-	u := &datastore.AuthUser{
+	u := &identitycore.AuthUser{
 		Username: username,
 		Password: "plain_pw_for_tests",
 	}

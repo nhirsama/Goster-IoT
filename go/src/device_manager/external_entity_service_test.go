@@ -6,16 +6,19 @@ import (
 	"time"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
 func TestExternalEntityServiceNormalizesAndQueriesEntities(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "external.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
 
 	service := NewExternalEntityService(ds, appcfg.DefaultDeviceManagerConfig())
 	entity := inter.ExternalEntity{

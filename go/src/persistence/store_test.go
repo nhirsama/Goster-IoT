@@ -281,6 +281,15 @@ func TestOpenAuthStoreFallsBackToSQLiteDriver(t *testing.T) {
 	})
 }
 
+func TestOpenAuthStoreRejectsEmptyPostgresDSN(t *testing.T) {
+	_, err := OpenAuthStore(appcfg.DBConfig{
+		Driver: "postgres",
+	})
+	if err == nil {
+		t.Fatal("expected postgres auth store to reject empty dsn")
+	}
+}
+
 func TestEnsureSchemaFallsBackToSQLiteDriver(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fallback_schema.db")
 	if err := EnsureSchema(appcfg.DBConfig{Driver: "mysql", Path: dbPath}); err != nil {
@@ -306,6 +315,26 @@ func TestOpenPostgresRejectsEmptyDSN(t *testing.T) {
 	_, err := OpenPostgres("")
 	if err == nil {
 		t.Fatal("expected OpenPostgres to reject empty dsn")
+	}
+}
+
+func TestOpenRuntimeStoreRejectsEmptyPostgresDSN(t *testing.T) {
+	_, err := OpenRuntimeStore(appcfg.DBConfig{
+		Driver:       "postgres",
+		StoreBackend: "bun",
+		SchemaMode:   "managed",
+	})
+	if err == nil {
+		t.Fatal("expected postgres runtime store to reject empty dsn")
+	}
+}
+
+func TestOpenBunRuntimeStoreRejectsUnsupportedDriver(t *testing.T) {
+	_, err := openBunRuntimeStore(appcfg.DBConfig{
+		Driver: "mysql",
+	})
+	if err == nil {
+		t.Fatal("expected bun runtime store to reject unsupported driver")
 	}
 }
 

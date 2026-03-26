@@ -5,16 +5,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
 func TestDownlinkCommandServiceEnqueueAndStatusFlow(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "downlink.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
 
 	queue := NewDeviceCommandQueue(8)
 	service := NewDownlinkCommandService(ds, queue)
@@ -71,10 +74,13 @@ func (f failingQueue) IsEmpty(uuid string) bool { return true }
 
 func TestDownlinkCommandServiceMarkFailedAndQueueError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "downlink_failed.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
 
 	uuid := "device-2"
 	if err := ds.InitDevice(uuid, inter.DeviceMetadata{

@@ -24,6 +24,7 @@ func (ds *DataStoreSql) Close() error {
 }
 
 // OpenDataStoreSql 只打开现有的 SQLite 数据库，不隐式建表。
+// Deprecated: 新代码应通过 persistence.OpenLegacyStore 或更细粒度的 storage 模块打开存储。
 func OpenDataStoreSql(dbPath string) (inter.DataStore, error) {
 	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
 	if err != nil {
@@ -34,6 +35,7 @@ func OpenDataStoreSql(dbPath string) (inter.DataStore, error) {
 
 // NewDataStoreSql 保留 legacy bootstrap 入口。
 // 实际 schema 初始化已经统一迁移到 go/db 资产目录。
+// Deprecated: 新代码应通过 persistence.EnsureSchema + persistence.OpenLegacyStore 组合使用。
 func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
 	if err != nil {
@@ -43,6 +45,7 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 }
 
 // OpenDataStorePostgres 只打开现有的 PostgreSQL 数据库，不隐式建表。
+// Deprecated: 新代码应通过 persistence.OpenLegacyStore 或更细粒度的 storage 模块打开存储。
 func OpenDataStorePostgres(dsn string) (inter.DataStore, error) {
 	db, err := sql.Open("pgx", strings.TrimSpace(dsn))
 	if err != nil {
@@ -53,6 +56,7 @@ func OpenDataStorePostgres(dsn string) (inter.DataStore, error) {
 
 // NewDataStorePostgres 保留 legacy bootstrap 入口。
 // 实际 schema 初始化已经统一迁移到 go/db 资产目录。
+// Deprecated: 新代码应通过 persistence.EnsureSchema + persistence.OpenLegacyStore 组合使用。
 func NewDataStorePostgres(dsn string) (inter.DataStore, error) {
 	db, err := sql.Open("pgx", strings.TrimSpace(dsn))
 	if err != nil {
@@ -85,16 +89,6 @@ func newSQLStore(db *sql.DB, dialect sqlDialect) (inter.DataStore, error) {
 		return nil, err
 	}
 	return openSQLStore(db, dialect)
-}
-
-// EnsureSQLiteSchema 显式初始化 SQLite 表结构。
-func EnsureSQLiteSchema(dbPath string) error {
-	return dbschema.EnsureSQLite(dbPath)
-}
-
-// EnsurePostgresSchema 显式初始化 PostgreSQL 表结构。
-func EnsurePostgresSchema(dsn string) error {
-	return dbschema.EnsurePostgres(dsn)
 }
 
 func validateSchema(db *sql.DB) error {

@@ -1,56 +1,33 @@
 package web
 
 import (
-	"os"
 	"testing"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
-func resolveCookieSecureForTest() bool {
-	return appcfg.ResolveCookieSecure(
-		os.Getenv("AUTH_COOKIE_SECURE"),
-		os.Getenv("APP_ENV"),
-		os.Getenv("AUTHBOSS_ROOT_URL"),
-	)
-}
-
-func TestResolveCookieSecurePriority(t *testing.T) {
-	t.Setenv("AUTH_COOKIE_SECURE", "true")
-	t.Setenv("APP_ENV", "dev")
-	t.Setenv("AUTHBOSS_ROOT_URL", "http://localhost:8080")
-
-	if !resolveCookieSecureForTest() {
-		t.Fatalf("AUTH_COOKIE_SECURE=true should force secure cookie")
+func TestSetupAuthbossWithConfigRejectsNonIdentityStore(t *testing.T) {
+	_, err := SetupAuthbossWithConfig(testWebDepsDataStore{}, appcfg.DefaultAuthConfig())
+	if err == nil {
+		t.Fatal("expected non-identity store to be rejected")
 	}
 }
 
-func TestResolveCookieSecureByEnvironment(t *testing.T) {
-	t.Setenv("AUTH_COOKIE_SECURE", "")
-	t.Setenv("APP_ENV", "production")
-	t.Setenv("AUTHBOSS_ROOT_URL", "http://localhost:8080")
-
-	if !resolveCookieSecureForTest() {
-		t.Fatalf("production environment should enable secure cookie")
+func TestSetupAuthbossWithConfigSupportsLegacyStore(t *testing.T) {
+	ds, err := persistence.OpenSQLite(t.TempDir() + "/auth_setup.db")
+	if err != nil {
+		t.Fatalf("OpenSQLite failed: %v", err)
 	}
-}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
 
-func TestResolveCookieSecureByRootURL(t *testing.T) {
-	t.Setenv("AUTH_COOKIE_SECURE", "")
-	t.Setenv("APP_ENV", "dev")
-	t.Setenv("AUTHBOSS_ROOT_URL", "https://example.com")
-
-	if !resolveCookieSecureForTest() {
-		t.Fatalf("https root url should enable secure cookie")
+	ab, err := SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
+	if err != nil {
+		t.Fatalf("SetupAuthbossWithConfig failed: %v", err)
 	}
-}
-
-func TestResolveCookieSecureDefaultFalse(t *testing.T) {
-	t.Setenv("AUTH_COOKIE_SECURE", "")
-	t.Setenv("APP_ENV", "dev")
-	t.Setenv("AUTHBOSS_ROOT_URL", "http://localhost:8080")
-
-	if resolveCookieSecureForTest() {
-		t.Fatalf("non-production http environment should disable secure cookie by default")
+	if ab == nil {
+		t.Fatal("expected authboss instance")
 	}
 }

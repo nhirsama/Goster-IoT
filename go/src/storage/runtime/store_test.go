@@ -7,7 +7,7 @@ import (
 
 	"github.com/aarondl/authboss/v3"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 	storageruntime "github.com/nhirsama/Goster-IoT/src/storage/runtime"
@@ -100,7 +100,7 @@ func TestRuntimeStoreUserAndTenantRoleFlow(t *testing.T) {
 	if !ok {
 		t.Fatal("auth store does not implement CreatingServerStorer")
 	}
-	if err := storer.Create(context.Background(), &datastore.AuthUser{
+	if err := storer.Create(context.Background(), &identitycore.AuthUser{
 		Username: "member",
 		Password: "plain_pw_for_tests",
 	}); err != nil && err != authboss.ErrUserFound {

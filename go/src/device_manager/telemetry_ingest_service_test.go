@@ -7,16 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nhirsama/Goster-IoT/src/datastore"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
 func TestTelemetryIngestServiceWritesMetricsAndLogs(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "telemetry.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
 
 	uuid := "device-telemetry"
 	if err := ds.InitDevice(uuid, inter.DeviceMetadata{
@@ -73,10 +76,13 @@ func TestTelemetryIngestServiceWritesMetricsAndLogs(t *testing.T) {
 
 func TestTelemetryIngestServiceWritesEventAndError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "telemetry_event.db")
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("failed to init datastore: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
 
 	uuid := "device-telemetry-event"
 	if err := ds.InitDevice(uuid, inter.DeviceMetadata{

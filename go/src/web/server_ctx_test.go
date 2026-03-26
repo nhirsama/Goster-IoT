@@ -67,6 +67,42 @@ func TestWebServerStartStopsOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestWebServerStartReturnsListenErrorForInvalidAddr(t *testing.T) {
+	ds, err := persistence.OpenSQLite(filepath.Join(t.TempDir(), "web_start_invalid.db"))
+	if err != nil {
+		t.Fatalf("failed to open datastore: %v", err)
+	}
+	services := core.NewServices(ds)
+
+	ab, err := SetupAuthboss(ds)
+	if err != nil {
+		t.Fatalf("failed to setup authboss: %v", err)
+	}
+	authService, err := NewAuthService(ab)
+	if err != nil {
+		t.Fatalf("failed to setup auth service: %v", err)
+	}
+
+	ws, err := NewWebServer(WebServerDeps{
+		DataStore:        ds,
+		DeviceRegistry:   services.DeviceRegistry,
+		DevicePresence:   services.DevicePresence,
+		DownlinkCommands: services.DownlinkCommands,
+		Auth:             authService,
+		Captcha:          &TurnstileService{Enabled: false},
+		Config: appcfg.WebConfig{
+			HTTPAddr: "127.0.0.1:bad-port",
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create web server: %v", err)
+	}
+
+	if err := ws.Start(context.Background()); err == nil {
+		t.Fatal("expected invalid address listen error")
+	}
+}
+
 func newWebListener(t *testing.T) net.Listener {
 	t.Helper()
 
