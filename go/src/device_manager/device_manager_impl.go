@@ -13,10 +13,14 @@ type DeviceManager struct {
 	external inter.ExternalEntityService
 }
 
+// NewDeviceManager 保留历史组合接口的装配入口。
+// 新代码应优先依赖更小的 DeviceRegistry / DevicePresence / ExternalEntityService。
 func NewDeviceManager(ds inter.DeviceManagerStore) inter.DeviceManager {
 	return NewDeviceManagerWithConfig(ds, appcfg.DefaultDeviceManagerConfig())
 }
 
+// NewDeviceManagerWithConfig 构造兼容 façade。
+// 这个对象本身不再承载核心业务，只负责把拆分后的服务组合成旧接口。
 func NewDeviceManagerWithConfig(ds inter.DeviceManagerStore, cfg appcfg.DeviceManagerConfig) inter.DeviceManager {
 	n := appcfg.NormalizeDeviceManagerConfig(cfg)
 	presence := NewDevicePresenceWithStore(n.HeartbeatDeadline, NewInMemoryDevicePresenceStore())
