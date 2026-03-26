@@ -94,7 +94,7 @@ func serve(ctx context.Context) error {
 
 	runtimeStore, err := persistence.OpenRuntimeStore(dbCfg)
 	if err != nil {
-		rootLogger.Error("业务存储初始化失败", inter.Err(err), inter.String("backend", dbCfg.StoreBackend))
+		rootLogger.Error("业务存储初始化失败", inter.Err(err))
 		return err
 	}
 	defer persistence.CloseIfPossible(runtimeStore)

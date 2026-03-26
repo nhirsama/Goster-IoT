@@ -18,10 +18,10 @@ func EnsureSchema(cfg appcfg.DBConfig) error {
 		return dbschema.EnsureSQLite(cfg.Path)
 	case "postgres":
 		if strings.TrimSpace(cfg.DSN) == "" {
-			return fmt.Errorf("postgres datastore requires a non-empty dsn")
+			return fmt.Errorf("postgres driver requires a non-empty dsn")
 		}
 		return dbschema.EnsurePostgres(cfg.DSN)
 	default:
-		return fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
+		return fmt.Errorf("unsupported database driver: %s", cfg.Driver)
 	}
 }

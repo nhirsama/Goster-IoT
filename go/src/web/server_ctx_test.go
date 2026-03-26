@@ -20,7 +20,7 @@ func TestWebServerStartStopsOnContextCancel(t *testing.T) {
 
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to open datastore: %v", err)
+		t.Fatalf("failed to open runtime store: %v", err)
 	}
 	services := core.NewServices(ds)
 
@@ -70,7 +70,7 @@ func TestWebServerStartStopsOnContextCancel(t *testing.T) {
 func TestWebServerStartReturnsListenErrorForInvalidAddr(t *testing.T) {
 	ds, err := persistence.OpenSQLite(filepath.Join(t.TempDir(), "web_start_invalid.db"))
 	if err != nil {
-		t.Fatalf("failed to open datastore: %v", err)
+		t.Fatalf("failed to open runtime store: %v", err)
 	}
 	services := core.NewServices(ds)
 

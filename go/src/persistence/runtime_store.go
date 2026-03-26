@@ -2,14 +2,13 @@ package persistence
 
 import (
 	"fmt"
-	"strings"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	storageruntime "github.com/nhirsama/Goster-IoT/src/storage/runtime"
 )
 
 // OpenRuntimeStore 打开业务运行时仓储。
-// 这里统一协调 schema 初始化模式与后端选择。
+// 这里统一协调 schema 初始化模式，并直接走当前标准运行时驱动链。
 func OpenRuntimeStore(cfg appcfg.DBConfig) (RuntimeStore, error) {
 	cfg = appcfg.NormalizeDBConfig(cfg)
 
@@ -19,27 +18,48 @@ func OpenRuntimeStore(cfg appcfg.DBConfig) (RuntimeStore, error) {
 		}
 		cfg.SchemaMode = "managed"
 	}
-
-	switch cfg.StoreBackend {
-	case "bun":
-		return openBunRuntimeStore(cfg)
-	case "sql":
-		return openLegacySQLStore(cfg)
-	default:
-		return nil, fmt.Errorf("unsupported runtime store backend: %s", cfg.StoreBackend)
-	}
+	return openBunRuntimeStore(cfg)
 }
 
 func openBunRuntimeStore(cfg appcfg.DBConfig) (RuntimeStore, error) {
-	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
+	switch cfg.Driver {
 	case "sqlite":
-		return storageruntime.OpenSQLite(cfg.Path)
-	case "postgres":
-		if strings.TrimSpace(cfg.DSN) == "" {
-			return nil, fmt.Errorf("postgres datastore requires a non-empty dsn")
+		store, err := storageruntime.OpenSQLite(cfg.Path)
+		if err != nil {
+			return nil, err
 		}
-		return storageruntime.OpenPostgres(cfg.DSN)
+		if err := validateRuntimeStore(store); err != nil {
+			_ = CloseIfPossible(store)
+			return nil, err
+		}
+		return store, nil
+	case "postgres":
+		if cfg.DSN == "" {
+			return nil, fmt.Errorf("postgres driver requires a non-empty dsn")
+		}
+		store, err := storageruntime.OpenPostgres(cfg.DSN)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateRuntimeStore(store); err != nil {
+			_ = CloseIfPossible(store)
+			return nil, err
+		}
+		return store, nil
 	default:
-		return nil, fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
+		return nil, fmt.Errorf("unsupported database driver: %s", cfg.Driver)
 	}
+}
+
+func validateRuntimeStore(store RuntimeStore) error {
+	if store == nil {
+		return fmt.Errorf("runtime store is nil")
+	}
+	if _, err := store.ListDevices(1, 1); err != nil {
+		return err
+	}
+	if _, err := store.GetUserCount(); err != nil {
+		return err
+	}
+	return nil
 }

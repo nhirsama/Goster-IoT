@@ -29,7 +29,7 @@ type WebServerDeps struct {
 
 func (d *WebServerDeps) normalize() error {
 	if d.DataStore == nil {
-		return errors.New("web deps missing datastore")
+		return errors.New("web deps missing runtime store")
 	}
 	if d.DeviceRegistry == nil {
 		return errors.New("web deps missing device registry")

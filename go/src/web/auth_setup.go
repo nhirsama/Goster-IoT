@@ -13,7 +13,7 @@ import (
 func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 	store, ok := db.(identity.Store)
 	if !ok {
-		return nil, errors.New("datastore 未实现 identity.Store 接口")
+		return nil, errors.New("认证存储未实现 identity.Store 接口")
 	}
 	return identity.SetupAuthboss(store)
 }
@@ -22,7 +22,7 @@ func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
 func SetupAuthbossWithConfig(db inter.DataStore, cfg appcfg.AuthConfig) (*authboss.Authboss, error) {
 	store, ok := db.(identity.Store)
 	if !ok {
-		return nil, errors.New("datastore 未实现 identity.Store 接口")
+		return nil, errors.New("认证存储未实现 identity.Store 接口")
 	}
 	return identity.SetupAuthbossWithConfig(store, cfg)
 }

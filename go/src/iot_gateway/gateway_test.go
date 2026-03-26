@@ -36,7 +36,7 @@ func newGatewayTestHarness(t *testing.T) *gatewayTestHarness {
 	dbPath := filepath.Join(t.TempDir(), "gateway_test.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	services := core.NewServices(ds)
 	svc := NewGatewayFromCoreWithConfig(services.DeviceRegistry, services.DevicePresence, services.TelemetryIngest, services.DownlinkCommands, logger.NewNoop(), appcfg.APIConfig{

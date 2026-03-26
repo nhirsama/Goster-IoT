@@ -25,7 +25,7 @@ func NewServices(ds inter.CoreStore) Services {
 // NewServicesWithConfig 按给定配置构建核心服务集合。
 func NewServicesWithConfig(ds inter.CoreStore, cfg appcfg.DeviceManagerConfig) Services {
 	if ds == nil {
-		panic("core services require datastore")
+		panic("core services require runtime store")
 	}
 
 	n := appcfg.NormalizeDeviceManagerConfig(cfg)

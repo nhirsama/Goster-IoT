@@ -13,7 +13,7 @@ import (
 func TestNewServicesWithConfigBuildsAllCoreServices(t *testing.T) {
 	ds, err := persistence.OpenSQLite(filepath.Join(t.TempDir(), "core_services.db"))
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 
 	services := NewServicesWithConfig(ds, appcfg.DeviceManagerConfig{
@@ -32,7 +32,7 @@ func TestNewServicesWithConfigBuildsAllCoreServices(t *testing.T) {
 func TestNewServicesDeleteDeviceClearsPresenceState(t *testing.T) {
 	ds, err := persistence.OpenSQLite(filepath.Join(t.TempDir(), "core_presence.db"))
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 
 	services := NewServicesWithConfig(ds, appcfg.DeviceManagerConfig{

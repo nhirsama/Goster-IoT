@@ -15,7 +15,7 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-func TestOpenStoreDelegatesToLegacyStore(t *testing.T) {
+func TestOpenStoreBuildsCombinedSQLiteStore(t *testing.T) {
 	store, err := OpenStore(appcfg.DBConfig{
 		Driver: "sqlite",
 		Path:   filepath.Join(t.TempDir(), "compat.db"),
@@ -29,12 +29,12 @@ func TestOpenStoreDelegatesToLegacyStore(t *testing.T) {
 }
 
 func TestOpenStoreSupportsSQLite(t *testing.T) {
-	store, err := OpenLegacyStore(appcfg.DBConfig{
+	store, err := OpenStore(appcfg.DBConfig{
 		Driver: "sqlite",
 		Path:   filepath.Join(t.TempDir(), "persistence.db"),
 	})
 	if err != nil {
-		t.Fatalf("OpenLegacyStore(sqlite) failed: %v", err)
+		t.Fatalf("OpenStore(sqlite) failed: %v", err)
 	}
 	if store == nil {
 		t.Fatal("sqlite store should not be nil")
@@ -52,7 +52,7 @@ func TestOpenSQLiteWrapperSupportsSQLite(t *testing.T) {
 }
 
 func TestOpenStoreRejectsManagedSQLiteWithoutSchema(t *testing.T) {
-	_, err := OpenLegacyStore(appcfg.DBConfig{
+	_, err := OpenStore(appcfg.DBConfig{
 		Driver:     "sqlite",
 		Path:       filepath.Join(t.TempDir(), "missing.db"),
 		SchemaMode: "managed",
@@ -71,21 +71,21 @@ func TestOpenStoreSupportsManagedSQLiteAfterExplicitEnsure(t *testing.T) {
 		t.Fatalf("EnsureSchema(sqlite) failed: %v", err)
 	}
 
-	store, err := OpenLegacyStore(appcfg.DBConfig{
+	store, err := OpenStore(appcfg.DBConfig{
 		Driver:     "sqlite",
 		Path:       dbPath,
 		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenLegacyStore(sqlite managed) failed: %v", err)
+		t.Fatalf("OpenStore(sqlite managed) failed: %v", err)
 	}
 	if store == nil {
 		t.Fatal("managed sqlite store should not be nil")
 	}
 }
 
-func TestOpenRuntimeStoreSupportsSQLManagedSQLiteAfterExplicitEnsure(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "managed_sql.db")
+func TestOpenRuntimeStoreSupportsManagedSQLiteAfterExplicitEnsure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "managed_runtime.db")
 	if err := EnsureSchema(appcfg.DBConfig{
 		Driver: "sqlite",
 		Path:   dbPath,
@@ -94,32 +94,30 @@ func TestOpenRuntimeStoreSupportsSQLManagedSQLiteAfterExplicitEnsure(t *testing.
 	}
 
 	store, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "sqlite",
-		Path:         dbPath,
-		SchemaMode:   "managed",
-		StoreBackend: "sql",
+		Driver:     "sqlite",
+		Path:       dbPath,
+		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenRuntimeStore(sqlite sql) failed: %v", err)
+		t.Fatalf("OpenRuntimeStore(sqlite) failed: %v", err)
 	}
 	if store == nil {
-		t.Fatal("managed sql runtime store should not be nil")
+		t.Fatal("managed runtime store should not be nil")
 	}
 	t.Cleanup(func() {
 		_ = CloseIfPossible(store)
 	})
 }
 
-func TestOpenRuntimeStoreSupportsBunBootstrapSQLite(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "bootstrap_bun.db")
+func TestOpenRuntimeStoreSupportsBootstrapSQLite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bootstrap_runtime.db")
 	store, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "sqlite",
-		Path:         dbPath,
-		SchemaMode:   "bootstrap",
-		StoreBackend: "bun",
+		Driver:     "sqlite",
+		Path:       dbPath,
+		SchemaMode: "bootstrap",
 	})
 	if err != nil {
-		t.Fatalf("OpenRuntimeStore(sqlite bun bootstrap) failed: %v", err)
+		t.Fatalf("OpenRuntimeStore(sqlite bootstrap) failed: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = CloseIfPossible(store)
@@ -130,8 +128,8 @@ func TestOpenRuntimeStoreSupportsBunBootstrapSQLite(t *testing.T) {
 	}
 }
 
-func TestOpenRuntimeStoreSupportsBunManagedSQLiteAfterExplicitEnsure(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "managed_bun.db")
+func TestOpenRuntimeStoreSupportsManagedSQLiteAfterExplicitEnsureThroughRuntimeChain(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "managed_runtime_chain.db")
 	if err := EnsureSchema(appcfg.DBConfig{
 		Driver: "sqlite",
 		Path:   dbPath,
@@ -140,65 +138,44 @@ func TestOpenRuntimeStoreSupportsBunManagedSQLiteAfterExplicitEnsure(t *testing.
 	}
 
 	store, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "sqlite",
-		Path:         dbPath,
-		SchemaMode:   "managed",
-		StoreBackend: "bun",
+		Driver:     "sqlite",
+		Path:       dbPath,
+		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenRuntimeStore(sqlite bun) failed: %v", err)
+		t.Fatalf("OpenRuntimeStore(sqlite managed) failed: %v", err)
 	}
 	if store == nil {
-		t.Fatal("managed bun runtime store should not be nil")
+		t.Fatal("managed runtime store should not be nil")
 	}
 	t.Cleanup(func() {
 		_ = CloseIfPossible(store)
 	})
 
-	deviceID := fmt.Sprintf("sqlite-bun-device-%d", time.Now().UnixNano())
-	token := fmt.Sprintf("sqlite-bun-token-%d", time.Now().UnixNano())
+	deviceID := fmt.Sprintf("sqlite-runtime-device-%d", time.Now().UnixNano())
+	token := fmt.Sprintf("sqlite-runtime-token-%d", time.Now().UnixNano())
 	meta := inter.DeviceMetadata{
-		Name:               "sqlite-bun-smoke",
+		Name:               "sqlite-runtime-smoke",
 		Token:              token,
 		AuthenticateStatus: inter.AuthenticatePending,
 	}
 	if err := store.InitDevice(deviceID, meta); err != nil {
-		t.Fatalf("InitDevice(sqlite bun) failed: %v", err)
+		t.Fatalf("InitDevice(sqlite runtime) failed: %v", err)
 	}
 	loaded, err := store.LoadConfig(deviceID)
 	if err != nil {
-		t.Fatalf("LoadConfig(sqlite bun) failed: %v", err)
+		t.Fatalf("LoadConfig(sqlite runtime) failed: %v", err)
 	}
 	if loaded.Name != meta.Name || loaded.Token != meta.Token {
-		t.Fatalf("unexpected bun sqlite metadata: %+v", loaded)
+		t.Fatalf("unexpected sqlite runtime metadata: %+v", loaded)
 	}
-}
-
-func TestOpenRuntimeStoreFallsBackToDefaultBackend(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "fallback_backend.db")
-	store, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "sqlite",
-		Path:         dbPath,
-		SchemaMode:   "bootstrap",
-		StoreBackend: "bad",
-	})
-	if err != nil {
-		t.Fatalf("expected fallback backend to work, got: %v", err)
-	}
-	if store == nil {
-		t.Fatal("fallback backend store should not be nil")
-	}
-	t.Cleanup(func() {
-		_ = CloseIfPossible(store)
-	})
 }
 
 func TestOpenRuntimeStoreFallsBackToSQLiteDriver(t *testing.T) {
 	store, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "mysql",
-		Path:         filepath.Join(t.TempDir(), "fallback_driver.db"),
-		SchemaMode:   "bootstrap",
-		StoreBackend: "bun",
+		Driver:     "mysql",
+		Path:       filepath.Join(t.TempDir(), "fallback_driver.db"),
+		SchemaMode: "bootstrap",
 	})
 	if err != nil {
 		t.Fatalf("expected fallback sqlite driver to work, got: %v", err)
@@ -305,7 +282,7 @@ func TestEnsureSchemaRejectsEmptyPostgresDSN(t *testing.T) {
 }
 
 func TestOpenStoreRejectsEmptyPostgresDSN(t *testing.T) {
-	_, err := OpenLegacyStore(appcfg.DBConfig{Driver: "postgres"})
+	_, err := OpenStore(appcfg.DBConfig{Driver: "postgres"})
 	if err == nil {
 		t.Fatal("expected postgres backend to reject empty dsn")
 	}
@@ -320,9 +297,8 @@ func TestOpenPostgresRejectsEmptyDSN(t *testing.T) {
 
 func TestOpenRuntimeStoreRejectsEmptyPostgresDSN(t *testing.T) {
 	_, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "postgres",
-		StoreBackend: "bun",
-		SchemaMode:   "managed",
+		Driver:     "postgres",
+		SchemaMode: "managed",
 	})
 	if err == nil {
 		t.Fatal("expected postgres runtime store to reject empty dsn")
@@ -368,13 +344,13 @@ func TestOpenStoreSupportsPostgresWhenDSNProvided(t *testing.T) {
 		t.Fatalf("EnsureSchema(postgres) failed: %v", err)
 	}
 
-	store, err := OpenLegacyStore(appcfg.DBConfig{
+	store, err := OpenStore(appcfg.DBConfig{
 		Driver:     "postgres",
 		DSN:        dsn,
 		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenLegacyStore(postgres) failed: %v", err)
+		t.Fatalf("OpenStore(postgres) failed: %v", err)
 	}
 	if store == nil {
 		t.Fatal("postgres store should not be nil")
@@ -399,7 +375,7 @@ func TestOpenStoreSupportsPostgresWhenDSNProvided(t *testing.T) {
 	}
 }
 
-func TestOpenRuntimeStoreSupportsPostgresBunWhenDSNProvided(t *testing.T) {
+func TestOpenRuntimeStoreSupportsPostgresWhenDSNProvided(t *testing.T) {
 	dsn := os.Getenv("PG_TEST_DSN")
 	if dsn == "" {
 		t.Skip("PG_TEST_DSN 未设置，跳过 PostgreSQL 集成测试")
@@ -413,37 +389,36 @@ func TestOpenRuntimeStoreSupportsPostgresBunWhenDSNProvided(t *testing.T) {
 	}
 
 	store, err := OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "postgres",
-		DSN:          dsn,
-		SchemaMode:   "managed",
-		StoreBackend: "bun",
+		Driver:     "postgres",
+		DSN:        dsn,
+		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenRuntimeStore(postgres bun) failed: %v", err)
+		t.Fatalf("OpenRuntimeStore(postgres) failed: %v", err)
 	}
 	if store == nil {
-		t.Fatal("postgres bun runtime store should not be nil")
+		t.Fatal("postgres runtime store should not be nil")
 	}
 	t.Cleanup(func() {
 		_ = CloseIfPossible(store)
 	})
 
-	deviceID := fmt.Sprintf("pg-bun-runtime-device-%d", time.Now().UnixNano())
-	token := fmt.Sprintf("pg-bun-runtime-token-%d", time.Now().UnixNano())
+	deviceID := fmt.Sprintf("pg-runtime-device-%d", time.Now().UnixNano())
+	token := fmt.Sprintf("pg-runtime-token-%d", time.Now().UnixNano())
 	meta := inter.DeviceMetadata{
-		Name:               "pg-bun-runtime",
+		Name:               "pg-runtime",
 		Token:              token,
 		AuthenticateStatus: inter.AuthenticatePending,
 	}
 	if err := store.InitDevice(deviceID, meta); err != nil {
-		t.Fatalf("InitDevice(postgres bun) failed: %v", err)
+		t.Fatalf("InitDevice(postgres runtime) failed: %v", err)
 	}
 	loaded, err := store.LoadConfig(deviceID)
 	if err != nil {
-		t.Fatalf("LoadConfig(postgres bun) failed: %v", err)
+		t.Fatalf("LoadConfig(postgres runtime) failed: %v", err)
 	}
 	if loaded.Name != meta.Name || loaded.Token != meta.Token {
-		t.Fatalf("unexpected postgres bun metadata: %+v", loaded)
+		t.Fatalf("unexpected postgres runtime metadata: %+v", loaded)
 	}
 }
 

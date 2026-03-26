@@ -22,13 +22,13 @@ func TestRunWithArgsDBInitInitializesManagedSQLite(t *testing.T) {
 		t.Fatalf("RunWithArgs(db init) failed: %v", err)
 	}
 
-	store, err := persistence.OpenLegacyStore(appcfg.DBConfig{
+	store, err := persistence.OpenRuntimeStore(appcfg.DBConfig{
 		Driver:     "sqlite",
 		Path:       dbPath,
 		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenLegacyStore(managed sqlite) failed after init: %v", err)
+		t.Fatalf("OpenRuntimeStore(managed sqlite) failed after init: %v", err)
 	}
 	if store == nil {
 		t.Fatal("managed sqlite store should not be nil after init")
@@ -48,7 +48,7 @@ func TestRunWithArgsServeRequiresInitializedSchema(t *testing.T) {
 	}
 }
 
-func TestRunWithArgsServeSupportsBunRuntimeStore(t *testing.T) {
+func TestRunWithArgsServeSupportsRuntimeStore(t *testing.T) {
 	probeWeb, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skipf("tcp listener is unavailable in current environment: %v", err)
@@ -65,7 +65,6 @@ func TestRunWithArgsServeSupportsBunRuntimeStore(t *testing.T) {
 	t.Setenv("DB_PATH", dbPath)
 	t.Setenv("DB_DSN", "")
 	t.Setenv("DB_SCHEMA_MODE", "managed")
-	t.Setenv("DB_STORE_BACKEND", "bun")
 	t.Setenv("WEB_HTTP_ADDR", "127.0.0.1:0")
 	t.Setenv("API_TCP_ADDR", "127.0.0.1:0")
 
@@ -77,20 +76,19 @@ func TestRunWithArgsServeSupportsBunRuntimeStore(t *testing.T) {
 	defer cancel()
 
 	if err := RunWithArgs(ctx, []string{"serve"}); err != nil {
-		t.Fatalf("RunWithArgs(serve bun runtime) failed: %v", err)
+		t.Fatalf("RunWithArgs(serve runtime) failed: %v", err)
 	}
 
 	store, err := persistence.OpenRuntimeStore(appcfg.DBConfig{
-		Driver:       "sqlite",
-		Path:         dbPath,
-		SchemaMode:   "managed",
-		StoreBackend: "bun",
+		Driver:     "sqlite",
+		Path:       dbPath,
+		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenRuntimeStore(managed sqlite bun) failed after serve: %v", err)
+		t.Fatalf("OpenRuntimeStore(managed sqlite) failed after serve: %v", err)
 	}
 	if store == nil {
-		t.Fatal("bun runtime store should not be nil after serve")
+		t.Fatal("runtime store should not be nil after serve")
 	}
 	t.Cleanup(func() {
 		_ = persistence.CloseIfPossible(store)

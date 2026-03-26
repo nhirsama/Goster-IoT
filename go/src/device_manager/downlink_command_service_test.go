@@ -13,7 +13,7 @@ func TestDownlinkCommandServiceEnqueueAndStatusFlow(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "downlink.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = persistence.CloseIfPossible(ds)
@@ -76,7 +76,7 @@ func TestDownlinkCommandServiceMarkFailedAndQueueError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "downlink_failed.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = persistence.CloseIfPossible(ds)

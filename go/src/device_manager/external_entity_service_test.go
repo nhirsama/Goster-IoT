@@ -14,7 +14,7 @@ func TestExternalEntityServiceNormalizesAndQueriesEntities(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "external.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = persistence.CloseIfPossible(ds)

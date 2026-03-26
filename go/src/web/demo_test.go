@@ -36,7 +36,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	wd, _ := os.Getwd()
 	fmt.Println("Starting Test in:", wd)
 
-	// 2. Setup Temporary datastore
+	// 2. Setup temporary combined store
 	tempDir, err := os.MkdirTemp("", "goster_test_db")
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("Failed to open datastore at %s: %v", dbPath, err)
+		t.Fatalf("failed to open combined store at %s: %v", dbPath, err)
 	}
 	fmt.Printf("Using temporary database: %s\n", dbPath)
 

@@ -8,7 +8,7 @@ import (
 )
 
 // SessionHandler 负责单个设备连接的会话状态与消息调度。
-// 它只处理协议会话内的状态，不直接依赖 datastore 或 device manager。
+// 它只处理协议会话内的状态，不直接依赖具体存储实现或设备管理兼容层。
 type SessionHandler struct {
 	backend inter.GatewayBackend
 	logger  inter.Logger

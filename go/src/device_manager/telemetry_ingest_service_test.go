@@ -15,7 +15,7 @@ func TestTelemetryIngestServiceWritesMetricsAndLogs(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "telemetry.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = persistence.CloseIfPossible(ds)
@@ -78,7 +78,7 @@ func TestTelemetryIngestServiceWritesEventAndError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "telemetry_event.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = persistence.CloseIfPossible(ds)

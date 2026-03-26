@@ -61,7 +61,7 @@ func TestWebServerLogFallback(t *testing.T) {
 func TestWebServerDepsNormalizeRequiresDataStore(t *testing.T) {
 	deps := WebServerDeps{}
 	if err := deps.normalize(); err == nil {
-		t.Fatal("expected missing datastore error")
+		t.Fatal("expected missing runtime store error")
 	}
 }
 

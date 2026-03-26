@@ -52,7 +52,7 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("failed to init datastore: %v", err)
+		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	services := core.NewServices(ds)
 	ab, err := webpkg.SetupAuthboss(ds)
@@ -135,7 +135,7 @@ func seedUser(t *testing.T, ds inter.DataStore, username string) {
 	t.Helper()
 	storer, ok := ds.(authboss.CreatingServerStorer)
 	if !ok {
-		t.Fatalf("datastore does not implement CreatingServerStorer")
+		t.Fatalf("combined store does not implement CreatingServerStorer")
 	}
 	u := &identitycore.AuthUser{
 		Username: username,

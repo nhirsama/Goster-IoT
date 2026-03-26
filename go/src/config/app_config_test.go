@@ -10,7 +10,6 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("DB_PATH", "")
 	t.Setenv("DB_DSN", "")
 	t.Setenv("DB_SCHEMA_MODE", "")
-	t.Setenv("DB_STORE_BACKEND", "")
 	t.Setenv("WEB_HTTP_ADDR", "")
 	t.Setenv("API_TCP_ADDR", "")
 	t.Setenv("API_CORS_ALLOW_ORIGINS", "")
@@ -47,7 +46,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if cfg.DB.Driver != defaultDBDriver || cfg.DB.Path != defaultDBPath || cfg.DB.DSN != "" || cfg.DB.SchemaMode != defaultSQLiteSchemaMode || cfg.DB.StoreBackend != defaultSQLiteStoreBackend {
+	if cfg.DB.Driver != defaultDBDriver || cfg.DB.Path != defaultDBPath || cfg.DB.DSN != "" || cfg.DB.SchemaMode != defaultSQLiteSchemaMode {
 		t.Fatalf("unexpected db config: %+v", cfg.DB)
 	}
 	if cfg.Web.HTTPAddr != defaultWebHTTPAddr {
@@ -102,7 +101,6 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("DB_PATH", "/tmp/custom.db")
 	t.Setenv("DB_DSN", "")
 	t.Setenv("DB_SCHEMA_MODE", "managed")
-	t.Setenv("DB_STORE_BACKEND", "bun")
 	t.Setenv("WEB_HTTP_ADDR", ":9000")
 	t.Setenv("API_TCP_ADDR", ":9001")
 	t.Setenv("API_CORS_ALLOW_ORIGINS", "https://fe.example.com")
@@ -143,7 +141,7 @@ func TestLoadEnvOverrides(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if cfg.DB.Driver != "sqlite" || cfg.DB.Path != "/tmp/custom.db" || cfg.DB.DSN != "" || cfg.DB.SchemaMode != "managed" || cfg.DB.StoreBackend != "bun" {
+	if cfg.DB.Driver != "sqlite" || cfg.DB.Path != "/tmp/custom.db" || cfg.DB.DSN != "" || cfg.DB.SchemaMode != "managed" {
 		t.Fatalf("unexpected db config: %+v", cfg.DB)
 	}
 	if cfg.Web.HTTPAddr != ":9000" || cfg.API.TCPAddr != ":9001" {
@@ -209,7 +207,6 @@ func TestLoadPostgresDBConfig(t *testing.T) {
 	t.Setenv("DB_DRIVER", "postgres")
 	t.Setenv("DB_PATH", "")
 	t.Setenv("DB_DSN", "postgres://iot:iot@localhost:5432/goster?sslmode=disable")
-	t.Setenv("DB_STORE_BACKEND", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -224,8 +221,5 @@ func TestLoadPostgresDBConfig(t *testing.T) {
 	}
 	if cfg.DB.SchemaMode != defaultPostgresSchemaMode {
 		t.Fatalf("unexpected postgres schema mode: %s", cfg.DB.SchemaMode)
-	}
-	if cfg.DB.StoreBackend != defaultPostgresStoreBackend {
-		t.Fatalf("unexpected postgres store backend: %s", cfg.DB.StoreBackend)
 	}
 }
