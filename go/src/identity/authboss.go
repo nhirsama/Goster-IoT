@@ -18,7 +18,6 @@ import (
 	_ "github.com/aarondl/authboss/v3/remember"
 	"github.com/gorilla/sessions"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/inter"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 )
@@ -32,26 +31,25 @@ func generateRandomKey(length int) []byte {
 }
 
 // SetupAuthboss 使用全局配置初始化 Authboss。
-func SetupAuthboss(db inter.DataStore) (*authboss.Authboss, error) {
+func SetupAuthboss(store Store) (*authboss.Authboss, error) {
 	loaded, err := appcfg.Load()
 	if err != nil {
 		return nil, err
 	}
-	return SetupAuthbossWithConfig(db, loaded.Auth)
+	return SetupAuthbossWithConfig(store, loaded.Auth)
 }
 
 // SetupAuthbossWithConfig 初始化并配置 Authboss 实例。
 // 这一层只负责认证流程，不承担租户授权和租户上下文管理。
-func SetupAuthbossWithConfig(db inter.DataStore, cfg appcfg.AuthConfig) (*authboss.Authboss, error) {
+func SetupAuthbossWithConfig(store Store, cfg appcfg.AuthConfig) (*authboss.Authboss, error) {
 	ab := authboss.New()
 	cfg = appcfg.NormalizeAuthConfig(cfg)
 	cookieSecure := cfg.CookieSecure
 
-	storer, ok := db.(authboss.ServerStorer)
-	if !ok {
-		return nil, errors.New("datastore 未实现 Authboss ServerStorer 接口")
+	if store == nil {
+		return nil, errors.New("identity store 不能为空")
 	}
-	ab.Config.Storage.Server = storer
+	ab.Config.Storage.Server = store
 
 	sessionKey := generateRandomKey(64)
 	sessionStore := sessions.NewCookieStore(sessionKey)

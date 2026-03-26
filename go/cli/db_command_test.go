@@ -21,13 +21,13 @@ func TestRunWithArgsDBInitInitializesManagedSQLite(t *testing.T) {
 		t.Fatalf("RunWithArgs(db init) failed: %v", err)
 	}
 
-	store, err := persistence.OpenStore(appcfg.DBConfig{
+	store, err := persistence.OpenLegacyStore(appcfg.DBConfig{
 		Driver:     "sqlite",
 		Path:       dbPath,
 		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenStore(managed sqlite) failed after init: %v", err)
+		t.Fatalf("OpenLegacyStore(managed sqlite) failed after init: %v", err)
 	}
 	if store == nil {
 		t.Fatal("managed sqlite store should not be nil after init")

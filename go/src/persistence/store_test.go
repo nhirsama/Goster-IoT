@@ -1,23 +1,26 @@
 package persistence
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/aarondl/authboss/v3"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
 func TestOpenStoreSupportsSQLite(t *testing.T) {
-	store, err := OpenStore(appcfg.DBConfig{
+	store, err := OpenLegacyStore(appcfg.DBConfig{
 		Driver: "sqlite",
 		Path:   filepath.Join(t.TempDir(), "persistence.db"),
 	})
 	if err != nil {
-		t.Fatalf("OpenStore(sqlite) failed: %v", err)
+		t.Fatalf("OpenLegacyStore(sqlite) failed: %v", err)
 	}
 	if store == nil {
 		t.Fatal("sqlite store should not be nil")
@@ -25,7 +28,7 @@ func TestOpenStoreSupportsSQLite(t *testing.T) {
 }
 
 func TestOpenStoreRejectsManagedSQLiteWithoutSchema(t *testing.T) {
-	_, err := OpenStore(appcfg.DBConfig{
+	_, err := OpenLegacyStore(appcfg.DBConfig{
 		Driver:     "sqlite",
 		Path:       filepath.Join(t.TempDir(), "missing.db"),
 		SchemaMode: "managed",
@@ -44,13 +47,13 @@ func TestOpenStoreSupportsManagedSQLiteAfterExplicitEnsure(t *testing.T) {
 		t.Fatalf("EnsureSchema(sqlite) failed: %v", err)
 	}
 
-	store, err := OpenStore(appcfg.DBConfig{
+	store, err := OpenLegacyStore(appcfg.DBConfig{
 		Driver:     "sqlite",
 		Path:       dbPath,
 		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenStore(sqlite managed) failed: %v", err)
+		t.Fatalf("OpenLegacyStore(sqlite managed) failed: %v", err)
 	}
 	if store == nil {
 		t.Fatal("managed sqlite store should not be nil")
@@ -101,8 +104,49 @@ func TestOpenRuntimeStoreSupportsBunManagedSQLiteAfterExplicitEnsure(t *testing.
 	}
 }
 
+func TestOpenAuthStoreSupportsRememberingSQLiteAfterExplicitEnsure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "managed_auth.db")
+	if err := EnsureSchema(appcfg.DBConfig{
+		Driver: "sqlite",
+		Path:   dbPath,
+	}); err != nil {
+		t.Fatalf("EnsureSchema(sqlite) failed: %v", err)
+	}
+
+	store, err := OpenAuthStore(appcfg.DBConfig{
+		Driver:     "sqlite",
+		Path:       dbPath,
+		SchemaMode: "managed",
+	})
+	if err != nil {
+		t.Fatalf("OpenAuthStore(sqlite managed) failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CloseIfPossible(store)
+	})
+
+	creator, ok := store.(authboss.CreatingServerStorer)
+	if !ok {
+		t.Fatal("auth store should implement CreatingServerStorer")
+	}
+	if err := creator.Create(context.Background(), &identitycore.AuthUser{
+		Username: "remember-factory-user",
+		Password: "plain_pw_for_tests",
+	}); err != nil {
+		t.Fatalf("Create(auth store) failed: %v", err)
+	}
+
+	remembering, ok := store.(authboss.RememberingServerStorer)
+	if !ok {
+		t.Fatal("auth store should implement RememberingServerStorer")
+	}
+	if err := remembering.AddRememberToken(context.Background(), "remember-factory-user", "tok-factory"); err != nil {
+		t.Fatalf("AddRememberToken(auth store) failed: %v", err)
+	}
+}
+
 func TestOpenStoreRejectsEmptyPostgresDSN(t *testing.T) {
-	_, err := OpenStore(appcfg.DBConfig{Driver: "postgres"})
+	_, err := OpenLegacyStore(appcfg.DBConfig{Driver: "postgres"})
 	if err == nil {
 		t.Fatal("expected postgres backend to reject empty dsn")
 	}
@@ -121,13 +165,13 @@ func TestOpenStoreSupportsPostgresWhenDSNProvided(t *testing.T) {
 		t.Fatalf("EnsureSchema(postgres) failed: %v", err)
 	}
 
-	store, err := OpenStore(appcfg.DBConfig{
+	store, err := OpenLegacyStore(appcfg.DBConfig{
 		Driver:     "postgres",
 		DSN:        dsn,
 		SchemaMode: "managed",
 	})
 	if err != nil {
-		t.Fatalf("OpenStore(postgres) failed: %v", err)
+		t.Fatalf("OpenLegacyStore(postgres) failed: %v", err)
 	}
 	if store == nil {
 		t.Fatal("postgres store should not be nil")

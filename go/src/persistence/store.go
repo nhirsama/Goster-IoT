@@ -6,7 +6,9 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/datastore"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	storageidentity "github.com/nhirsama/Goster-IoT/src/storage/identity"
 	storageruntime "github.com/nhirsama/Goster-IoT/src/storage/runtime"
 )
 
@@ -17,33 +19,43 @@ type RuntimeStore interface {
 	inter.WebV1Store
 }
 
-// OpenStore 根据配置打开持久化后端。
+// OpenStore 保留兼容入口，当前等价于 OpenLegacyStore。
+// 新代码应优先使用 OpenAuthStore 或 OpenRuntimeStore，避免重新耦合到旧版全量仓储。
+func OpenStore(cfg appcfg.DBConfig) (inter.DataStore, error) {
+	return OpenLegacyStore(cfg)
+}
+
+// OpenLegacyStore 根据配置打开旧版全量 SQL 仓储。
 // schema 初始化策略由 DBConfig.SchemaMode 决定：
 // 1. bootstrap: 显式执行建表与兼容迁移，再打开存储。
 // 2. managed: 只打开现有数据库，要求外部迁移工具已完成建库。
-func OpenStore(cfg appcfg.DBConfig) (inter.DataStore, error) {
-	return OpenAuthStore(cfg)
+func OpenLegacyStore(cfg appcfg.DBConfig) (inter.DataStore, error) {
+	return openLegacySQLStore(cfg)
 }
 
-// OpenAuthStore 打开认证链路使用的旧版全量仓储。
-// 这里保留 SQL 版本实现，避免在 Authboss 切换完成前扩大迁移面。
-func OpenAuthStore(cfg appcfg.DBConfig) (inter.DataStore, error) {
+// OpenAuthStore 打开认证链路使用的最小存储模块。
+// 认证和业务仓储分离后，这里不再返回大而全的 DataStore。
+func OpenAuthStore(cfg appcfg.DBConfig) (identitycore.Store, error) {
 	cfg = appcfg.NormalizeDBConfig(cfg)
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
 	case "sqlite":
-		if cfg.SchemaMode == "managed" {
-			return datastore.OpenDataStoreSql(cfg.Path)
+		if cfg.SchemaMode == "bootstrap" {
+			if err := datastore.EnsureSQLiteSchema(cfg.Path); err != nil {
+				return nil, err
+			}
 		}
-		return datastore.NewDataStoreSql(cfg.Path)
+		return storageidentity.OpenSQLite(cfg.Path)
 	case "postgres":
 		if strings.TrimSpace(cfg.DSN) == "" {
 			return nil, fmt.Errorf("postgres datastore requires a non-empty dsn")
 		}
-		if cfg.SchemaMode == "managed" {
-			return datastore.OpenDataStorePostgres(cfg.DSN)
+		if cfg.SchemaMode == "bootstrap" {
+			if err := datastore.EnsurePostgresSchema(cfg.DSN); err != nil {
+				return nil, err
+			}
 		}
-		return datastore.NewDataStorePostgres(cfg.DSN)
+		return storageidentity.OpenPostgres(cfg.DSN)
 	default:
 		return nil, fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
 	}
@@ -65,7 +77,7 @@ func OpenRuntimeStore(cfg appcfg.DBConfig) (RuntimeStore, error) {
 	case "bun":
 		return openBunRuntimeStore(cfg)
 	case "sql":
-		return OpenAuthStore(cfg)
+		return openLegacySQLStore(cfg)
 	default:
 		return nil, fmt.Errorf("unsupported runtime store backend: %s", cfg.StoreBackend)
 	}
@@ -91,7 +103,7 @@ func EnsureSchema(cfg appcfg.DBConfig) error {
 
 // OpenSQLite 是 sqlite 的便捷入口，主要给测试和开发场景使用。
 func OpenSQLite(path string) (inter.DataStore, error) {
-	return OpenAuthStore(appcfg.DBConfig{
+	return openLegacySQLStore(appcfg.DBConfig{
 		Driver: "sqlite",
 		Path:   path,
 	})
@@ -99,7 +111,7 @@ func OpenSQLite(path string) (inter.DataStore, error) {
 
 // OpenPostgres 是 postgres 的便捷入口，主要给开发验证和后续集成测试使用。
 func OpenPostgres(dsn string) (inter.DataStore, error) {
-	return OpenAuthStore(appcfg.DBConfig{
+	return openLegacySQLStore(appcfg.DBConfig{
 		Driver: "postgres",
 		DSN:    dsn,
 	})
@@ -114,6 +126,28 @@ func openBunRuntimeStore(cfg appcfg.DBConfig) (RuntimeStore, error) {
 			return nil, fmt.Errorf("postgres datastore requires a non-empty dsn")
 		}
 		return storageruntime.OpenPostgres(cfg.DSN)
+	default:
+		return nil, fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
+	}
+}
+
+func openLegacySQLStore(cfg appcfg.DBConfig) (inter.DataStore, error) {
+	cfg = appcfg.NormalizeDBConfig(cfg)
+
+	switch strings.ToLower(strings.TrimSpace(cfg.Driver)) {
+	case "sqlite":
+		if cfg.SchemaMode == "managed" {
+			return datastore.OpenDataStoreSql(cfg.Path)
+		}
+		return datastore.NewDataStoreSql(cfg.Path)
+	case "postgres":
+		if strings.TrimSpace(cfg.DSN) == "" {
+			return nil, fmt.Errorf("postgres datastore requires a non-empty dsn")
+		}
+		if cfg.SchemaMode == "managed" {
+			return datastore.OpenDataStorePostgres(cfg.DSN)
+		}
+		return datastore.NewDataStorePostgres(cfg.DSN)
 	default:
 		return nil, fmt.Errorf("unsupported datastore driver: %s", cfg.Driver)
 	}

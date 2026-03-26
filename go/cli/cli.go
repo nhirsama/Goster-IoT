@@ -10,6 +10,7 @@ import (
 
 	"github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/iot_gateway"
 	"github.com/nhirsama/Goster-IoT/src/logger"
@@ -99,7 +100,7 @@ func serve(ctx context.Context) error {
 	defer persistence.CloseIfPossible(runtimeStore)
 
 	// Initialize Authboss (Encapsulated in web package)
-	ab, err := web.SetupAuthbossWithConfig(authStore, appCfg.Auth)
+	ab, err := identitycore.SetupAuthbossWithConfig(authStore, appCfg.Auth)
 	if err != nil {
 		rootLogger.Error("Authboss 初始化失败", inter.Err(err))
 		return err

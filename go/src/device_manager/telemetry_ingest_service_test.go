@@ -70,3 +70,55 @@ func TestTelemetryIngestServiceWritesMetricsAndLogs(t *testing.T) {
 		t.Fatalf("unexpected log record: level=%s message=%s", level, message)
 	}
 }
+
+func TestTelemetryIngestServiceWritesEventAndError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "telemetry_event.db")
+	ds, err := datastore.NewDataStoreSql(dbPath)
+	if err != nil {
+		t.Fatalf("failed to init datastore: %v", err)
+	}
+
+	uuid := "device-telemetry-event"
+	if err := ds.InitDevice(uuid, inter.DeviceMetadata{
+		Name:               "Device Telemetry Event",
+		SerialNumber:       "sn-telemetry-event",
+		MACAddress:         "mac-telemetry-event",
+		Token:              "tk-telemetry-event",
+		AuthenticateStatus: inter.Authenticated,
+	}); err != nil {
+		t.Fatalf("failed to init device: %v", err)
+	}
+
+	service := NewTelemetryIngestService(ds)
+	if err := service.IngestEvent(uuid, []byte(`{"event":"boot"}`)); err != nil {
+		t.Fatalf("IngestEvent failed: %v", err)
+	}
+	if err := service.IngestDeviceError(uuid, []byte(`panic`)); err != nil {
+		t.Fatalf("IngestDeviceError failed: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT level, message FROM logs WHERE uuid = ? ORDER BY id ASC", uuid)
+	if err != nil {
+		t.Fatalf("failed to query log records: %v", err)
+	}
+	defer rows.Close()
+
+	var levels []string
+	for rows.Next() {
+		var level string
+		var message string
+		if err := rows.Scan(&level, &message); err != nil {
+			t.Fatalf("scan logs failed: %v", err)
+		}
+		levels = append(levels, level+":"+message)
+	}
+	if len(levels) != 2 || !strings.HasPrefix(levels[0], "EVENT:") || !strings.HasPrefix(levels[1], "ERROR:") {
+		t.Fatalf("unexpected event/error logs: %+v", levels)
+	}
+}

@@ -1,6 +1,7 @@
 package device_manager
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -53,5 +54,45 @@ func TestDownlinkCommandServiceEnqueueAndStatusFlow(t *testing.T) {
 	}
 	if err := service.MarkAcked(msg.CommandID); err != nil {
 		t.Fatalf("mark acked failed: %v", err)
+	}
+}
+
+type failingQueue struct{}
+
+func (f failingQueue) Enqueue(uuid string, message inter.DownlinkMessage) error {
+	return errors.New("queue failed")
+}
+
+func (f failingQueue) Dequeue(uuid string) (inter.DownlinkMessage, bool, error) {
+	return inter.DownlinkMessage{}, false, nil
+}
+
+func (f failingQueue) IsEmpty(uuid string) bool { return true }
+
+func TestDownlinkCommandServiceMarkFailedAndQueueError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "downlink_failed.db")
+	ds, err := datastore.NewDataStoreSql(dbPath)
+	if err != nil {
+		t.Fatalf("failed to init datastore: %v", err)
+	}
+
+	uuid := "device-2"
+	if err := ds.InitDevice(uuid, inter.DeviceMetadata{
+		Name:               "Device 2",
+		SerialNumber:       "sn-2",
+		MACAddress:         "mac-2",
+		Token:              "tk-2",
+		AuthenticateStatus: inter.Authenticated,
+	}); err != nil {
+		t.Fatalf("failed to init device: %v", err)
+	}
+
+	service := NewDownlinkCommandService(ds, failingQueue{})
+	if _, err := service.Enqueue(inter.Scope{}, uuid, inter.CmdActionExec, "action_exec", []byte(`{"op":"reboot"}`)); err == nil {
+		t.Fatal("expected enqueue to fail")
+	}
+
+	if err := service.MarkFailed(0, "ignored"); err != nil {
+		t.Fatalf("mark failed with zero id should be ignored: %v", err)
 	}
 }

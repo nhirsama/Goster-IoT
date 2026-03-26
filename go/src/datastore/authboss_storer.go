@@ -333,3 +333,57 @@ func (s *DataStoreSql) LoadByRememberToken(ctx context.Context, token string) (a
 
 	return user, nil
 }
+
+// AddRememberToken 为用户写入 remember-me token。
+// 当前表结构只保留单个 token，因此新值会覆盖旧值。
+func (s *DataStoreSql) AddRememberToken(ctx context.Context, pid, token string) error {
+	res, err := s.execContext(ctx, `
+		UPDATE users
+		SET remember_token=?, updated_at=CURRENT_TIMESTAMP
+		WHERE username=?`,
+		token, pid,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return authboss.ErrUserNotFound
+	}
+	return nil
+}
+
+// DelRememberTokens 清理用户的 remember-me token。
+func (s *DataStoreSql) DelRememberTokens(ctx context.Context, pid string) error {
+	_, err := s.execContext(ctx, `
+		UPDATE users
+		SET remember_token=NULL, updated_at=CURRENT_TIMESTAMP
+		WHERE username=?`,
+		pid,
+	)
+	return err
+}
+
+// UseRememberToken 校验并消费 remember-me token。
+func (s *DataStoreSql) UseRememberToken(ctx context.Context, pid, token string) error {
+	res, err := s.execContext(ctx, `
+		UPDATE users
+		SET remember_token=NULL, updated_at=CURRENT_TIMESTAMP
+		WHERE username=? AND remember_token=?`,
+		pid, token,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return authboss.ErrTokenNotFound
+	}
+	return nil
+}

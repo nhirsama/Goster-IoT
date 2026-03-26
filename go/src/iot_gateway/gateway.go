@@ -133,6 +133,11 @@ func (g *gatewayService) Serve(ctx context.Context, listener net.Listener) error
 			}
 			return err
 		}
+		if g.shutdown.Load() {
+			_ = conn.Close()
+			<-shutdownDone
+			return nil
+		}
 		g.trackConnection(conn)
 		go func() {
 			defer g.untrackConnection(conn)
