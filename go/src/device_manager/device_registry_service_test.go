@@ -119,12 +119,16 @@ func TestDeviceRegistryServiceLifecycle(t *testing.T) {
 	}
 }
 
-func TestDeviceRegistryDeleteAndManagerFacade(t *testing.T) {
+func TestDeviceRegistryDeleteClearsPresenceState(t *testing.T) {
 	store := openRuntimeStoreForDeviceRegistry(t)
+	presence := NewDevicePresenceWithStore(time.Second, NewInMemoryDevicePresenceStore())
 
 	deletedUUID := ""
 	registry := NewDeviceRegistryWithHooks(store, DeviceRegistryHooks{
-		OnDelete: func(uuid string) { deletedUUID = uuid },
+		OnDelete: func(uuid string) {
+			deletedUUID = uuid
+			presence.RemoveDevice(uuid)
+		},
 	})
 
 	meta := inter.DeviceMetadata{
@@ -143,37 +147,33 @@ func TestDeviceRegistryDeleteAndManagerFacade(t *testing.T) {
 		t.Fatalf("delete hook not triggered: %s", deletedUUID)
 	}
 
-	manager := NewDeviceManagerWithConfig(store, appcfg.DeviceManagerConfig{
-		HeartbeatDeadline: time.Second,
-	}).(*DeviceManager)
-
 	meta2 := inter.DeviceMetadata{
-		Name:         "facade-device",
-		SerialNumber: "sn-facade",
-		MACAddress:   "mac-facade",
+		Name:         "presence-device",
+		SerialNumber: "sn-presence",
+		MACAddress:   "mac-presence",
 	}
-	uuid2 := manager.GenerateUUID(meta2)
-	if err := manager.RegisterDevice(meta2); err != nil {
-		t.Fatalf("manager RegisterDevice failed: %v", err)
+	uuid2 := registry.GenerateUUID(meta2)
+	if err := registry.RegisterDevice(meta2); err != nil {
+		t.Fatalf("registry RegisterDevice failed: %v", err)
 	}
-	if err := manager.ApproveDevice(uuid2); err != nil {
-		t.Fatalf("manager ApproveDevice failed: %v", err)
+	if err := registry.ApproveDevice(uuid2); err != nil {
+		t.Fatalf("registry ApproveDevice failed: %v", err)
 	}
-	manager.HandleHeartbeat(uuid2)
-	if status, err := manager.QueryDeviceStatus(uuid2); err != nil || status != inter.StatusOnline {
+	presence.HandleHeartbeat(uuid2)
+	if status, err := presence.QueryDeviceStatus(uuid2); err != nil || status != inter.StatusOnline {
 		t.Fatalf("unexpected device status: status=%v err=%v", status, err)
 	}
 
-	manager.SetHeartbeatDeadline(time.Nanosecond)
+	presence.SetDeadline(time.Nanosecond)
 	time.Sleep(2 * time.Millisecond)
-	if status, err := manager.QueryDeviceStatus(uuid2); err != nil || status == inter.StatusOnline {
+	if status, err := presence.QueryDeviceStatus(uuid2); err != nil || status == inter.StatusOnline {
 		t.Fatalf("expected non-online status after deadline: status=%v err=%v", status, err)
 	}
 
-	if err := manager.DeleteDevice(uuid2); err != nil {
-		t.Fatalf("manager DeleteDevice failed: %v", err)
+	if err := registry.DeleteDevice(uuid2); err != nil {
+		t.Fatalf("registry DeleteDevice failed: %v", err)
 	}
-	if status, err := manager.QueryDeviceStatus(uuid2); err == nil || status != inter.StatusOffline {
+	if status, err := presence.QueryDeviceStatus(uuid2); err == nil || status != inter.StatusOffline {
 		t.Fatalf("presence should be cleared after delete: status=%v err=%v", status, err)
 	}
 }

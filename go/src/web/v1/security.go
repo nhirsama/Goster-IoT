@@ -8,8 +8,6 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-const defaultTenantID = "tenant_legacy"
-
 func (api *API) requestedTenantID(r *http.Request) string {
 	return identity.NormalizeTenantID(r.Header.Get("X-Tenant-Id"))
 }
@@ -23,7 +21,7 @@ func (api *API) tenantID(r *http.Request) string {
 	if requested := api.requestedTenantID(r); requested != "" {
 		return requested
 	}
-	return defaultTenantID
+	return inter.DefaultTenantID
 }
 
 func (api *API) scopeFromRequest(r *http.Request) inter.Scope {

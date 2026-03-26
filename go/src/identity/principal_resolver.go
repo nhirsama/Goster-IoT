@@ -7,8 +7,6 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-const defaultTenantID = "tenant_legacy"
-
 // PrincipalResolver 负责把“已认证用户”解析成“当前请求主体”。
 // Authboss 只负责确认用户身份，租户状态由这里在本地系统内维护。
 type PrincipalResolver interface {
@@ -105,10 +103,10 @@ func resolveTenantID(perm inter.PermissionType, requestedTenant string, roles ma
 
 func chooseDefaultTenant(roles map[string]inter.TenantRole) string {
 	if len(roles) == 0 {
-		return defaultTenantID
+		return inter.DefaultTenantID
 	}
-	if _, ok := roles[defaultTenantID]; ok {
-		return defaultTenantID
+	if _, ok := roles[inter.DefaultTenantID]; ok {
+		return inter.DefaultTenantID
 	}
 
 	first := ""
@@ -124,5 +122,5 @@ func chooseDefaultTenant(roles map[string]inter.TenantRole) string {
 	if first != "" {
 		return first
 	}
-	return defaultTenantID
+	return inter.DefaultTenantID
 }

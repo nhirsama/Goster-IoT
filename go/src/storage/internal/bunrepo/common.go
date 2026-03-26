@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	DefaultTenantID = "tenant_legacy"
-	LegacyTenantID  = "tenant_legacy"
+	DefaultTenantID = inter.DefaultTenantID
+	LegacyTenantID  = inter.DefaultTenantID
 )
 
 func NullableToken(token string) sql.NullString {

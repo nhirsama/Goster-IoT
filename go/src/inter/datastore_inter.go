@@ -187,12 +187,6 @@ type TelemetryStore interface {
 	DeviceLogRepository
 }
 
-// DeviceManagerStore 是旧版设备管理 façade 依赖的最小仓储组合。
-type DeviceManagerStore interface {
-	DeviceRegistryStore
-	ExternalEntityRepository
-}
-
 // CoreStore 是核心业务装配依赖的最小仓储组合。
 type CoreStore interface {
 	DeviceRegistryStore
@@ -204,19 +198,6 @@ type CoreStore interface {
 // WebV1Store 是当前 v1 HTTP 接口依赖的最小仓储组合。
 type WebV1Store interface {
 	MetricsRepository
-	UserRepository
-	TenantRoleRepository
-}
-
-// DataStore 是当前阶段保留的组合仓储接口。
-// 新代码应尽量依赖更小的 repository 组合接口，避免再次把所有能力耦合到一起。
-type DataStore interface {
-	DeviceRepository
-	ScopedDeviceRepository
-	MetricsRepository
-	DeviceLogRepository
-	DeviceCommandRepository
-	ExternalEntityRepository
 	UserRepository
 	TenantRoleRepository
 }

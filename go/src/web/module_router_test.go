@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
@@ -57,13 +59,13 @@ func newTestWebDeps(t *testing.T) WebServerDeps {
 	})
 
 	services := core.NewServices(ds)
-	ab, err := SetupAuthboss(ds)
+	ab, err := identitycore.SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
 	if err != nil {
-		t.Fatalf("SetupAuthboss failed: %v", err)
+		t.Fatalf("SetupAuthbossWithConfig failed: %v", err)
 	}
-	authService, err := NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
-		t.Fatalf("NewAuthService failed: %v", err)
+		t.Fatalf("NewAuthbossService failed: %v", err)
 	}
 
 	return WebServerDeps{

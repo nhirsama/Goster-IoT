@@ -131,14 +131,6 @@ type TelemetryIngestService interface {
 	IngestDeviceError(uuid string, payload []byte) error
 }
 
-// DeviceManager 是当前阶段保留的组合接口。
-// 新调用方应优先依赖更小的 DeviceRegistry / DevicePresence / ExternalEntityService。
-type DeviceManager interface {
-	DeviceRegistry
-	DevicePresence
-	ExternalEntityService
-}
-
 // DevicePresenceStore 抽象设备在线状态的运行时存储。
 // 当前默认实现仍在内存中，后续可替换为 Redis 等共享存储。
 type DevicePresenceStore interface {

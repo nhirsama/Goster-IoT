@@ -105,7 +105,7 @@ func serve(ctx context.Context) error {
 		rootLogger.Error("Authboss 初始化失败", inter.Err(err))
 		return err
 	}
-	authService, err := web.NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		rootLogger.Error("认证服务初始化失败", inter.Err(err))
 		return err

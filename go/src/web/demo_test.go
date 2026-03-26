@@ -15,6 +15,7 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
@@ -62,11 +63,11 @@ func TestRunServerAndStressTest(t *testing.T) {
 	}
 
 	// Setup Authboss
-	ab, err := SetupAuthboss(ds)
+	ab, err := identitycore.SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	authService, err := NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	// select {}
 }
 
-func populateData(t *testing.T, ds inter.DataStore, presence inter.DevicePresence) {
+func populateData(t *testing.T, ds *persistence.Store, presence inter.DevicePresence) {
 	// Users
 	// ds.RegisterUser("admin", "admin123", inter.PermissionAdmin)
 	// ds.RegisterUser("viewer", "view123", inter.PermissionReadOnly)
@@ -145,7 +146,7 @@ func populateData(t *testing.T, ds inter.DataStore, presence inter.DevicePresenc
 	}
 }
 
-func createDevice(ds inter.DataStore, uuid, name string, status inter.AuthenticateStatusType) {
+func createDevice(ds *persistence.Store, uuid, name string, status inter.AuthenticateStatusType) {
 	ds.InitDevice(uuid, inter.DeviceMetadata{
 		Name:               name,
 		HWVersion:          "v1.0",
@@ -156,7 +157,7 @@ func createDevice(ds inter.DataStore, uuid, name string, status inter.Authentica
 	})
 }
 
-func generateMetrics(ds inter.DataStore, uuid string, count int) {
+func generateMetrics(ds *persistence.Store, uuid string, count int) {
 	now := time.Now().Unix()
 	var points []inter.MetricPoint
 	for i := 0; i < count; i++ {

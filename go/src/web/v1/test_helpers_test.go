@@ -28,8 +28,8 @@ type apiTestOptions struct {
 
 type apiTestEnv struct {
 	api              *apiv1.API
-	auth             webpkg.AuthService
-	dataStore        inter.DataStore
+	auth             identitycore.Service
+	dataStore        *persistence.Store
 	deviceRegistry   inter.DeviceRegistry
 	devicePresence   inter.DevicePresence
 	downlinkCommands inter.DownlinkCommandService
@@ -55,11 +55,11 @@ func newTestAPI(t *testing.T, opts ...apiTestOptions) *apiTestEnv {
 		t.Fatalf("failed to init runtime store: %v", err)
 	}
 	services := core.NewServices(ds)
-	ab, err := webpkg.SetupAuthboss(ds)
+	ab, err := identitycore.SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
 	}
-	authService, err := webpkg.NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		t.Fatalf("failed to setup auth service: %v", err)
 	}
@@ -113,7 +113,7 @@ func withUserPerm(req *http.Request, username string, perm inter.PermissionType)
 	return req.WithContext(ctx)
 }
 
-func seedDevice(t *testing.T, ds inter.DataStore, uuid string, status inter.AuthenticateStatusType) {
+func seedDevice(t *testing.T, ds *persistence.Store, uuid string, status inter.AuthenticateStatusType) {
 	t.Helper()
 	meta := inter.DeviceMetadata{
 		Name:               "Device-" + uuid,
@@ -131,12 +131,9 @@ func seedDevice(t *testing.T, ds inter.DataStore, uuid string, status inter.Auth
 	}
 }
 
-func seedUser(t *testing.T, ds inter.DataStore, username string) {
+func seedUser(t *testing.T, ds *persistence.Store, username string) {
 	t.Helper()
-	storer, ok := ds.(authboss.CreatingServerStorer)
-	if !ok {
-		t.Fatalf("combined store does not implement CreatingServerStorer")
-	}
+	var storer authboss.CreatingServerStorer = ds
 	u := &identitycore.AuthUser{
 		Username: username,
 		Password: "plain_pw_for_tests",

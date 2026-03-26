@@ -8,6 +8,7 @@ import (
 type PlatformRole string
 
 const (
+	DefaultTenantID                   = "tenant_legacy"
 	PlatformRoleAdmin    PlatformRole = "platform_admin"
 	PlatformRoleOperator PlatformRole = "platform_operator"
 	PlatformRoleViewer   PlatformRole = "platform_viewer"

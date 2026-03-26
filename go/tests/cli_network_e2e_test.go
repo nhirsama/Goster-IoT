@@ -196,7 +196,7 @@ func enqueueDownlinkViaAPI(t *testing.T, client *http.Client, baseURL, uuid stri
 	return int64(resp.CommandID)
 }
 
-func openStoreForTest(t *testing.T, dbPath string) inter.DataStore {
+func openStoreForTest(t *testing.T, dbPath string) *persistence.Store {
 	t.Helper()
 
 	store, err := persistence.OpenSQLite(dbPath)

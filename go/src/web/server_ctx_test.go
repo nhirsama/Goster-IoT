@@ -10,6 +10,7 @@ import (
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
@@ -24,11 +25,11 @@ func TestWebServerStartStopsOnContextCancel(t *testing.T) {
 	}
 	services := core.NewServices(ds)
 
-	ab, err := SetupAuthboss(ds)
+	ab, err := identitycore.SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
 	}
-	authService, err := NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		t.Fatalf("failed to setup auth service: %v", err)
 	}
@@ -74,11 +75,11 @@ func TestWebServerStartReturnsListenErrorForInvalidAddr(t *testing.T) {
 	}
 	services := core.NewServices(ds)
 
-	ab, err := SetupAuthboss(ds)
+	ab, err := identitycore.SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
 	if err != nil {
 		t.Fatalf("failed to setup authboss: %v", err)
 	}
-	authService, err := NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		t.Fatalf("failed to setup auth service: %v", err)
 	}

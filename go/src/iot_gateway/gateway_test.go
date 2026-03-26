@@ -24,7 +24,7 @@ import (
 
 type gatewayTestHarness struct {
 	gateway          *gatewayService
-	ds               inter.DataStore
+	ds               *persistence.Store
 	registry         inter.DeviceRegistry
 	downlinkCommands inter.DownlinkCommandService
 	dbPath           string

@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
 
 type testWebDepsDataStore struct {
-	inter.DataStore
+	inter.WebV1Store
 }
 
 type testWebDepsRegistry struct {
@@ -25,7 +26,7 @@ type testWebDepsDownlinkCommands struct {
 }
 
 type testWebDepsAuth struct {
-	AuthService
+	identitycore.Service
 }
 
 func TestWebServerDepsNormalizeLogger(t *testing.T) {

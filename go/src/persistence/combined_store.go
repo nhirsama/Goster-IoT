@@ -6,7 +6,6 @@ import (
 	"github.com/aarondl/authboss/v3"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
-	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
 // Store 组合运行时仓储和认证仓储。
@@ -16,7 +15,6 @@ type Store struct {
 	auth identitycore.Store
 }
 
-var _ inter.DataStore = (*Store)(nil)
 var _ identitycore.Store = (*Store)(nil)
 
 // OpenStore 打开组合存储。

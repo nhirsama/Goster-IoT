@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -21,7 +22,7 @@ type WebServerDeps struct {
 	DeviceRegistry   inter.DeviceRegistry
 	DevicePresence   inter.DevicePresence
 	DownlinkCommands inter.DownlinkCommandService
-	Auth             AuthService
+	Auth             identity.Service
 	Captcha          CaptchaVerifier
 	Logger           inter.Logger
 	Config           appcfg.WebConfig
