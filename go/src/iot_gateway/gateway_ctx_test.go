@@ -47,6 +47,10 @@ func (noopGatewayBackend) PopDownlink(string) (inter.DownlinkMessage, bool, erro
 	return inter.DownlinkMessage{}, false, nil
 }
 
+func (noopGatewayBackend) RequeueDownlink(string, inter.DownlinkMessage) error {
+	return nil
+}
+
 func (noopGatewayBackend) MarkDownlinkSent(int64) error {
 	return nil
 }

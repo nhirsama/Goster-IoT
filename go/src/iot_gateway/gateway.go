@@ -164,6 +164,7 @@ func (g *gatewayService) handleConnection(conn net.Conn) {
 	connLogger = connLogger.With(inter.Int64("conn_id", int64(connID)))
 
 	handler := NewSessionHandler(g.backend, connLogger)
+	defer handler.RequeueInflight()
 	var sessionKey []byte
 	var writeSeq uint64
 
@@ -302,27 +303,23 @@ func (g *gatewayService) handleConnection(conn net.Conn) {
 		}
 
 		if handler.IsAuthenticated() {
-			for {
-				msg, ok := handler.PopMessage()
-				if !ok {
-					break
-				}
+			msg, ok := handler.PopMessage()
+			if ok {
 				writeSeq++
 				downlinkBuf, err := g.protocol.Pack(msg.Payload, msg.CmdID, 1, sessionKey, writeSeq, false)
 				if err != nil {
-					handler.MarkDownlinkFailed(msg, err)
+					handler.FailDownlink(msg, err)
 					connLogger.Warn("下行指令打包失败", inter.Int("cmd_id", int(msg.CmdID)), inter.Err(err))
-					continue
-				}
-				if _, err := conn.Write(downlinkBuf); err != nil {
-					handler.MarkDownlinkFailed(msg, err)
+				} else if _, err := conn.Write(downlinkBuf); err != nil {
+					handler.RequeueDownlink(msg, err)
 					connLogger.Warn("下行指令发送失败", inter.Int("cmd_id", int(msg.CmdID)), inter.Err(err))
 					return
+				} else {
+					handler.MarkDownlinkSent(msg)
+					connLogger.Info("下行指令已发送",
+						inter.Int("cmd_id", int(msg.CmdID)),
+						inter.Int64("command_id", msg.CommandID))
 				}
-				handler.MarkDownlinkSent(msg)
-				connLogger.Info("下行指令已发送",
-					inter.Int("cmd_id", int(msg.CmdID)),
-					inter.Int64("command_id", msg.CommandID))
 			}
 		}
 	}

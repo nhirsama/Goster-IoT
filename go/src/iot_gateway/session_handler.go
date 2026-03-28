@@ -13,9 +13,9 @@ type SessionHandler struct {
 	backend inter.GatewayBackend
 	logger  inter.Logger
 
-	uuid                string
-	authenticated       bool
-	pendingDownlinkAcks map[inter.CmdID][]int64
+	uuid          string
+	authenticated bool
+	inflight      *inter.DownlinkMessage
 }
 
 // NewSessionHandler 创建单连接会话处理器。
@@ -24,9 +24,8 @@ func NewSessionHandler(backend inter.GatewayBackend, l inter.Logger) *SessionHan
 		l = logger.Default()
 	}
 	return &SessionHandler{
-		backend:             backend,
-		logger:              l,
-		pendingDownlinkAcks: make(map[inter.CmdID][]int64),
+		backend: backend,
+		logger:  l,
 	}
 }
 
@@ -110,17 +109,20 @@ func (h *SessionHandler) HandleDownlinkAck(cmd inter.CmdID) {
 	}
 	h.logger.Debug("收到下行确认", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
 
-	pending := h.pendingDownlinkAcks[cmd]
-	if len(pending) == 0 {
+	if h.inflight == nil {
 		h.logger.Warn("收到无法匹配的下行确认", inter.String("uuid", h.uuid), inter.Int("cmd_id", int(cmd)))
 		return
 	}
-
-	commandID := pending[0]
-	h.pendingDownlinkAcks[cmd] = pending[1:]
-	if len(h.pendingDownlinkAcks[cmd]) == 0 {
-		delete(h.pendingDownlinkAcks, cmd)
+	if h.inflight.CmdID != cmd {
+		h.logger.Warn("收到与当前待确认命令不匹配的下行确认",
+			inter.String("uuid", h.uuid),
+			inter.Int("cmd_id", int(cmd)),
+			inter.Int64("command_id", h.inflight.CommandID),
+			inter.Int("inflight_cmd_id", int(h.inflight.CmdID)))
+		return
 	}
+	commandID := h.inflight.CommandID
+	h.inflight = nil
 
 	if err := h.backend.MarkDownlinkAcked(commandID); err != nil {
 		h.logger.Warn("下行确认状态落库失败",
@@ -133,7 +135,7 @@ func (h *SessionHandler) HandleDownlinkAck(cmd inter.CmdID) {
 
 // PopMessage 获取并弹出一个待处理的下行消息。
 func (h *SessionHandler) PopMessage() (inter.DownlinkMessage, bool) {
-	if !h.authenticated {
+	if !h.authenticated || h.inflight != nil {
 		return inter.DownlinkMessage{}, false
 	}
 	msg, ok, err := h.backend.PopDownlink(h.uuid)
@@ -150,7 +152,8 @@ func (h *SessionHandler) MarkDownlinkSent(msg inter.DownlinkMessage) {
 		return
 	}
 
-	h.pendingDownlinkAcks[msg.CmdID] = append(h.pendingDownlinkAcks[msg.CmdID], msg.CommandID)
+	msgCopy := msg
+	h.inflight = &msgCopy
 	if err := h.backend.MarkDownlinkSent(msg.CommandID); err != nil {
 		h.logger.Warn("下行发送状态落库失败",
 			inter.String("uuid", h.uuid),
@@ -160,10 +163,13 @@ func (h *SessionHandler) MarkDownlinkSent(msg inter.DownlinkMessage) {
 	}
 }
 
-// MarkDownlinkFailed 标记下行消息发送失败。
-func (h *SessionHandler) MarkDownlinkFailed(msg inter.DownlinkMessage, err error) {
+// FailDownlink 标记不可恢复的下行失败。
+func (h *SessionHandler) FailDownlink(msg inter.DownlinkMessage, err error) {
 	if !h.authenticated || msg.CommandID <= 0 {
 		return
+	}
+	if h.inflight != nil && h.inflight.CommandID == msg.CommandID {
+		h.inflight = nil
 	}
 
 	errorText := ""
@@ -177,6 +183,43 @@ func (h *SessionHandler) MarkDownlinkFailed(msg inter.DownlinkMessage, err error
 			inter.Int64("command_id", msg.CommandID),
 			inter.Err(updateErr))
 	}
+}
+
+// RequeueDownlink 把暂时发送失败的下行消息重新放回队列。
+func (h *SessionHandler) RequeueDownlink(msg inter.DownlinkMessage, err error) {
+	if !h.authenticated || msg.CommandID <= 0 {
+		return
+	}
+	if h.inflight != nil && h.inflight.CommandID == msg.CommandID {
+		h.inflight = nil
+	}
+
+	if updateErr := h.backend.RequeueDownlink(h.uuid, msg); updateErr != nil {
+		h.logger.Warn("下行消息回队失败",
+			inter.String("uuid", h.uuid),
+			inter.Int("cmd_id", int(msg.CmdID)),
+			inter.Int64("command_id", msg.CommandID),
+			inter.Err(updateErr))
+		return
+	}
+
+	fields := []inter.LogField{
+		inter.String("uuid", h.uuid),
+		inter.Int("cmd_id", int(msg.CmdID)),
+		inter.Int64("command_id", msg.CommandID),
+	}
+	if err != nil {
+		fields = append(fields, inter.Err(err))
+	}
+	h.logger.Info("下行消息已回队等待重试", fields...)
+}
+
+// RequeueInflight 在连接结束时回收未确认的下行命令。
+func (h *SessionHandler) RequeueInflight() {
+	if h.inflight == nil {
+		return
+	}
+	h.RequeueDownlink(*h.inflight, nil)
 }
 
 // HandleEvent 处理事件上报。

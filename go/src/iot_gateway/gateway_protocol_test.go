@@ -237,9 +237,6 @@ func TestHandleConnectionSupportsAllDownlinkCommands(t *testing.T) {
 		if !bytes.Equal(packet.Payload, tc.payload) {
 			t.Fatalf("unexpected downlink payload %d: got=%v want=%v", i, packet.Payload, tc.payload)
 		}
-	}
-
-	for i, tc := range cases {
 		writeAckPacket(t, conn, codec, nil, tc.cmdID, 1, sessionKey, uint64(10+i))
 	}
 
@@ -252,7 +249,7 @@ func TestHandleConnectionSupportsAllDownlinkCommands(t *testing.T) {
 	}
 }
 
-func TestHandleConnectionMarksDownlinkFailedOnDisconnect(t *testing.T) {
+func TestHandleConnectionRequeuesDownlinkOnDisconnect(t *testing.T) {
 	h := newGatewayTestHarness(t)
 	meta := inter.DeviceMetadata{
 		Name:          "Disconnect Device",
@@ -283,7 +280,28 @@ func TestHandleConnectionMarksDownlinkFailedOnDisconnect(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	waitForCommandStatus(t, h.dbPath, msg.CommandID, inter.DeviceCommandStatusFailed)
+	waitForCommandStatus(t, h.dbPath, msg.CommandID, inter.DeviceCommandStatusQueued)
+
+	conn2, codec2, sessionKey2 := startPipeSession(t, h.gateway)
+	defer conn2.Close()
+
+	writePacket(t, conn2, codec2, []byte(token), inter.CmdAuthVerify, 1, sessionKey2, 2)
+	authAck = readAck(t, conn2, codec2, sessionKey2, inter.CmdAuthAck)
+	if len(authAck.Payload) != 1 || authAck.Payload[0] != 0x00 {
+		t.Fatalf("unexpected auth ack payload after reconnect: %v", authAck.Payload)
+	}
+
+	downlink, err := codec2.Unpack(conn2, sessionKey2)
+	if err != nil {
+		t.Fatalf("failed to read requeued downlink packet: %v", err)
+	}
+	if downlink.CmdID != inter.CmdActionExec || downlink.IsAck {
+		t.Fatalf("unexpected requeued downlink packet: %+v", downlink)
+	}
+
+	writeAckPacket(t, conn2, codec2, nil, inter.CmdActionExec, 1, sessionKey2, 3)
+	time.Sleep(50 * time.Millisecond)
+	waitForCommandStatus(t, h.dbPath, msg.CommandID, inter.DeviceCommandStatusAcked)
 }
 
 func waitForLogRecord(t *testing.T, dbPath, uuid string) (string, string) {

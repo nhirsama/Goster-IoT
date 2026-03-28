@@ -65,3 +65,37 @@ func TestInMemoryDeviceCommandQueueDropsOldestWhenFull(t *testing.T) {
 		t.Fatalf("expected latest message to remain, got %+v ok=%v", got, ok)
 	}
 }
+
+func TestInMemoryDeviceCommandQueueRequeueToFront(t *testing.T) {
+	queue := NewDeviceCommandQueue(3)
+
+	first := inter.DownlinkMessage{CommandID: 1, CmdID: inter.CmdActionExec}
+	second := inter.DownlinkMessage{CommandID: 2, CmdID: inter.CmdActionExec}
+	retry := inter.DownlinkMessage{CommandID: 99, CmdID: inter.CmdActionExec}
+
+	if err := queue.Enqueue("device-1", first); err != nil {
+		t.Fatalf("enqueue first failed: %v", err)
+	}
+	if err := queue.Enqueue("device-1", second); err != nil {
+		t.Fatalf("enqueue second failed: %v", err)
+	}
+	if err := queue.Requeue("device-1", retry); err != nil {
+		t.Fatalf("requeue failed: %v", err)
+	}
+
+	got, ok, err := queue.Dequeue("device-1")
+	if err != nil {
+		t.Fatalf("dequeue retry failed: %v", err)
+	}
+	if !ok || got.CommandID != retry.CommandID {
+		t.Fatalf("expected retried message first, got %+v ok=%v", got, ok)
+	}
+
+	got, ok, err = queue.Dequeue("device-1")
+	if err != nil {
+		t.Fatalf("dequeue first failed: %v", err)
+	}
+	if !ok || got.CommandID != first.CommandID {
+		t.Fatalf("expected original first message second, got %+v ok=%v", got, ok)
+	}
+}

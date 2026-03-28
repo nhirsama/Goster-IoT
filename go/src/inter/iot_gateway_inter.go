@@ -62,6 +62,7 @@ type GatewayBackend interface {
 	ReportEvent(uuid string, payload []byte) error
 	ReportDeviceError(uuid string, payload []byte) error
 	PopDownlink(uuid string) (DownlinkMessage, bool, error)
+	RequeueDownlink(uuid string, message DownlinkMessage) error
 	MarkDownlinkSent(commandID int64) error
 	MarkDownlinkAcked(commandID int64) error
 	MarkDownlinkFailed(commandID int64, errorText string) error

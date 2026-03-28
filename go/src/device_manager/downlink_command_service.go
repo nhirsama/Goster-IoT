@@ -44,6 +44,18 @@ func (s *DownlinkCommandService) PopDownlink(uuid string) (inter.DownlinkMessage
 	return s.queue.Dequeue(uuid)
 }
 
+// Requeue 把暂时发送失败的下行消息重新放回队列。
+func (s *DownlinkCommandService) Requeue(uuid string, message inter.DownlinkMessage) error {
+	if message.CommandID <= 0 {
+		return nil
+	}
+	if err := s.queue.Requeue(uuid, message); err != nil {
+		_ = s.MarkFailed(message.CommandID, err.Error())
+		return err
+	}
+	return s.dataStore.UpdateDeviceCommandStatus(message.CommandID, inter.DeviceCommandStatusQueued, "")
+}
+
 // MarkSent 标记下行命令已发往设备。
 func (s *DownlinkCommandService) MarkSent(commandID int64) error {
 	if commandID <= 0 {

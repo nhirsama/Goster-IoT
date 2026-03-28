@@ -88,6 +88,8 @@ type DevicePresence interface {
 type DeviceCommandQueue interface {
 	// Enqueue 将下行消息推入设备队列。
 	Enqueue(uuid string, message DownlinkMessage) error
+	// Requeue 将暂时发送失败的消息放回队列头部，等待下一次连接重试。
+	Requeue(uuid string, message DownlinkMessage) error
 	// Dequeue 从设备队列中弹出最早的一条下行消息。
 	Dequeue(uuid string) (DownlinkMessage, bool, error)
 	// IsEmpty 检查设备队列是否为空。
@@ -99,6 +101,7 @@ type DeviceCommandQueue interface {
 type DownlinkCommandService interface {
 	Enqueue(scope Scope, uuid string, cmdID CmdID, command string, payloadJSON []byte) (DownlinkMessage, error)
 	PopDownlink(uuid string) (DownlinkMessage, bool, error)
+	Requeue(uuid string, message DownlinkMessage) error
 	MarkSent(commandID int64) error
 	MarkAcked(commandID int64) error
 	MarkFailed(commandID int64, errorText string) error

@@ -1,6 +1,7 @@
 package device_manager
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -66,6 +67,10 @@ func (f failingQueue) Enqueue(uuid string, message inter.DownlinkMessage) error 
 	return errors.New("queue failed")
 }
 
+func (f failingQueue) Requeue(uuid string, message inter.DownlinkMessage) error {
+	return errors.New("queue failed")
+}
+
 func (f failingQueue) Dequeue(uuid string) (inter.DownlinkMessage, bool, error) {
 	return inter.DownlinkMessage{}, false, nil
 }
@@ -100,5 +105,71 @@ func TestDownlinkCommandServiceMarkFailedAndQueueError(t *testing.T) {
 
 	if err := service.MarkFailed(0, "ignored"); err != nil {
 		t.Fatalf("mark failed with zero id should be ignored: %v", err)
+	}
+}
+
+func TestDownlinkCommandServiceRequeueRestoresQueuedStatus(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "downlink_requeue.db")
+	ds, err := persistence.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("failed to init runtime store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = persistence.CloseIfPossible(ds)
+	})
+
+	uuid := "device-3"
+	if err := ds.InitDevice(uuid, inter.DeviceMetadata{
+		Name:               "Device 3",
+		SerialNumber:       "sn-3",
+		MACAddress:         "mac-3",
+		Token:              "tk-3",
+		AuthenticateStatus: inter.Authenticated,
+	}); err != nil {
+		t.Fatalf("failed to init device: %v", err)
+	}
+
+	queue := NewDeviceCommandQueue(8)
+	service := NewDownlinkCommandService(ds, queue)
+	msg, err := service.Enqueue(inter.Scope{}, uuid, inter.CmdActionExec, "action_exec", []byte(`{"op":"retry"}`))
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+
+	popped, ok, err := service.PopDownlink(uuid)
+	if err != nil {
+		t.Fatalf("pop failed: %v", err)
+	}
+	if !ok || popped.CommandID != msg.CommandID {
+		t.Fatalf("unexpected popped message: %+v ok=%v", popped, ok)
+	}
+
+	if err := service.MarkSent(msg.CommandID); err != nil {
+		t.Fatalf("mark sent failed: %v", err)
+	}
+	if err := service.Requeue(uuid, popped); err != nil {
+		t.Fatalf("requeue failed: %v", err)
+	}
+
+	retry, ok, err := service.PopDownlink(uuid)
+	if err != nil {
+		t.Fatalf("pop retry failed: %v", err)
+	}
+	if !ok || retry.CommandID != msg.CommandID {
+		t.Fatalf("unexpected retried message: %+v ok=%v", retry, ok)
+	}
+
+	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	var status string
+	if err := db.QueryRow("SELECT status FROM integration_external_commands WHERE id = ?", msg.CommandID).Scan(&status); err != nil {
+		t.Fatalf("failed to query command status: %v", err)
+	}
+	if status != string(inter.DeviceCommandStatusQueued) {
+		t.Fatalf("unexpected command status after requeue: got %s want %s", status, inter.DeviceCommandStatusQueued)
 	}
 }

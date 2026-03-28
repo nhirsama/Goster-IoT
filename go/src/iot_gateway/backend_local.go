@@ -96,6 +96,10 @@ func (b *localBackend) PopDownlink(uuid string) (inter.DownlinkMessage, bool, er
 	return b.downlinkCommands.PopDownlink(uuid)
 }
 
+func (b *localBackend) RequeueDownlink(uuid string, message inter.DownlinkMessage) error {
+	return b.downlinkCommands.Requeue(uuid, message)
+}
+
 func (b *localBackend) MarkDownlinkSent(commandID int64) error {
 	return b.downlinkCommands.MarkSent(commandID)
 }
