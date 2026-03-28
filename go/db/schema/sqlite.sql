@@ -185,3 +185,21 @@ CREATE INDEX IF NOT EXISTS idx_integration_commands_status
     ON integration_external_commands (source, status, requested_at);
 CREATE INDEX IF NOT EXISTS idx_ext_cmd_tenant_source_status
     ON integration_external_commands (tenant_id, source, status, requested_at);
+
+CREATE TABLE IF NOT EXISTS device_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant_legacy',
+    uuid TEXT NOT NULL,
+    cmd_id INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    payload_json TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    error_text TEXT,
+    requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    executed_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_commands_uuid_status
+    ON device_commands (uuid, status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_device_commands_tenant_uuid_status
+    ON device_commands (tenant_id, uuid, status, requested_at);

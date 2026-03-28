@@ -166,7 +166,7 @@ func TestDownlinkCommandServiceRequeueRestoresQueuedStatus(t *testing.T) {
 	defer db.Close()
 
 	var status string
-	if err := db.QueryRow("SELECT status FROM integration_external_commands WHERE id = ?", msg.CommandID).Scan(&status); err != nil {
+	if err := db.QueryRow("SELECT status FROM device_commands WHERE id = ?", msg.CommandID).Scan(&status); err != nil {
 		t.Fatalf("failed to query command status: %v", err)
 	}
 	if status != string(inter.DeviceCommandStatusQueued) {

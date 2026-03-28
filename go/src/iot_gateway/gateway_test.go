@@ -235,9 +235,8 @@ func waitForCommandStatus(t *testing.T, dbPath string, commandID int64, want int
 	for time.Now().Before(deadline) {
 		var status string
 		err := db.QueryRow(
-			"SELECT status FROM integration_external_commands WHERE id = ? AND source = ?",
+			"SELECT status FROM device_commands WHERE id = ?",
 			commandID,
-			"goster_device",
 		).Scan(&status)
 		if err == nil && status == string(want) {
 			return
@@ -247,9 +246,8 @@ func waitForCommandStatus(t *testing.T, dbPath string, commandID int64, want int
 
 	var status string
 	if err := db.QueryRow(
-		"SELECT status FROM integration_external_commands WHERE id = ? AND source = ?",
+		"SELECT status FROM device_commands WHERE id = ?",
 		commandID,
-		"goster_device",
 	).Scan(&status); err != nil {
 		t.Fatalf("failed to query command status: %v", err)
 	}

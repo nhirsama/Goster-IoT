@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -59,9 +58,9 @@ func (r *Repository) createDeviceCommandRecord(tenantID, uuid string, cmdID inte
 
 	row := &bunrepo.DeviceCommandRow{
 		TenantID:    tenantID,
-		Source:      "goster_device",
-		EntityID:    uuid,
-		Command:     fmt.Sprintf("%s:%d", command, cmdID),
+		UUID:        uuid,
+		CmdID:       int(cmdID),
+		Command:     command,
 		PayloadJSON: bunrepo.PayloadStringPtr(payloadJSON),
 		Status:      string(inter.DeviceCommandStatusQueued),
 	}
@@ -90,12 +89,11 @@ func (r *Repository) UpdateDeviceCommandStatus(commandID int64, status inter.Dev
 	errText := strings.TrimSpace(errorText)
 
 	res, err := r.db.NewUpdate().
-		Table("integration_external_commands").
+		Table("device_commands").
 		Set("status = ?", string(status)).
 		Set("error_text = ?", bunrepo.NullableOptionalString(errText)).
 		Set("executed_at = COALESCE(?, executed_at)", executedAt).
 		Where("id = ?", commandID).
-		Where("source = ?", "goster_device").
 		Returning("NULL").
 		Exec(context.Background())
 	if err != nil {

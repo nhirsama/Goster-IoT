@@ -3,26 +3,10 @@ package bunrepo
 import (
 	"database/sql"
 	"strings"
-	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/uptrace/bun"
 )
-
-type DeviceCommandRow struct {
-	bun.BaseModel `bun:"table:integration_external_commands"`
-
-	ID          int64      `bun:"id,pk,autoincrement"`
-	TenantID    string     `bun:"tenant_id"`
-	Source      string     `bun:"source"`
-	EntityID    string     `bun:"entity_id"`
-	Command     string     `bun:"command"`
-	PayloadJSON *string    `bun:"payload_json"`
-	Status      string     `bun:"status"`
-	ErrorText   *string    `bun:"error_text"`
-	RequestedAt time.Time  `bun:"requested_at"`
-	ExecutedAt  *time.Time `bun:"executed_at"`
-}
 
 type ExternalEntityRow struct {
 	bun.BaseModel `bun:"table:integration_external_entities"`

@@ -37,16 +37,21 @@ func TestRepositoryCreateAndUpdateDeviceCommand(t *testing.T) {
 	}
 
 	var row struct {
-		Status string `bun:"status"`
-		Source string `bun:"source"`
+		Status  string `bun:"status"`
+		UUID    string `bun:"uuid"`
+		CmdID   int    `bun:"cmd_id"`
+		Command string `bun:"command"`
 	}
 	if err := base.DB.NewRaw(
-		"SELECT status, source FROM integration_external_commands WHERE id = ?",
+		"SELECT status, uuid, cmd_id, command FROM device_commands WHERE id = ?",
 		commandID,
 	).Scan(context.Background(), &row); err != nil {
 		t.Fatalf("query command row failed: %v", err)
 	}
-	if row.Status != string(inter.DeviceCommandStatusAcked) || row.Source != "goster_device" {
+	if row.Status != string(inter.DeviceCommandStatusAcked) ||
+		row.UUID != "command-device" ||
+		row.CmdID != int(inter.CmdActionExec) ||
+		row.Command != "action_exec" {
 		t.Fatalf("unexpected command row: %+v", row)
 	}
 }
