@@ -53,7 +53,7 @@ func (r *Repository) createDeviceCommandRecord(tenantID, uuid string, cmdID inte
 			return 0, err
 		}
 		if bunrepo.NormalizeTenantID(deviceTenant) != tenantID {
-			return 0, errors.New("device tenant mismatch")
+			return 0, inter.ErrDeviceTenantMismatch
 		}
 	}
 
@@ -106,7 +106,7 @@ func (r *Repository) UpdateDeviceCommandStatus(commandID int64, status inter.Dev
 		return err
 	}
 	if rows == 0 {
-		return errors.New("device command not found")
+		return inter.ErrDeviceCommandNotFound
 	}
 	return nil
 }

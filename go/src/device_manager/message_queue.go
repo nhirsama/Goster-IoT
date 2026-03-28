@@ -1,7 +1,6 @@
 package device_manager
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -47,7 +46,7 @@ func (m *InMemoryDeviceCommandQueue) Requeue(uuid string, message inter.Downlink
 		queue = queue[:len(queue)-1]
 	}
 	if m.capacity > 0 && len(queue) >= m.capacity {
-		return errors.New("队列已满且无法回退")
+		return inter.ErrDownlinkQueueFull
 	}
 	queue = append([]inter.DownlinkMessage{message}, queue...)
 	m.queues[uuid] = queue

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -240,12 +241,12 @@ func (api *API) enqueueDeviceCommand(w http.ResponseWriter, r *http.Request, uui
 	scope := api.scopeFromRequest(r)
 	msg, err := api.downlinkCommands.Enqueue(scope, uuid, cmdID, command, rawPayload)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "tenant mismatch") {
+		if errors.Is(err, inter.ErrDeviceTenantMismatch) {
 			api.Error(w, r, http.StatusForbidden, 40321, "forbidden",
 				&ErrorDetail{Type: "cross_tenant_denied"})
 			return
 		}
-		if strings.Contains(strings.ToLower(err.Error()), "队列") || strings.Contains(strings.ToLower(err.Error()), "queue") {
+		if errors.Is(err, inter.ErrDownlinkQueueFull) {
 			api.Error(w, r, http.StatusConflict, 40921, "queue command failed",
 				&ErrorDetail{Type: "conflict", Field: "command"})
 			return
@@ -291,13 +292,12 @@ func (api *API) deviceScopeError(w http.ResponseWriter, r *http.Request, err err
 	if err == nil {
 		return
 	}
-	lowerErr := strings.ToLower(err.Error())
-	if strings.Contains(lowerErr, "tenant mismatch") {
+	if errors.Is(err, inter.ErrDeviceTenantMismatch) {
 		api.Error(w, r, http.StatusForbidden, 40321, "forbidden",
 			&ErrorDetail{Type: "cross_tenant_denied", Field: "uuid"})
 		return
 	}
-	if strings.Contains(lowerErr, "not found") {
+	if errors.Is(err, inter.ErrDeviceNotFound) {
 		api.Error(w, r, http.StatusNotFound, notFoundCode, "device not found",
 			&ErrorDetail{Type: "not_found", Field: "uuid"})
 		return
@@ -309,5 +309,8 @@ func isNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "not found")
+	return errors.Is(err, inter.ErrDeviceNotFound) ||
+		errors.Is(err, inter.ErrDeviceTokenNotFound) ||
+		errors.Is(err, inter.ErrUserNotFound) ||
+		errors.Is(err, inter.ErrDeviceCommandNotFound)
 }

@@ -2,7 +2,7 @@ package device_test
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"testing"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -239,7 +239,7 @@ func TestRepositoryGetDeviceByTokenMissingWrapsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing token error")
 	}
-	if !strings.Contains(err.Error(), "token not found") {
+	if !errors.Is(err, inter.ErrDeviceTokenNotFound) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

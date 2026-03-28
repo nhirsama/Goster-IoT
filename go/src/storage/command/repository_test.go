@@ -2,6 +2,7 @@ package command_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -66,5 +67,8 @@ func TestRepositoryCreateDeviceCommandByTenantRejectsMismatch(t *testing.T) {
 	_, err := repo.CreateDeviceCommandByTenant("tenant_other", "command-device-2", inter.CmdActionExec, "action_exec", []byte(`{}`))
 	if err == nil {
 		t.Fatal("expected tenant mismatch error")
+	}
+	if !errors.Is(err, inter.ErrDeviceTenantMismatch) {
+		t.Fatalf("expected tenant mismatch sentinel, got %v", err)
 	}
 }

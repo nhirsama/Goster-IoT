@@ -66,7 +66,7 @@ func (r *Repository) GetUserPermission(username string) (inter.PermissionType, e
 		Scan(context.Background(), &row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return inter.PermissionNone, errors.New("user not found")
+			return inter.PermissionNone, inter.ErrUserNotFound
 		}
 		return inter.PermissionNone, err
 	}
@@ -90,7 +90,7 @@ func (r *Repository) UpdateUserPermission(username string, perm inter.Permission
 			return err
 		}
 		if rows == 0 {
-			return errors.New("user not found")
+			return inter.ErrUserNotFound
 		}
 		return SyncLegacyTenantRole(ctx, tx, username, perm)
 	})

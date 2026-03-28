@@ -43,7 +43,7 @@ func (r *Repository) DestroyDevice(uuid string) error {
 			return err
 		}
 		if rows == 0 {
-			return errors.New("device not found")
+			return inter.ErrDeviceNotFound
 		}
 		if _, err := tx.NewRaw("DELETE FROM metrics WHERE uuid = ?", uuid).Exec(ctx); err != nil {
 			return err
@@ -64,7 +64,7 @@ func (r *Repository) LoadConfig(uuid string) (inter.DeviceMetadata, error) {
 		Scan(context.Background())
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return inter.DeviceMetadata{}, errors.New("device not found")
+			return inter.DeviceMetadata{}, inter.ErrDeviceNotFound
 		}
 		return inter.DeviceMetadata{}, err
 	}
@@ -154,7 +154,7 @@ func (r *Repository) GetDeviceByToken(token string) (string, inter.AuthenticateS
 		Scan(context.Background(), &row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", 0, fmt.Errorf("token not found: %w", err)
+			return "", 0, fmt.Errorf("%w: %w", inter.ErrDeviceTokenNotFound, err)
 		}
 		return "", 0, err
 	}
@@ -176,7 +176,7 @@ func (r *Repository) UpdateToken(uuid string, newToken string) error {
 		return err
 	}
 	if rows == 0 {
-		return errors.New("device not found")
+		return inter.ErrDeviceNotFound
 	}
 	return nil
 }
@@ -193,7 +193,7 @@ func (r *Repository) ResolveDeviceTenant(uuid string) (string, error) {
 		Scan(context.Background(), &row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", errors.New("device not found")
+			return "", inter.ErrDeviceNotFound
 		}
 		return "", err
 	}
@@ -213,7 +213,7 @@ func (r *Repository) LoadConfigByTenant(tenantID, uuid string) (inter.DeviceMeta
 		Scan(context.Background())
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return inter.DeviceMetadata{}, errors.New("device not found")
+			return inter.DeviceMetadata{}, inter.ErrDeviceNotFound
 		}
 		return inter.DeviceMetadata{}, err
 	}
