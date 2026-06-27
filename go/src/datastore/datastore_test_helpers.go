@@ -3,7 +3,7 @@ package datastore
 import (
 	"fmt"
 	"math/rand"
-	"path/filepath"
+	"os"
 	"testing"
 	"time"
 
@@ -15,11 +15,36 @@ const testCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456
 func newTestStore(t *testing.T) inter.DataStore {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "datastore_test.db")
-	store, err := NewDataStoreSql(dbPath)
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set, skipping database test")
+	}
+
+	store, err := NewDataStoreSql(dbURL)
 	if err != nil {
 		t.Fatalf("NewDataStoreSql failed: %v", err)
 	}
+
+	// Clean up test data before and after test
+	sqlStore := store.(*DataStoreSql)
+	cleanupTables := func() {
+		tables := []string{
+			"logs", "metrics", "integration_external_observations",
+			"integration_external_entities", "integration_external_commands",
+			"group_devices", "group_users", "device_groups",
+			"devices", "tenant_users", "users",
+		}
+		for _, table := range tables {
+			sqlStore.db.Exec("DELETE FROM " + table + " WHERE created_at > NOW() - INTERVAL '1 hour'")
+		}
+	}
+
+	cleanupTables()
+
+	t.Cleanup(func() {
+		cleanupTables()
+	})
+
 	return store
 }
 

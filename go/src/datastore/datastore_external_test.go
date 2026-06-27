@@ -137,7 +137,7 @@ func TestDeviceCommandLogLifecycle(t *testing.T) {
 	err = sqlStore.db.QueryRow(`
 		SELECT status, executed_at
 		FROM integration_external_commands
-		WHERE id = ? AND source = ?
+		WHERE id = $1 AND source = $2
 	`, commandID, "goster_device").Scan(&status, &executedAt)
 	if err != nil {
 		t.Fatalf("query command row failed: %v", err)

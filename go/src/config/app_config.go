@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	defaultDBPath                           = "./data.db"
+	defaultDatabaseURL                      = "postgres://postgres:postgres@localhost:5432/goster_iot?sslmode=disable"
 	defaultWebHTTPAddr                      = ":8080"
 	defaultAPITCPAddr                       = ":8081"
 	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
@@ -32,7 +32,7 @@ type AppConfig struct {
 }
 
 type DBConfig struct {
-	Path string
+	URL string
 }
 
 type WebConfig struct {
@@ -88,7 +88,7 @@ type MetricsConfig struct {
 }
 
 func DefaultDBConfig() DBConfig {
-	return DBConfig{Path: defaultDBPath}
+	return DBConfig{URL: defaultDatabaseURL}
 }
 
 func DefaultWebConfig() WebConfig {
@@ -268,7 +268,7 @@ func Load() (AppConfig, error) {
 }
 
 func prepareViper(v *viper.Viper) error {
-	v.SetDefault("db.path", defaultDBPath)
+	v.SetDefault("db.url", defaultDatabaseURL)
 	v.SetDefault("web.http_addr", defaultWebHTTPAddr)
 	v.SetDefault("web.api_cors_allow_origins", defaultAPICORSAllowOrigins)
 	v.SetDefault("web.max_api_body_bytes", defaultMaxAPIBodyBytes)
@@ -300,7 +300,7 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("logger.service", "goster-iot")
 
 	binds := map[string]string{
-		"db.path":                                           "DB_PATH",
+		"db.url":                                            "DATABASE_URL",
 		"web.http_addr":                                     "WEB_HTTP_ADDR",
 		"web.api_cors_allow_origins":                        "API_CORS_ALLOW_ORIGINS",
 		"web.max_api_body_bytes":                            "WEB_API_MAX_BODY_BYTES",
@@ -364,7 +364,7 @@ func loadFromViper(v *viper.Viper) AppConfig {
 
 	out := AppConfig{
 		DB: DBConfig{
-			Path: normalizeOrDefault(v.GetString("db.path"), base.DB.Path),
+			URL: normalizeOrDefault(v.GetString("db.url"), base.DB.URL),
 		},
 		Web: WebConfig{
 			HTTPAddr:            strings.TrimSpace(v.GetString("web.http_addr")),

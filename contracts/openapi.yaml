@@ -26,6 +26,10 @@ tags:
   - name: Device
   - name: Metrics
   - name: User
+  - name: Tenant
+    description: 多租户管理
+  - name: Group
+    description: 设备分组管理
 
 security:
   - CookieSession: []
@@ -384,6 +388,368 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/tenants:
+    get:
+      tags: [Tenant]
+      operationId: listTenants
+      summary: 列出所有租户。
+      description: |
+        仅管理员可访问。返回系统中所有租户列表。
+      responses:
+        '200':
+          description: 租户列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Tenant]
+      operationId: createTenant
+      summary: 创建新租户。
+      description: |
+        仅管理员可访问。创建新租户并返回租户信息。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: 租户已创建。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/tenants/{tenant_id}:
+    get:
+      tags: [Tenant]
+      operationId: getTenant
+      summary: 获取租户详情。
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        '200':
+          description: 租户详情。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Tenant]
+      operationId: updateTenant
+      summary: 更新租户信息。
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantRequest'
+      responses:
+        '200':
+          description: 租户已更新。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tenants/{tenant_id}/users:
+    get:
+      tags: [Tenant]
+      operationId: listTenantUsers
+      summary: 列出租户用户。
+      description: |
+        返回指定租户的所有用户及其角色。
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses:
+        '200':
+          description: 租户用户列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantUserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Tenant]
+      operationId: addTenantUser
+      summary: 添加用户到租户。
+      description: |
+        将用户添加到租户并分配角色。
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddTenantUserRequest'
+      responses:
+        '201':
+          description: 用户已添加。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/tenants/{tenant_id}/users/{username}:
+    delete:
+      tags: [Tenant]
+      operationId: removeTenantUser
+      summary: 从租户移除用户。
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '204':
+          description: 用户已移除。
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/groups:
+    get:
+      tags: [Group]
+      operationId: listDeviceGroups
+      summary: 列出设备分组。
+      description: |
+        返回当前租户下的所有设备分组。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 设备分组列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceGroupListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Group]
+      operationId: createDeviceGroup
+      summary: 创建设备分组。
+      description: |
+        在当前租户下创建新的设备分组。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceGroupRequest'
+      responses:
+        '201':
+          description: 分组已创建。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceGroupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/groups/{group_id}:
+    get:
+      tags: [Group]
+      operationId: getDeviceGroup
+      summary: 获取分组详情。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/GroupIDPath'
+      responses:
+        '200':
+          description: 分组详情。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceGroupResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Group]
+      operationId: updateDeviceGroup
+      summary: 更新分组信息。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/GroupIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeviceGroupRequest'
+      responses:
+        '200':
+          description: 分组已更新。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceGroupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Group]
+      operationId: deleteDeviceGroup
+      summary: 删除设备分组。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/GroupIDPath'
+      responses:
+        '204':
+          description: 分组已删除。
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/groups/{group_id}/devices:
+    get:
+      tags: [Group]
+      operationId: listGroupDevices
+      summary: 列出分组内的设备。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/GroupIDPath'
+      responses:
+        '200':
+          description: 分组设备列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Group]
+      operationId: addDeviceToGroup
+      summary: 添加设备到分组。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/GroupIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDeviceToGroupRequest'
+      responses:
+        '201':
+          description: 设备已添加。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/groups/{group_id}/devices/{uuid}:
+    delete:
+      tags: [Group]
+      operationId: removeDeviceFromGroup
+      summary: 从分组移除设备。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/GroupIDPath'
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '204':
+          description: 设备已移除。
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     CookieSession:
@@ -492,6 +858,24 @@ components:
       schema:
         type: string
       description: 设备分组过滤参数（当前阶段仅保留契约位，后续实现组级过滤）。
+
+    TenantID:
+      name: tenant_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: 租户 ID
+
+    GroupIDPath:
+      name: group_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: 设备分组 ID
 
   responses:
     BadRequest:
@@ -1011,3 +1395,239 @@ components:
         extensions:
           type: object
           additionalProperties: true
+    # 租户相关 Schema
+    TenantRole:
+      type: string
+      enum: [tenant_admin, tenant_rw, tenant_ro]
+      description: |
+        租户角色：
+        - tenant_admin: 租户管理员（可管理租户内用户和设备）
+        - tenant_rw: 租户读写（可操作设备和数据）
+        - tenant_ro: 租户只读（仅查看）
+
+    TenantStatus:
+      type: string
+      enum: [active, suspended, archived]
+      description: |
+        租户状态：
+        - active: 活跃
+        - suspended: 暂停
+        - archived: 归档
+
+    Tenant:
+      type: object
+      required: [id, name, status, created_at]
+      properties:
+        id:
+          type: string
+          description: 租户 ID
+        name:
+          type: string
+          description: 租户名称
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        meta:
+          type: object
+          additionalProperties: true
+          description: 租户元数据
+
+    TenantListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [items, total]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Tenant'
+                total:
+                  type: integer
+                  minimum: 0
+
+    TenantResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/Tenant'
+
+    CreateTenantRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 租户名称
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        meta:
+          type: object
+          additionalProperties: true
+
+    UpdateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        meta:
+          type: object
+          additionalProperties: true
+
+    TenantUser:
+      type: object
+      required: [tenant_id, username, role, created_at]
+      properties:
+        tenant_id:
+          type: string
+        username:
+          type: string
+        role:
+          $ref: '#/components/schemas/TenantRole'
+        created_at:
+          type: string
+          format: date-time
+
+    TenantUserListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [items, total]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/TenantUser'
+                total:
+                  type: integer
+                  minimum: 0
+
+    AddTenantUserRequest:
+      type: object
+      required: [username, role]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        role:
+          $ref: '#/components/schemas/TenantRole'
+
+    # 设备分组相关 Schema
+    DeviceGroup:
+      type: object
+      required: [id, tenant_id, name, created_at]
+      properties:
+        id:
+          type: string
+          description: 分组 ID
+        tenant_id:
+          type: string
+          description: 所属租户 ID
+        name:
+          type: string
+          description: 分组名称
+        description:
+          type: string
+          nullable: true
+          description: 分组描述
+        device_count:
+          type: integer
+          minimum: 0
+          description: 设备数量
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DeviceGroupListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [items, total, page, size]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/DeviceGroup'
+                total:
+                  type: integer
+                  minimum: 0
+                page:
+                  type: integer
+                  minimum: 1
+                size:
+                  type: integer
+                  minimum: 1
+
+    DeviceGroupResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceGroup'
+
+    CreateDeviceGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 分组名称
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: 分组描述
+
+    UpdateDeviceGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    AddDeviceToGroupRequest:
+      type: object
+      required: [uuid]
+      properties:
+        uuid:
+          type: string
+          minLength: 1
+          description: 设备 UUID

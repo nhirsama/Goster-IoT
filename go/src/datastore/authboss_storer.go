@@ -32,7 +32,7 @@ func (s *DataStoreSql) Load(ctx context.Context, key string) (authboss.User, err
 				       recover_token, recover_token_expiry, confirm_token, confirmed, created_at, updated_at,
 				       oauth2_uid, oauth2_provider, oauth2_access_token, oauth2_refresh_token, oauth2_expiry, remember_token
 				FROM users 
-				WHERE oauth2_provider=? AND oauth2_uid=?`
+				WHERE oauth2_provider=$1 AND oauth2_uid=$2`
 			args = []interface{}{provider, uid}
 		} else {
 			return nil, authboss.ErrUserNotFound
@@ -44,7 +44,7 @@ func (s *DataStoreSql) Load(ctx context.Context, key string) (authboss.User, err
 			       recover_token, recover_token_expiry, confirm_token, confirmed, created_at, updated_at,
 			       oauth2_uid, oauth2_provider, oauth2_access_token, oauth2_refresh_token, oauth2_expiry, remember_token
 			FROM users 
-			WHERE username=?`
+			WHERE username=$14`
 		args = []interface{}{key}
 	}
 
@@ -135,12 +135,12 @@ func (s *DataStoreSql) Save(ctx context.Context, user authboss.User) error {
 
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE users SET 
-			email=?, password=?, permission=?, 
-			recover_token=?, recover_token_expiry=?, 
-			confirm_token=?, confirmed=?, 
-			oauth2_uid=?, oauth2_provider=?, oauth2_access_token=?, oauth2_refresh_token=?, oauth2_expiry=?,
-			remember_token=?, updated_at=CURRENT_TIMESTAMP 
-		WHERE username=?`,
+			email=$1, password=$2, permission=$3, 
+			recover_token=$4, recover_token_expiry=$5, 
+			confirm_token=$6, confirmed=$7, 
+			oauth2_uid=$8, oauth2_provider=$9, oauth2_access_token=$10, oauth2_refresh_token=$11, oauth2_expiry=$12,
+			remember_token=$13, updated_at=CURRENT_TIMESTAMP 
+		WHERE username=$14`,
 		u.Email, u.Password, u.Permission,
 		recoverToken, recoverExpiry,
 		confirmToken, u.Confirmed,
@@ -195,26 +195,23 @@ func (s *DataStoreSql) Create(ctx context.Context, user authboss.User) error {
 		u.Password = "oauth2_dummy_password_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
-	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO users (email, username, password, permission, 
+	var id int
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO users (email, username, password, permission,
 			oauth2_uid, oauth2_provider, oauth2_access_token, oauth2_refresh_token, oauth2_expiry,
-			created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		RETURNING id`,
 		u.Email, u.Username, u.Password, u.Permission,
 		u.OAuth2UID, u.OAuth2Provider, u.OAuth2AccessToken, u.OAuth2RefreshToken, u.OAuth2Expiry,
-	)
+	).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			return authboss.ErrUserFound
 		}
 		return err
 	}
-
-	id, err := res.LastInsertId()
-	if err != nil {
-		return err
-	}
-	u.ID = int(id)
+	u.ID = id
 
 	return nil
 }
@@ -262,11 +259,11 @@ func (s *DataStoreSql) LoadByRememberToken(ctx context.Context, token string) (a
 	var email sql.NullString
 
 	query := `
-		SELECT id, email, username, password, permission, 
+		SELECT id, email, username, password, permission,
 		       recover_token, recover_token_expiry, confirm_token, confirmed, created_at, updated_at,
 		       oauth2_uid, oauth2_provider, oauth2_access_token, oauth2_refresh_token, oauth2_expiry, remember_token
-		FROM users 
-		WHERE remember_token=?`
+		FROM users
+		WHERE remember_token=$1`
 
 	err := s.db.QueryRowContext(ctx, query, token).Scan(
 		&user.ID, &email, &user.Username, &user.Password, &user.Permission,

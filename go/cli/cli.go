@@ -36,7 +36,7 @@ func start(ctx context.Context) {
 	rootLogger := initRootLogger(appCfg.Logger)
 	rootLogger.Info("日志系统已初始化")
 
-	db, err := datastore.NewDataStoreSql(appCfg.DB.Path)
+	db, err := datastore.NewDataStoreSql(appCfg.DB.URL)
 	if err != nil {
 		rootLogger.Error("数据存储初始化失败", inter.Err(err))
 		panic(err)

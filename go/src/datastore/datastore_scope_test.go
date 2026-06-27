@@ -24,10 +24,10 @@ func TestTenantScopedDeviceQueries(t *testing.T) {
 		t.Fatalf("InitDevice B failed: %v", err)
 	}
 
-	if _, err := sqlStore.db.Exec("UPDATE devices SET tenant_id = ? WHERE uuid = ?", "tenant_a", uuidA); err != nil {
+	if _, err := sqlStore.db.Exec("UPDATE devices SET tenant_id = $1 WHERE uuid = $2", "tenant_a", uuidA); err != nil {
 		t.Fatalf("set tenant for A failed: %v", err)
 	}
-	if _, err := sqlStore.db.Exec("UPDATE devices SET tenant_id = ? WHERE uuid = ?", "tenant_b", uuidB); err != nil {
+	if _, err := sqlStore.db.Exec("UPDATE devices SET tenant_id = $1 WHERE uuid = $2", "tenant_b", uuidB); err != nil {
 		t.Fatalf("set tenant for B failed: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestTenantScopedMetricsAndCommands(t *testing.T) {
 	if err := store.InitDevice(uuid, meta); err != nil {
 		t.Fatalf("InitDevice failed: %v", err)
 	}
-	if _, err := sqlStore.db.Exec("UPDATE devices SET tenant_id = ? WHERE uuid = ?", "tenant_c", uuid); err != nil {
+	if _, err := sqlStore.db.Exec("UPDATE devices SET tenant_id = $1 WHERE uuid = $2", "tenant_c", uuid); err != nil {
 		t.Fatalf("set tenant failed: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestTenantScopedMetricsAndCommands(t *testing.T) {
 		t.Fatalf("AppendMetric failed: %v", err)
 	}
 
-	points, err := store.QueryMetricsByTenant("tenant_c", uuid, point.Timestamp-10, point.Timestamp+10)
+	points, err := store.QueryMetricsByTenant("tenant_c", uuid, point.Timestamp-10, point.Timestamp+10, 0)
 	if err != nil {
 		t.Fatalf("QueryMetricsByTenant failed: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestTenantScopedMetricsAndCommands(t *testing.T) {
 		t.Fatalf("expected 1 point in tenant scope, got=%d", len(points))
 	}
 
-	pointsWrongTenant, err := store.QueryMetricsByTenant("tenant_other", uuid, point.Timestamp-10, point.Timestamp+10)
+	pointsWrongTenant, err := store.QueryMetricsByTenant("tenant_other", uuid, point.Timestamp-10, point.Timestamp+10, 0)
 	if err != nil {
 		t.Fatalf("QueryMetricsByTenant wrong tenant should not error, got: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestTenantScopedMetricsAndCommands(t *testing.T) {
 	}
 
 	var storedTenant string
-	if err := sqlStore.db.QueryRow("SELECT tenant_id FROM integration_external_commands WHERE id = ?", commandID).Scan(&storedTenant); err != nil {
+	if err := sqlStore.db.QueryRow("SELECT tenant_id FROM integration_external_commands WHERE id = $1", commandID).Scan(&storedTenant); err != nil {
 		t.Fatalf("query command tenant failed: %v", err)
 	}
 	if storedTenant != "tenant_c" {

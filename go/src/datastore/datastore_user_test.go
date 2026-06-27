@@ -12,7 +12,7 @@ func TestUserPermissionManagement(t *testing.T) {
 
 	username := "user_" + randomString(8)
 	_, err := sqlStore.db.Exec(
-		"INSERT INTO users (email, username, password, permission) VALUES (?, ?, ?, ?)",
+		"INSERT INTO users (email, username, password, permission) VALUES ($1, $2, $3, $4)",
 		username+"@example.com", username, "hashed-password", inter.PermissionReadOnly,
 	)
 	if err != nil {
