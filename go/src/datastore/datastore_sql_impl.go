@@ -10,6 +10,16 @@ import (
 
 type DataStoreSql struct {
 	db *sql.DB
+	// Prepared statement cache for frequently used queries
+	stmts struct {
+		queryMetrics          *sql.Stmt
+		queryMetricsWithLimit *sql.Stmt
+		insertMetric          *sql.Stmt
+		insertDevice          *sql.Stmt
+		updateDeviceMeta      *sql.Stmt
+		getDeviceByToken      *sql.Stmt
+		loadConfig            *sql.Stmt
+	}
 }
 
 func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
@@ -18,6 +28,11 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// 配置连接池参数以提升性能
+	db.SetMaxOpenConns(25)   // SQLite 推荐值
+	db.SetMaxIdleConns(5)    // 保持少量空闲连接
+	db.SetConnMaxLifetime(0) // 连接不过期
 
 	if err := ensureBaseSchema(db); err != nil {
 		db.Close()
@@ -29,7 +44,79 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 		return nil, err
 	}
 
-	return &DataStoreSql{db: db}, nil
+	ds := &DataStoreSql{db: db}
+
+	// 初始化预编译语句缓存
+	if err := ds.initPreparedStatements(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return ds, nil
+}
+
+// initPreparedStatements 初始化常用查询的预编译语句
+func (s *DataStoreSql) initPreparedStatements() error {
+	var err error
+
+	// 指标查询（无限制）
+	s.stmts.queryMetrics, err = s.db.Prepare(
+		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
+	)
+	if err != nil {
+		return err
+	}
+
+	// 指标查询（带 LIMIT）
+	s.stmts.queryMetricsWithLimit, err = s.db.Prepare(
+		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC LIMIT ?",
+	)
+	if err != nil {
+		return err
+	}
+
+	// 插入指标
+	s.stmts.insertMetric, err = s.db.Prepare(
+		"INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)",
+	)
+	if err != nil {
+		return err
+	}
+
+	// 插入设备
+	s.stmts.insertDevice, err = s.db.Prepare(
+		`INSERT INTO devices (uuid, tenant_id, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 更新设备元数据
+	s.stmts.updateDeviceMeta, err = s.db.Prepare(
+		`UPDATE devices SET name=?, hw_version=?, sw_version=?, config_version=?, sn=?, mac=?, auth_status=?, token=? WHERE uuid=?`,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 根据 Token 查询设备
+	s.stmts.getDeviceByToken, err = s.db.Prepare(
+		"SELECT uuid, auth_status FROM devices WHERE token = ?",
+	)
+	if err != nil {
+		return err
+	}
+
+	// 加载设备配置
+	s.stmts.loadConfig, err = s.db.Prepare(
+		"SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status FROM devices WHERE uuid = ?",
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func ensureBaseSchema(db *sql.DB) error {

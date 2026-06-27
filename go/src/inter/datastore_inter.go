@@ -134,7 +134,8 @@ type DataStore interface {
 
 	// QueryMetrics 查询指定时间范围内的时序数据。
 	// start 和 end 分别为开始和结束的时间戳（闭区间）。
-	QueryMetrics(uuid string, start, end int64) ([]MetricPoint, error)
+	// limit 限制返回的最大数据点数量，0 表示使用默认值，-1 表示无限制（不推荐）。
+	QueryMetrics(uuid string, start, end int64, limit int) ([]MetricPoint, error)
 
 	// [外部集成实体与观测]
 
@@ -188,7 +189,8 @@ type DataStore interface {
 	ListDevicesByTenant(tenantID string, status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
 
 	// QueryMetricsByTenant 在指定租户范围内查询设备指标。
-	QueryMetricsByTenant(tenantID, uuid string, start, end int64) ([]MetricPoint, error)
+	// limit 限制返回的最大数据点数量，0 表示使用默认值，-1 表示无限制（不推荐）。
+	QueryMetricsByTenant(tenantID, uuid string, start, end int64, limit int) ([]MetricPoint, error)
 
 	// CreateDeviceCommandByTenant 在指定租户范围内创建下行指令日志。
 	CreateDeviceCommandByTenant(tenantID, uuid string, cmdID CmdID, command string, payloadJSON []byte) (int64, error)

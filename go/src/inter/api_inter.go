@@ -1,5 +1,7 @@
 package inter
 
+import "context"
+
 // api 定义了设备接入服务（Goster-WY 协议）的接口
 // 它负责启动 TCP 监听，并处理所有设备侧的请求
 
@@ -32,5 +34,6 @@ type LogUploadData struct {
 
 type Api interface {
 	// Start 启动 API 服务监听 (阻塞调用)
-	Start()
+	// ctx 用于优雅关闭：当 ctx.Done() 时，停止接受新连接并等待现有连接关闭
+	Start(ctx context.Context) error
 }

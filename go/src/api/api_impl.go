@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +26,9 @@ type apiImpl struct {
 	privateKey    *ecdh.PrivateKey // X25519 私钥
 	connSeq       atomic.Uint64
 	config        appcfg.APIConfig
+
+	// 用于追踪活跃连接，优雅关闭时等待它们完成
+	activeConns sync.WaitGroup
 }
 
 // NewApi 创建 API 服务实例
@@ -56,22 +61,42 @@ func NewApiWithConfig(ds inter.DataStore, dm inter.DeviceManager, l inter.Logger
 }
 
 // Start 启动独立的 TCP 服务监听
-func (a *apiImpl) Start() {
+func (a *apiImpl) Start(ctx context.Context) error {
 	addr := a.config.TCPAddr
-	l, err := net.Listen("tcp", addr)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		a.logger.Error("API 监听失败", inter.String("addr", addr), inter.Err(err))
-		panic(err)
+		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
+	defer listener.Close()
+
 	a.logger.Info("API 服务已启动", inter.String("addr", addr))
 
+	// 启动 goroutine 监听 context 取消信号
+	go func() {
+		<-ctx.Done()
+		a.logger.Info("收到关闭信号，停止接受新连接")
+		listener.Close()
+	}()
+
 	for {
-		conn, err := l.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
-			a.logger.Warn("API 接受连接失败", inter.Err(err))
-			continue
+			// 检查是否是因为 listener 被关闭
+			select {
+			case <-ctx.Done():
+				a.logger.Info("等待现有连接关闭...")
+				a.activeConns.Wait()
+				a.logger.Info("所有连接已关闭，API 服务已停止")
+				return nil
+			default:
+				a.logger.Warn("API 接受连接失败", inter.Err(err))
+				continue
+			}
 		}
-		go a.handleConnection(conn)
+
+		a.activeConns.Add(1)
+		go a.handleConnection(ctx, conn)
 	}
 }
 
@@ -85,8 +110,11 @@ func (a *apiImpl) negotiateSecret(peerPubKeyBytes []byte) ([]byte, error) {
 }
 
 // handleConnection 处理长连接协议循环
-func (a *apiImpl) handleConnection(conn net.Conn) {
-	defer conn.Close()
+func (a *apiImpl) handleConnection(ctx context.Context, conn net.Conn) {
+	defer func() {
+		conn.Close()
+		a.activeConns.Done()
+	}()
 
 	connLogger := a.logger.With(inter.String("remote_addr", conn.RemoteAddr().String()))
 	connID := a.connSeq.Add(1)
@@ -99,6 +127,14 @@ func (a *apiImpl) handleConnection(conn net.Conn) {
 	var writeSeq uint64 = 0
 
 	for {
+		// 检查 context 是否已取消
+		select {
+		case <-ctx.Done():
+			connLogger.Info("服务关闭，断开连接")
+			return
+		default:
+		}
+
 		conn.SetReadDeadline(time.Now().Add(a.config.ReadTimeout))
 
 		// 解包 (根据是否有 sessionKey 自动处理加密/明文)

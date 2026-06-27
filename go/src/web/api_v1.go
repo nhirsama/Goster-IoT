@@ -811,7 +811,7 @@ func (ws *webServer) apiMetricsV1Handler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	points, err := ws.dataStore.QueryMetricsByTenant(ws.apiTenantID(r), uuid, start, end)
+	points, err := ws.dataStore.QueryMetricsByTenant(ws.apiTenantID(r), uuid, start, end, 0)
 	if err != nil {
 		ws.apiInternalError(w, r, 50031, err)
 		return
