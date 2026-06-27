@@ -20,9 +20,7 @@ func (s *DataStoreSql) InitDevice(uuid string, meta inter.DeviceMetadata) error 
 		tokenParam = meta.Token
 	}
 
-	_, err := s.db.Exec(`
-		INSERT INTO devices (uuid, tenant_id, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := s.stmts.insertDevice.Exec(
 		uuid, defaultTenantID, meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
 		meta.SerialNumber, meta.MACAddress, time.Now(), tokenParam, meta.AuthenticateStatus,
 	)
@@ -33,9 +31,7 @@ func (s *DataStoreSql) InitDevice(uuid string, meta inter.DeviceMetadata) error 
 func (s *DataStoreSql) LoadConfig(uuid string) (out inter.DeviceMetadata, err error) {
 	var token sql.NullString // 使用 NullString 接收数据库中的 NULL 值
 
-	err = s.db.QueryRow(`
-		SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
-		FROM devices WHERE uuid = ?`, uuid).Scan(
+	err = s.stmts.loadConfig.QueryRow(uuid).Scan(
 		&out.Name, &out.HWVersion, &out.SWVersion, &out.ConfigVersion,
 		&out.SerialNumber, &out.MACAddress, &out.CreatedAt, &token, &out.AuthenticateStatus,
 	)
@@ -61,10 +57,7 @@ func (s *DataStoreSql) SaveMetadata(uuid string, meta inter.DeviceMetadata) erro
 		tokenParam = meta.Token
 	}
 
-	_, err := s.db.Exec(`
-		UPDATE devices SET
-			name=?, hw_version=?, sw_version=?, config_version=?, sn=?, mac=?, auth_status=?, token=?
-		WHERE uuid=?`,
+	_, err := s.stmts.updateDeviceMeta.Exec(
 		meta.Name, meta.HWVersion, meta.SWVersion, meta.ConfigVersion,
 		meta.SerialNumber, meta.MACAddress, meta.AuthenticateStatus, tokenParam, uuid,
 	)
@@ -77,15 +70,28 @@ func (s *DataStoreSql) AppendMetric(uuid string, points inter.MetricPoint) error
 	if err != nil {
 		tenantID = defaultTenantID
 	}
-	_, err = s.db.Exec("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)", uuid, tenantID, points.Timestamp, points.Value, points.Type)
+	_, err = s.stmts.insertMetric.Exec(uuid, tenantID, points.Timestamp, points.Value, points.Type)
 	return err
 }
 
-func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64) ([]inter.MetricPoint, error) {
-	rows, err := s.db.Query(
-		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
-		uuid, start, end,
-	)
+func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64, limit int) ([]inter.MetricPoint, error) {
+	// 标准化 limit：0 使用默认值，-1 表示无限制（不推荐），否则限制在合理范围内
+	if limit == 0 {
+		limit = 1000 // 默认返回 1000 条
+	} else if limit > 10000 {
+		limit = 10000 // 最多返回 10000 条，防止 OOM
+	}
+
+	var rows *sql.Rows
+	var err error
+
+	if limit == -1 {
+		// 无限制查询（不推荐，仅用于特殊场景）
+		rows, err = s.stmts.queryMetrics.Query(uuid, start, end)
+	} else {
+		rows, err = s.stmts.queryMetricsWithLimit.Query(uuid, start, end, limit)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -163,12 +169,32 @@ func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.Authen
 	return scanDeviceRecords(rows)
 }
 
-func (s *DataStoreSql) QueryMetricsByTenant(tenantID, uuid string, start, end int64) ([]inter.MetricPoint, error) {
+func (s *DataStoreSql) QueryMetricsByTenant(tenantID, uuid string, start, end int64, limit int) ([]inter.MetricPoint, error) {
 	tenantID = normalizeTenantID(tenantID)
-	rows, err := s.db.Query(
-		"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
-		tenantID, uuid, start, end,
-	)
+
+	// 标准化 limit：0 使用默认值，-1 表示无限制（不推荐），否则限制在合理范围内
+	if limit == 0 {
+		limit = 1000 // 默认返回 1000 条
+	} else if limit > 10000 {
+		limit = 10000 // 最多返回 10000 条，防止 OOM
+	}
+
+	var rows *sql.Rows
+	var err error
+
+	if limit == -1 {
+		// 无限制查询（不推荐，仅用于特殊场景）
+		rows, err = s.db.Query(
+			"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
+			tenantID, uuid, start, end,
+		)
+	} else {
+		rows, err = s.db.Query(
+			"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC LIMIT ?",
+			tenantID, uuid, start, end, limit,
+		)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -194,8 +220,7 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 	var uuid string
 	var authStatus int // SQLite 中的 INTEGER 对应 Go 的 int
 
-	query := "SELECT uuid, auth_status FROM devices WHERE token = ?"
-	err := s.db.QueryRow(query, token).Scan(&uuid, &authStatus)
+	err := s.stmts.getDeviceByToken.QueryRow(token).Scan(&uuid, &authStatus)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", 0, fmt.Errorf("token not found: %w", err)

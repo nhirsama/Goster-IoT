@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/nhirsama/Goster-IoT/src/api"
 	"github.com/nhirsama/Goster-IoT/src/config"
@@ -72,11 +73,31 @@ func start(ctx context.Context) {
 		rootLogger.Error("Web 服务初始化失败", inter.Err(err))
 		panic(err)
 	}
-	go webServer.Start()
-	go api.Start()
+
+	// 使用 errgroup 管理多个服务的生命周期
+	errChan := make(chan error, 2)
+
+	go func() {
+		if err := webServer.Start(ctx); err != nil {
+			errChan <- fmt.Errorf("web server error: %w", err)
+		}
+	}()
+
+	go func() {
+		if err := api.Start(ctx); err != nil {
+			errChan <- fmt.Errorf("api server error: %w", err)
+		}
+	}()
+
 	select {
 	case <-ctx.Done():
+		rootLogger.Info("收到关闭信号，等待服务优雅关闭...")
+		// 给服务 5 秒时间完成清理
+		time.Sleep(5 * time.Second)
 		return
+	case err := <-errChan:
+		rootLogger.Error("服务启动失败", inter.Err(err))
+		panic(err)
 	}
 }
 
