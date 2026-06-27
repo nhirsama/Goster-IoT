@@ -48,7 +48,7 @@ func (s *DataStoreSql) ListUsers() ([]inter.User, error) {
 // GetUserPermission 获取指定用户的当前权限 (Using username for legacy support in UI)
 func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType, error) {
 	var perm int
-	err := s.db.QueryRow("SELECT permission FROM users WHERE username = ?", username).Scan(&perm)
+	err := s.db.QueryRow("SELECT permission FROM users WHERE username = $1", username).Scan(&perm)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return inter.PermissionNone, errors.New("user not found")
@@ -60,7 +60,7 @@ func (s *DataStoreSql) GetUserPermission(username string) (inter.PermissionType,
 
 // UpdateUserPermission 更新用户权限
 func (s *DataStoreSql) UpdateUserPermission(username string, perm inter.PermissionType) error {
-	res, err := s.db.Exec("UPDATE users SET permission = ? WHERE username = ?", perm, username)
+	res, err := s.db.Exec("UPDATE users SET permission = $1 WHERE username = $2", perm, username)
 	if err != nil {
 		return err
 	}

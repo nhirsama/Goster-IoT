@@ -113,7 +113,7 @@ func (s *DataStoreSql) QueryMetrics(uuid string, start, end int64, limit int) ([
 
 func (s *DataStoreSql) ResolveDeviceTenant(uuid string) (string, error) {
 	var tenantID sql.NullString
-	err := s.db.QueryRow("SELECT tenant_id FROM devices WHERE uuid = ?", uuid).Scan(&tenantID)
+	err := s.db.QueryRow("SELECT tenant_id FROM devices WHERE uuid = $1", uuid).Scan(&tenantID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errors.New("device not found")
@@ -131,7 +131,7 @@ func (s *DataStoreSql) LoadConfigByTenant(tenantID, uuid string) (out inter.Devi
 	var token sql.NullString
 	err = s.db.QueryRow(`
 		SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
-		FROM devices WHERE uuid = ? AND tenant_id = ?`, uuid, tenantID).Scan(
+		FROM devices WHERE uuid = $1 AND tenant_id = $2`, uuid, tenantID).Scan(
 		&out.Name, &out.HWVersion, &out.SWVersion, &out.ConfigVersion,
 		&out.SerialNumber, &out.MACAddress, &out.CreatedAt, &token, &out.AuthenticateStatus,
 	)
@@ -151,7 +151,7 @@ func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.Authen
 	if status == nil {
 		rows, err := s.db.Query(`
 			SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
-			FROM devices WHERE tenant_id = ? LIMIT ? OFFSET ?`, tenantID, size, offset)
+			FROM devices WHERE tenant_id = $1 LIMIT $2 OFFSET $3`, tenantID, size, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -161,7 +161,7 @@ func (s *DataStoreSql) ListDevicesByTenant(tenantID string, status *inter.Authen
 
 	rows, err := s.db.Query(`
 		SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
-		FROM devices WHERE tenant_id = ? AND auth_status = ? LIMIT ? OFFSET ?`, tenantID, *status, size, offset)
+		FROM devices WHERE tenant_id = $1 AND auth_status = $2 LIMIT $3 OFFSET $4`, tenantID, *status, size, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -185,12 +185,12 @@ func (s *DataStoreSql) QueryMetricsByTenant(tenantID, uuid string, start, end in
 	if limit == -1 {
 		// 无限制查询（不推荐，仅用于特殊场景）
 		rows, err = s.db.Query(
-			"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
+			"SELECT ts, value, type FROM metrics WHERE tenant_id = $1 AND uuid = $2 AND ts BETWEEN $3 AND $4 ORDER BY ts ASC",
 			tenantID, uuid, start, end,
 		)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT ts, value, type FROM metrics WHERE tenant_id = ? AND uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC LIMIT ?",
+			"SELECT ts, value, type FROM metrics WHERE tenant_id = $1 AND uuid = $2 AND ts BETWEEN $3 AND $4 ORDER BY ts ASC LIMIT $5",
 			tenantID, uuid, start, end, limit,
 		)
 	}
@@ -232,7 +232,7 @@ func (s *DataStoreSql) GetDeviceByToken(token string) (string, inter.Authenticat
 }
 
 func (s *DataStoreSql) UpdateToken(uuid string, newToken string) error {
-	res, err := s.db.Exec("UPDATE devices SET token = ? WHERE uuid = ?", newToken, uuid)
+	res, err := s.db.Exec("UPDATE devices SET token = $1 WHERE uuid = $2", newToken, uuid)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func (s *DataStoreSql) DestroyDevice(uuid string) error {
 	}
 	defer tx.Rollback()
 
-	deviceRes, err := tx.Exec("DELETE FROM devices WHERE uuid = ?", uuid)
+	deviceRes, err := tx.Exec("DELETE FROM devices WHERE uuid = $1", uuid)
 	if err != nil {
 		return err
 	}
@@ -265,10 +265,10 @@ func (s *DataStoreSql) DestroyDevice(uuid string) error {
 	if deviceRows == 0 {
 		return errors.New("device not found")
 	}
-	if _, err := tx.Exec("DELETE FROM metrics WHERE uuid = ?", uuid); err != nil {
+	if _, err := tx.Exec("DELETE FROM metrics WHERE uuid = $1", uuid); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM logs WHERE uuid = ?", uuid); err != nil {
+	if _, err := tx.Exec("DELETE FROM logs WHERE uuid = $1", uuid); err != nil {
 		return err
 	}
 
@@ -280,7 +280,7 @@ func (s *DataStoreSql) ListDevices(page, size int) ([]inter.DeviceRecord, error)
 	offset := (page - 1) * size
 	rows, err := s.db.Query(`
         SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
-        FROM devices LIMIT ? OFFSET ?`, size, offset)
+        FROM devices LIMIT $1 OFFSET $2`, size, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (s *DataStoreSql) ListDevicesByStatus(status inter.AuthenticateStatusType, 
 	offset := (page - 1) * size
 	rows, err := s.db.Query(`
         SELECT uuid, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status
-        FROM devices WHERE auth_status = ? LIMIT ? OFFSET ?`, status, size, offset)
+        FROM devices WHERE auth_status = $1 LIMIT $2 OFFSET $3`, status, size, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func (s *DataStoreSql) WriteLog(uuid string, level string, message string) error
 	if err != nil {
 		tenantID = defaultTenantID
 	}
-	_, err = s.db.Exec("INSERT INTO logs (uuid, tenant_id, level, message) VALUES (?, ?, ?, ?)", uuid, tenantID, level, message)
+	_, err = s.db.Exec("INSERT INTO logs (uuid, tenant_id, level, message) VALUES ($1, $2, $3, $4)", uuid, tenantID, level, message)
 	return err
 }
 
@@ -324,7 +324,7 @@ func (s *DataStoreSql) BatchAppendMetrics(uuid string, points []inter.MetricPoin
 		tenantID = defaultTenantID
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES ($1, $2, $3, $4, $5)")
 	if err != nil {
 		return err
 	}

@@ -65,7 +65,7 @@ func TestMetricsManagement(t *testing.T) {
 		}
 	}
 
-	points, err := store.QueryMetrics(uuid, base+20, base+50)
+	points, err := store.QueryMetrics(uuid, base+20, base+50, 0)
 	if err != nil {
 		t.Fatalf("QueryMetrics failed: %v", err)
 	}

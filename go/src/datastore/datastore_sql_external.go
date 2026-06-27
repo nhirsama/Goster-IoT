@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,7 +105,7 @@ func (s *DataStoreSql) UpsertExternalEntity(entity inter.ExternalEntity) error {
 			source, entity_id, domain, goster_uuid, device_id, model, name, room_name,
 			unit, value_type, device_class, state_class, attributes_json,
 			last_state_text, last_state_num, last_state_bool, last_seen_ts
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT(source, entity_id) DO UPDATE SET
 			domain = excluded.domain,
 			goster_uuid = excluded.goster_uuid,
@@ -143,7 +144,7 @@ func (s *DataStoreSql) GetExternalEntity(source, entityID string) (inter.Externa
 		       unit, value_type, device_class, state_class, attributes_json,
 		       last_state_text, last_state_num, last_state_bool, last_seen_ts
 		FROM integration_external_entities
-		WHERE source = ? AND entity_id = ?
+		WHERE source = $1 AND entity_id = $2
 	`, source, entityID).Scan(
 		&out.Source, &out.EntityID, &out.Domain, &out.GosterUUID, &out.DeviceID, &out.Model, &out.Name, &out.RoomName,
 		&out.Unit, &out.ValueType, &out.DeviceClass, &out.StateClass, &attrs,
@@ -193,17 +194,17 @@ func (s *DataStoreSql) ListExternalEntities(source, domain string, limit, offset
 	var cond []string
 	var args []interface{}
 	if strings.TrimSpace(source) != "" {
-		cond = append(cond, "source = ?")
+		cond = append(cond, "source = $"+strconv.Itoa(len(args)+1))
 		args = append(args, source)
 	}
 	if strings.TrimSpace(domain) != "" {
-		cond = append(cond, "domain = ?")
+		cond = append(cond, "domain = $"+strconv.Itoa(len(args)+1))
 		args = append(args, domain)
 	}
 	if len(cond) > 0 {
 		base += " WHERE " + strings.Join(cond, " AND ")
 	}
-	base += " ORDER BY last_seen_ts DESC, id DESC LIMIT ? OFFSET ?"
+	base += " ORDER BY last_seen_ts DESC, id DESC LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
 	args = append(args, limit, offset)
 
 	rows, err := s.db.Query(base, args...)
@@ -261,9 +262,10 @@ func (s *DataStoreSql) BatchAppendExternalObservations(items []inter.ExternalObs
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT OR IGNORE INTO integration_external_observations (
+		INSERT INTO integration_external_observations (
 			source, entity_id, ts, value_num, value_text, value_bool, value_json, unit, value_sig, raw_event_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (source, entity_id, ts, value_sig) DO NOTHING
 	`)
 	if err != nil {
 		return err
@@ -331,9 +333,9 @@ func (s *DataStoreSql) QueryExternalObservations(source, entityID string, start,
 	rows, err := s.db.Query(`
 		SELECT source, entity_id, ts, value_num, value_text, value_bool, value_json, unit, value_sig, raw_event_json
 		FROM integration_external_observations
-		WHERE source = ? AND entity_id = ? AND ts BETWEEN ? AND ?
+		WHERE source = $1 AND entity_id = $2 AND ts BETWEEN $3 AND $4
 		ORDER BY ts ASC
-		LIMIT ?
+		LIMIT $5
 	`, source, entityID, start, end, limit)
 	if err != nil {
 		return nil, err
@@ -429,15 +431,13 @@ func (s *DataStoreSql) createDeviceCommandRecord(tenantID, uuid string, cmdID in
 		payload = trimmedPayload
 	}
 
-	result, err := s.db.Exec(`
+	var commandID int64
+	err := s.db.QueryRow(`
 		INSERT INTO integration_external_commands (
 			tenant_id, source, entity_id, command, payload_json, status, error_text, requested_at, executed_at
-		) VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, NULL)
-	`, tenantID, "goster_device", uuid, fmt.Sprintf("%s:%d", command, cmdID), payload, inter.DeviceCommandStatusQueued)
-	if err != nil {
-		return 0, err
-	}
-	commandID, err := result.LastInsertId()
+		) VALUES ($1, $2, $3, $4, $5, $6, NULL, CURRENT_TIMESTAMP, NULL)
+		RETURNING id
+	`, tenantID, "goster_device", uuid, fmt.Sprintf("%s:%d", command, cmdID), payload, inter.DeviceCommandStatusQueued).Scan(&commandID)
 	if err != nil {
 		return 0, err
 	}
@@ -465,8 +465,8 @@ func (s *DataStoreSql) UpdateDeviceCommandStatus(commandID int64, status inter.D
 
 	result, err := s.db.Exec(`
 		UPDATE integration_external_commands
-		SET status = ?, error_text = ?, executed_at = COALESCE(?, executed_at)
-		WHERE id = ? AND source = ?
+		SET status = $1, error_text = $2, executed_at = COALESCE($3, executed_at)
+		WHERE id = $4 AND source = $5
 	`, status, errParam, executedAt, commandID, "goster_device")
 	if err != nil {
 		return err

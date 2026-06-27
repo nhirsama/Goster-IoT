@@ -2,10 +2,9 @@ package datastore
 
 import (
 	"database/sql"
-	"strings"
 
+	_ "github.com/lib/pq"
 	"github.com/nhirsama/Goster-IoT/src/inter"
-	_ "modernc.org/sqlite"
 )
 
 type DataStoreSql struct {
@@ -22,17 +21,16 @@ type DataStoreSql struct {
 	}
 }
 
-func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
-	// 强制指定 _loc=Local，确保 DATETIME 字段按本地时区读写，防止时区转换偏移
-	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
+func NewDataStoreSql(databaseURL string) (inter.DataStore, error) {
+	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		return nil, err
 	}
 
 	// 配置连接池参数以提升性能
-	db.SetMaxOpenConns(25)   // SQLite 推荐值
-	db.SetMaxIdleConns(5)    // 保持少量空闲连接
-	db.SetConnMaxLifetime(0) // 连接不过期
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(0)
 
 	if err := ensureBaseSchema(db); err != nil {
 		db.Close()
@@ -59,9 +57,9 @@ func NewDataStoreSql(dbPath string) (inter.DataStore, error) {
 func (s *DataStoreSql) initPreparedStatements() error {
 	var err error
 
-	// 指标查询（无限制）
+	// 指标查询（无限制）- PostgreSQL uses $1, $2, $3 for placeholders
 	s.stmts.queryMetrics, err = s.db.Prepare(
-		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
+		"SELECT ts, value, type FROM metrics WHERE uuid = $1 AND ts BETWEEN $2 AND $3 ORDER BY ts ASC",
 	)
 	if err != nil {
 		return err
@@ -69,7 +67,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 
 	// 指标查询（带 LIMIT）
 	s.stmts.queryMetricsWithLimit, err = s.db.Prepare(
-		"SELECT ts, value, type FROM metrics WHERE uuid = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC LIMIT ?",
+		"SELECT ts, value, type FROM metrics WHERE uuid = $1 AND ts BETWEEN $2 AND $3 ORDER BY ts ASC LIMIT $4",
 	)
 	if err != nil {
 		return err
@@ -77,7 +75,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 
 	// 插入指标
 	s.stmts.insertMetric, err = s.db.Prepare(
-		"INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO metrics (uuid, tenant_id, ts, value, type) VALUES ($1, $2, $3, $4, $5)",
 	)
 	if err != nil {
 		return err
@@ -86,7 +84,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 	// 插入设备
 	s.stmts.insertDevice, err = s.db.Prepare(
 		`INSERT INTO devices (uuid, tenant_id, name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 	)
 	if err != nil {
 		return err
@@ -94,7 +92,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 
 	// 更新设备元数据
 	s.stmts.updateDeviceMeta, err = s.db.Prepare(
-		`UPDATE devices SET name=?, hw_version=?, sw_version=?, config_version=?, sn=?, mac=?, auth_status=?, token=? WHERE uuid=?`,
+		`UPDATE devices SET name=$1, hw_version=$2, sw_version=$3, config_version=$4, sn=$5, mac=$6, auth_status=$7, token=$8 WHERE uuid=$9`,
 	)
 	if err != nil {
 		return err
@@ -102,7 +100,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 
 	// 根据 Token 查询设备
 	s.stmts.getDeviceByToken, err = s.db.Prepare(
-		"SELECT uuid, auth_status FROM devices WHERE token = ?",
+		"SELECT uuid, auth_status FROM devices WHERE token = $1",
 	)
 	if err != nil {
 		return err
@@ -110,7 +108,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 
 	// 加载设备配置
 	s.stmts.loadConfig, err = s.db.Prepare(
-		"SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status FROM devices WHERE uuid = ?",
+		"SELECT name, hw_version, sw_version, config_version, sn, mac, created_at, token, auth_status FROM devices WHERE uuid = $1",
 	)
 	if err != nil {
 		return err
@@ -120,7 +118,7 @@ func (s *DataStoreSql) initPreparedStatements() error {
 }
 
 func ensureBaseSchema(db *sql.DB) error {
-	// 初始化原子化表结构
+	// 初始化原子化表结构 - PostgreSQL syntax
 	schema := `
     CREATE TABLE IF NOT EXISTS devices (
        uuid TEXT PRIMARY KEY,
@@ -131,7 +129,7 @@ func ensureBaseSchema(db *sql.DB) error {
        config_version TEXT,
        sn TEXT,
        mac TEXT,
-       created_at DATETIME,
+       created_at TIMESTAMP,
        token TEXT UNIQUE,
        auth_status INTEGER
     );
@@ -146,18 +144,18 @@ func ensureBaseSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_metrics_query ON metrics (uuid, ts);
 
     CREATE TABLE IF NOT EXISTS logs (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       id SERIAL PRIMARY KEY,
        uuid TEXT,
        tenant_id TEXT DEFAULT 'tenant_legacy',
        level TEXT,
        message TEXT,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_logs_uuid ON logs (uuid);
 
     -- New Authboss-compatible Schema
     CREATE TABLE IF NOT EXISTS users (
-       id            INTEGER PRIMARY KEY AUTOINCREMENT,
+       id            SERIAL PRIMARY KEY,
        email         TEXT,
        username      TEXT UNIQUE NOT NULL,
        password      TEXT NOT NULL,
@@ -167,23 +165,23 @@ func ensureBaseSchema(db *sql.DB) error {
        oauth2_provider      TEXT,
        oauth2_access_token  TEXT,
        oauth2_refresh_token TEXT,
-       oauth2_expiry        DATETIME,
+       oauth2_expiry        TIMESTAMP,
        remember_token       TEXT,
 
        recover_token        TEXT,
-       recover_token_expiry DATETIME,
+       recover_token_expiry TIMESTAMP,
 
        confirm_token        TEXT,
        confirmed            BOOLEAN DEFAULT FALSE,
 
-       last_login           DATETIME,
-       created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+       last_login           TIMESTAMP,
+       created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     -- External integration entities (e.g. Xiaomi via Home Assistant)
     CREATE TABLE IF NOT EXISTS integration_external_entities (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       id SERIAL PRIMARY KEY,
        tenant_id TEXT DEFAULT 'tenant_legacy',
        source TEXT NOT NULL,
        entity_id TEXT NOT NULL,
@@ -202,8 +200,8 @@ func ensureBaseSchema(db *sql.DB) error {
        last_state_num REAL,
        last_state_bool INTEGER,
        last_seen_ts BIGINT,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        UNIQUE(source, entity_id)
     );
     CREATE INDEX IF NOT EXISTS idx_integration_entities_source_domain
@@ -213,7 +211,7 @@ func ensureBaseSchema(db *sql.DB) error {
 
     -- External observations that can carry numeric/bool/text/json values
     CREATE TABLE IF NOT EXISTS integration_external_observations (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       id SERIAL PRIMARY KEY,
        tenant_id TEXT DEFAULT 'tenant_legacy',
        source TEXT NOT NULL,
        entity_id TEXT NOT NULL,
@@ -225,7 +223,7 @@ func ensureBaseSchema(db *sql.DB) error {
        unit TEXT,
        value_sig TEXT NOT NULL DEFAULT '',
        raw_event_json TEXT,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        UNIQUE(source, entity_id, ts, value_sig)
     );
     CREATE INDEX IF NOT EXISTS idx_integration_observations_query
@@ -233,7 +231,7 @@ func ensureBaseSchema(db *sql.DB) error {
 
     -- Optional command log for future control write-back
     CREATE TABLE IF NOT EXISTS integration_external_commands (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       id SERIAL PRIMARY KEY,
        tenant_id TEXT DEFAULT 'tenant_legacy',
        source TEXT NOT NULL,
        entity_id TEXT NOT NULL,
@@ -241,8 +239,8 @@ func ensureBaseSchema(db *sql.DB) error {
        payload_json TEXT,
        status TEXT NOT NULL DEFAULT 'pending',
        error_text TEXT,
-       requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       executed_at DATETIME
+       requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       executed_at TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_integration_commands_status
       ON integration_external_commands (source, status, requested_at);
@@ -251,15 +249,15 @@ func ensureBaseSchema(db *sql.DB) error {
        id TEXT PRIMARY KEY,
        name TEXT NOT NULL UNIQUE,
        status TEXT NOT NULL DEFAULT 'active',
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS tenant_users (
        tenant_id TEXT NOT NULL,
        username TEXT NOT NULL,
        role TEXT NOT NULL,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        PRIMARY KEY (tenant_id, username),
        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
     );
@@ -270,8 +268,8 @@ func ensureBaseSchema(db *sql.DB) error {
        tenant_id TEXT NOT NULL,
        name TEXT NOT NULL,
        description TEXT DEFAULT '',
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        UNIQUE (tenant_id, name),
        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
     );
@@ -280,7 +278,7 @@ func ensureBaseSchema(db *sql.DB) error {
     CREATE TABLE IF NOT EXISTS group_devices (
        group_id TEXT NOT NULL,
        device_uuid TEXT NOT NULL,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        PRIMARY KEY (group_id, device_uuid),
        FOREIGN KEY (group_id) REFERENCES device_groups(id)
     );
@@ -290,7 +288,7 @@ func ensureBaseSchema(db *sql.DB) error {
        group_id TEXT NOT NULL,
        username TEXT NOT NULL,
        role TEXT NOT NULL,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        PRIMARY KEY (group_id, username),
        FOREIGN KEY (group_id) REFERENCES device_groups(id)
     );
@@ -305,17 +303,18 @@ func ensureBaseSchema(db *sql.DB) error {
 
 func runSchemaMigrations(db *sql.DB) error {
 	// 兼容旧库结构：为历史数据库补齐多租户字段。
+	// PostgreSQL: ALTER TABLE ADD COLUMN IF NOT EXISTS is supported in PostgreSQL 9.6+
 	columnMigrations := []string{
-		"ALTER TABLE metrics ADD COLUMN type INTEGER DEFAULT 0",
-		"ALTER TABLE devices ADD COLUMN tenant_id TEXT DEFAULT 'tenant_legacy'",
-		"ALTER TABLE metrics ADD COLUMN tenant_id TEXT DEFAULT 'tenant_legacy'",
-		"ALTER TABLE logs ADD COLUMN tenant_id TEXT DEFAULT 'tenant_legacy'",
-		"ALTER TABLE integration_external_entities ADD COLUMN tenant_id TEXT DEFAULT 'tenant_legacy'",
-		"ALTER TABLE integration_external_observations ADD COLUMN tenant_id TEXT DEFAULT 'tenant_legacy'",
-		"ALTER TABLE integration_external_commands ADD COLUMN tenant_id TEXT DEFAULT 'tenant_legacy'",
+		"ALTER TABLE metrics ADD COLUMN IF NOT EXISTS type INTEGER DEFAULT 0",
+		"ALTER TABLE devices ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'tenant_legacy'",
+		"ALTER TABLE metrics ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'tenant_legacy'",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'tenant_legacy'",
+		"ALTER TABLE integration_external_entities ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'tenant_legacy'",
+		"ALTER TABLE integration_external_observations ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'tenant_legacy'",
+		"ALTER TABLE integration_external_commands ADD COLUMN IF NOT EXISTS tenant_id TEXT DEFAULT 'tenant_legacy'",
 	}
 	for _, stmt := range columnMigrations {
-		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumnError(err) {
+		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
 	}
@@ -328,14 +327,14 @@ func runSchemaMigrations(db *sql.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_ext_entities_tenant_source_domain ON integration_external_entities (tenant_id, source, domain)",
 		"CREATE INDEX IF NOT EXISTS idx_ext_obs_tenant_source_entity_ts ON integration_external_observations (tenant_id, source, entity_id, ts)",
 		"CREATE INDEX IF NOT EXISTS idx_ext_cmd_tenant_source_status ON integration_external_commands (tenant_id, source, status, requested_at)",
-		"INSERT OR IGNORE INTO tenants (id, name, status) VALUES ('tenant_legacy', 'legacy', 'active')",
+		"INSERT INTO tenants (id, name, status) VALUES ('tenant_legacy', 'legacy', 'active') ON CONFLICT (id) DO NOTHING",
 		"UPDATE devices SET tenant_id = 'tenant_legacy' WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''",
 		"UPDATE metrics SET tenant_id = 'tenant_legacy' WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''",
 		"UPDATE logs SET tenant_id = 'tenant_legacy' WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''",
 		"UPDATE integration_external_entities SET tenant_id = 'tenant_legacy' WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''",
 		"UPDATE integration_external_observations SET tenant_id = 'tenant_legacy' WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''",
 		"UPDATE integration_external_commands SET tenant_id = 'tenant_legacy' WHERE tenant_id IS NULL OR TRIM(tenant_id) = ''",
-		`INSERT OR IGNORE INTO tenant_users (tenant_id, username, role)
+		`INSERT INTO tenant_users (tenant_id, username, role)
 		 SELECT 'tenant_legacy', username,
 		        CASE
 		          WHEN permission >= 3 THEN 'tenant_admin'
@@ -343,7 +342,8 @@ func runSchemaMigrations(db *sql.DB) error {
 		          ELSE 'tenant_ro'
 		        END
 		   FROM users
-		  WHERE username IS NOT NULL AND TRIM(username) <> ''`,
+		  WHERE username IS NOT NULL AND TRIM(username) <> ''
+		 ON CONFLICT (tenant_id, username) DO NOTHING`,
 	}
 	for _, stmt := range postMigrations {
 		if _, err := db.Exec(stmt); err != nil {
@@ -351,12 +351,4 @@ func runSchemaMigrations(db *sql.DB) error {
 		}
 	}
 	return nil
-}
-
-func isDuplicateColumnError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "duplicate column name")
 }
