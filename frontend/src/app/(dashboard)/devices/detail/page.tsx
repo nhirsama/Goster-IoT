@@ -6,8 +6,8 @@ import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { metricRangeOptions } from "@/lib/dashboard-meta";
 import { queryKeys } from "@/lib/query-keys";
-import { useParams, useRouter } from "next/navigation";
-import { useState, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
 import { useUx } from "@/components/providers/ux-provider";
 import {
   LineChart,
@@ -69,7 +69,16 @@ const downlinkCommandOptions: { value: DownlinkCommand; label: string; hint: str
 ];
 
 export default function DeviceMetricsPage() {
-  const { uuid } = useParams<{ uuid: string }>();
+  return (
+    <Suspense fallback={<EmptyState icon={Activity} title="正在加载设备详情" description="请稍候..." className="py-24" />}>
+      <DeviceMetricsPageContent />
+    </Suspense>
+  );
+}
+
+function DeviceMetricsPageContent() {
+  const searchParams = useSearchParams();
+  const uuid = searchParams.get("uuid") || "";
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -195,6 +204,10 @@ export default function DeviceMetricsPage() {
 
   if (!isAuthenticated) {
     return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问设备详情。" className="py-24" />;
+  }
+
+  if (!uuid) {
+    return <EmptyState icon={ShieldAlert} title="缺少设备 UUID" description="请从设备列表进入详情页。" className="py-24" />;
   }
 
   if (deviceLoading) {

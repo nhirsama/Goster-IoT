@@ -133,7 +133,7 @@ export default function DevicesPage() {
                 return (
                   <Link
                     key={device.uuid}
-                    href={`/devices/${device.uuid}`}
+                    href={`/devices/detail?uuid=${encodeURIComponent(device.uuid)}`}
                     className="group flex items-center justify-between gap-3 px-4 py-4 transition hover:bg-slate-50/70"
                   >
                     <div className="min-w-0 space-y-1">

@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { getPermissionRoleLabel } from "@/lib/dashboard-meta";
 import { queryKeys } from "@/lib/query-keys";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,11 +23,12 @@ import {
   Users,
   Wifi,
   Ban,
+  RefreshCw,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
-type AuthSession = components["schemas"]["AuthSession"];
 
 type NavEntry = {
   href: string;
@@ -46,23 +49,26 @@ function clsx(...values: Array<string | false>) {
 
 export default function DashboardShell({
   children,
-  initialUser,
 }: {
   children: ReactNode;
-  initialUser: AuthSession;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
-  const user = initialUser;
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const permission = user?.permission || 0;
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [authLoading, isAuthenticated, router]);
 
   const logoutMutation = useMutation({
     mutationFn: () => api.post("/api/v1/auth/logout"),
     onSuccess: () => {
       queryClient.setQueryData(queryKeys.authMe, null);
       router.push("/login");
-      router.refresh();
     },
   });
 
@@ -72,6 +78,14 @@ export default function DashboardShell({
     enabled: permission > 0,
     refetchInterval: 10000,
   });
+
+  if (authLoading) {
+    return <EmptyState icon={RefreshCw} title="正在校验会话状态" description="请稍候..." className="min-h-screen py-24" />;
+  }
+
+  if (!isAuthenticated || !user) {
+    return <EmptyState icon={Shield} title="需要登录" description="正在跳转到登录页。" className="min-h-screen py-24" />;
+  }
 
   if (user?.permission === 0) {
     return (
@@ -99,7 +113,7 @@ export default function DashboardShell({
   const availableManagementEntries = managementEntries.filter((entry) => permission >= entry.minPermission);
   const managementDefaultHref = availableManagementEntries[0]?.href || "/blacklist";
   const mobileHomeActive = pathname === "/";
-  const mobileDevicesActive = pathname === "/devices" || pathname.startsWith("/devices/");
+  const mobileDevicesActive = pathname === "/devices" || pathname === "/devices/detail";
   const mobileAdminActive = pathname === "/admin" || availableManagementEntries.some((entry) => pathname === entry.href);
 
   return (
@@ -161,11 +175,11 @@ export default function DashboardShell({
                 </div>
               ) : (
                 devices.map((device: DeviceRecord) => {
-                  const active = pathname === `/devices/${device.uuid}`;
+                  const active = pathname === "/devices/detail";
                   return (
                     <Link
                       key={device.uuid}
-                      href={`/devices/${device.uuid}`}
+                      href={`/devices/detail?uuid=${encodeURIComponent(device.uuid)}`}
                       className={clsx(
                         "block rounded-xl border px-3 py-2.5 transition",
                         active
