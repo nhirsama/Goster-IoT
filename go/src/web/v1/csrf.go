@@ -99,13 +99,16 @@ func (s *InMemoryCSRFStore) cleanup() {
 }
 
 // SetCSRFCookie 设置 CSRF token cookie
-func (api *API) SetCSRFCookie(w http.ResponseWriter, token string) {
+func (api *API) SetCSRFCookie(w http.ResponseWriter, r *http.Request, token string) {
+	// 根据请求是否使用 TLS 决定 Secure 标志
+	secure := r.TLS != nil
+
 	cookie := &http.Cookie{
 		Name:     csrfTokenCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: false, // JavaScript 需要读取来设置请求头
-		Secure:   false, // TODO: 根据配置决定是否启用
+		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(csrfTokenTTL.Seconds()),
 	}

@@ -316,7 +316,7 @@ func (api *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		api.InternalError(w, r, 50018, err)
 		return
 	}
-	api.SetCSRFCookie(w, csrfToken)
+	api.SetCSRFCookie(w, r, csrfToken)
 
 	api.OK(w, r, map[string]interface{}{
 		"username":      pidUser.GetPID(),

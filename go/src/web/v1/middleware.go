@@ -33,7 +33,7 @@ func (api *API) Middleware(next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Origin", allowOrigin)
 			h.Add("Vary", "Origin")
 			h.Set("Access-Control-Allow-Credentials", "true")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-Id, X-Tenant-Id")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-Id, X-Tenant-Id, X-CSRF-Token")
 			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			h.Set("Access-Control-Expose-Headers", "X-Request-Id")
 		}
