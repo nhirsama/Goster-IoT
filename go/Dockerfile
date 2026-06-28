@@ -1,5 +1,5 @@
 # Build Stage
-FROM golang:1.24 AS builder
+FROM golang:1.25 AS builder
 
 WORKDIR /app
 
@@ -36,8 +36,9 @@ RUN mkdir /data
 # Set environment variable for DB path
 ENV DB_PATH=/data/data.db
 
-# Expose port 8080
+# Expose web and device TCP API ports
 EXPOSE 8080
+EXPOSE 8081
 
 # Declare volume for persistence
 VOLUME ["/data"]
