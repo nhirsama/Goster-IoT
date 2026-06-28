@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api, ApiError } from '../lib/api-client'
+import { api, ApiError, getActiveTenantId, setActiveTenantId } from '../lib/api-client'
 import { paths } from '../lib/api-types'
 
 describe('API Client', () => {
   beforeEach(() => {
     global.fetch = vi.fn()
     setActiveTenantId(null)
+    delete process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID
   })
 
   it('should include request-id header', async () => {
@@ -75,6 +76,71 @@ describe('API Client', () => {
         : (options.headers as Record<string, string>)?.['Content-Type']
 
     expect(contentType).toBe('application/json')
+  })
+
+  it('should include active tenant header when tenant is selected', async () => {
+    setActiveTenantId('tenant_demo')
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ data: { success: true }, code: 0 })
+    } as Response)
+
+    await api.get('/api/v1/auth/me' as keyof paths)
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0]
+    const options = fetchCall[1] as RequestInit
+    const tenantId =
+      options.headers instanceof Headers
+        ? options.headers.get('X-Tenant-Id')
+        : (options.headers as Record<string, string>)?.['X-Tenant-Id']
+
+    expect(getActiveTenantId()).toBe('tenant_demo')
+    expect(tenantId).toBe('tenant_demo')
+  })
+
+  it('should prefer explicit tenant header from request config', async () => {
+    setActiveTenantId('tenant_demo')
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ data: { success: true }, code: 0 })
+    } as Response)
+
+    await api.get('/api/v1/auth/me' as keyof paths, undefined, {
+      headers: {
+        'X-Tenant-Id': 'tenant_override'
+      }
+    })
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0]
+    const options = fetchCall[1] as RequestInit
+    const tenantId =
+      options.headers instanceof Headers
+        ? options.headers.get('X-Tenant-Id')
+        : (options.headers as Record<string, string>)?.['X-Tenant-Id']
+
+    expect(tenantId).toBe('tenant_override')
+  })
+
+  it('should fallback to env default tenant when no active tenant is stored', async () => {
+    process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID = 'tenant_env'
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ data: { success: true }, code: 0 })
+    } as Response)
+
+    await api.get('/api/v1/auth/me' as keyof paths)
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0]
+    const options = fetchCall[1] as RequestInit
+    const tenantId =
+      options.headers instanceof Headers
+        ? options.headers.get('X-Tenant-Id')
+        : (options.headers as Record<string, string>)?.['X-Tenant-Id']
+
+    expect(tenantId).toBe('tenant_env')
   })
 
   it('should map network errors to ApiError with code -1', async () => {

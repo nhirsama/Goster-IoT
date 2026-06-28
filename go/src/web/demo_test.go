@@ -1,9 +1,11 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,29 +13,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
+	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/core"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
 
-// MockApi implements inter.Api for testing purposes
-type MockApi struct{}
-
-func (m *MockApi) Start()                                                        {}
-func (m *MockApi) Handshake(uuid, token string) (string, error)                  { return "", nil }
-func (m *MockApi) Heartbeat(uuid string) (bool, error)                           { return false, nil }
-func (m *MockApi) UploadMetrics(uuid string, data inter.MetricsUploadData) error { return nil }
-func (m *MockApi) UploadLog(uuid, level, message string) error                   { return nil }
-func (m *MockApi) GetMessages(uuid string) ([]interface{}, error)                { return nil, nil }
+type heartbeatDeadlineSetter interface {
+	SetHeartbeatDeadline(deadline time.Duration)
+}
 
 // TestRunServerAndStressTest sets up the server, populates data, and runs a stress test.
 // Run with: go test -v ./go/src/web -run TestRunServerAndStressTest
 func TestRunServerAndStressTest(t *testing.T) {
+	probe, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		t.Skipf("tcp listener on :8080 is unavailable in current environment: %v", err)
+	}
+	_ = probe.Close()
+
 	// 1. 打印当前测试工作目录，便于定位调试信息。
 	wd, _ := os.Getwd()
 	fmt.Println("Starting Test in:", wd)
 
-	// 2. Setup Temporary datastore
+	// 2. Setup temporary combined store
 	tempDir, err := os.MkdirTemp("", "goster_test_db")
 	if err != nil {
 		t.Fatal(err)
@@ -41,48 +45,57 @@ func TestRunServerAndStressTest(t *testing.T) {
 	defer os.RemoveAll(tempDir) // Clean up after test
 	dbPath := filepath.Join(tempDir, "test_data.db")
 
-	ds, err := datastore.NewDataStoreSql(dbPath)
+	ds, err := persistence.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("Failed to open datastore at %s: %v", dbPath, err)
+		t.Fatalf("failed to open combined store at %s: %v", dbPath, err)
 	}
 	fmt.Printf("Using temporary database: %s\n", dbPath)
 
 	// 3. Setup Managers
-	dm := device_manager.NewDeviceManager(ds)
-	api := &MockApi{}
+	services := core.NewServicesWithConfig(ds, appcfg.DeviceManagerConfig{
+		QueueCapacity:     128,
+		HeartbeatDeadline: 60 * time.Second,
+	})
 
-	// Hack: Set DeathLine on device_manager implementation manually
-	if impl, ok := dm.(*device_manager.DeviceManager); ok {
-		impl.DeathLine = 5 * time.Second // Shorten for test
+	// 测试里缩短在线判定窗口，便于更快覆盖在线/离线状态切换。
+	if impl, ok := services.DevicePresence.(heartbeatDeadlineSetter); ok {
+		impl.SetHeartbeatDeadline(5 * time.Second)
 	}
 
 	// Setup Authboss
-	ab, err := SetupAuthboss(ds)
+	ab, err := identitycore.SetupAuthbossWithConfig(ds, appcfg.DefaultAuthConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	authService, err := NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 4. Create WebServer
 	ws, err := NewWebServer(WebServerDeps{
-		DataStore:     ds,
-		DeviceManager: dm,
-		API:           api,
-		Auth:          authService,
-		Captcha:       &TurnstileService{Enabled: false},
+		DataStore:        ds,
+		DeviceRegistry:   services.DeviceRegistry,
+		DevicePresence:   services.DevicePresence,
+		DownlinkCommands: services.DownlinkCommands,
+		Auth:             authService,
+		Captcha:          &TurnstileService{Enabled: false},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 5. Populate Data
-	populateData(t, ds, dm)
+	populateData(t, ds, services.DevicePresence)
 
 	// 6. Start Server in Goroutine
-	go ws.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		if err := ws.Start(ctx); err != nil {
+			t.Errorf("web server exited with error: %v", err)
+		}
+	}()
 
 	// Wait for server to start
 	time.Sleep(1 * time.Second)
@@ -99,7 +112,7 @@ func TestRunServerAndStressTest(t *testing.T) {
 	// select {}
 }
 
-func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
+func populateData(t *testing.T, ds *persistence.Store, presence inter.DevicePresence) {
 	// Users
 	// ds.RegisterUser("admin", "admin123", inter.PermissionAdmin)
 	// ds.RegisterUser("viewer", "view123", inter.PermissionReadOnly)
@@ -110,7 +123,7 @@ func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
 		uuid := fmt.Sprintf("dev-online-%03d", i)
 		createDevice(ds, uuid, fmt.Sprintf("Sensor Online %d", i), inter.Authenticated)
 		generateMetrics(ds, uuid, 100)
-		dm.HandleHeartbeat(uuid) // Mark active
+		presence.HandleHeartbeat(uuid) // Mark active
 	}
 
 	// 50 Offline
@@ -133,7 +146,7 @@ func populateData(t *testing.T, ds inter.DataStore, dm inter.DeviceManager) {
 	}
 }
 
-func createDevice(ds inter.DataStore, uuid, name string, status inter.AuthenticateStatusType) {
+func createDevice(ds *persistence.Store, uuid, name string, status inter.AuthenticateStatusType) {
 	ds.InitDevice(uuid, inter.DeviceMetadata{
 		Name:               name,
 		HWVersion:          "v1.0",
@@ -144,7 +157,7 @@ func createDevice(ds inter.DataStore, uuid, name string, status inter.Authentica
 	})
 }
 
-func generateMetrics(ds inter.DataStore, uuid string, count int) {
+func generateMetrics(ds *persistence.Store, uuid string, count int) {
 	now := time.Now().Unix()
 	var points []inter.MetricPoint
 	for i := 0; i < count; i++ {

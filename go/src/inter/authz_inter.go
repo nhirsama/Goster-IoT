@@ -8,6 +8,7 @@ import (
 type PlatformRole string
 
 const (
+	DefaultTenantID                   = "tenant_legacy"
 	PlatformRoleAdmin    PlatformRole = "platform_admin"
 	PlatformRoleOperator PlatformRole = "platform_operator"
 	PlatformRoleViewer   PlatformRole = "platform_viewer"
@@ -39,6 +40,15 @@ type Principal struct {
 	Username     string                `json:"username"`
 	PlatformRole PlatformRole          `json:"platform_role"`
 	TenantRoles  map[string]TenantRole `json:"tenant_roles,omitempty"`
+}
+
+// RequestPrincipal 描述一次已认证请求在业务系统内的主体视图。
+// 认证层只负责确认“是谁”，租户解析器负责补全当前租户与租户角色。
+type RequestPrincipal struct {
+	Username    string                `json:"username"`
+	Permission  PermissionType        `json:"permission"`
+	Scope       Scope                 `json:"scope"`
+	TenantRoles map[string]TenantRole `json:"tenant_roles,omitempty"`
 }
 
 var (

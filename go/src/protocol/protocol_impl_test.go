@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"sync"
 	"testing"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
@@ -41,7 +42,7 @@ func TestPackUnpack_Plain(t *testing.T) {
 	cmd := inter.CmdMetricsReport
 
 	// 1. Pack
-	buf, err := codec.Pack(payload, cmd, 0, nil, 12345)
+	buf, err := codec.Pack(payload, cmd, 0, nil, 12345, false)
 	if err != nil {
 		t.Fatalf("Pack failed: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestPackUnpack_Encrypted(t *testing.T) {
 	cmd := inter.CmdConfigPush
 
 	// 1. Pack
-	buf, err := codec.Pack(payload, cmd, testKeyID, testSessionKey, 98765)
+	buf, err := codec.Pack(payload, cmd, testKeyID, testSessionKey, 98765, false)
 	if err != nil {
 		t.Fatalf("Pack failed: %v", err)
 	}
@@ -108,6 +109,26 @@ func TestPackUnpack_Encrypted(t *testing.T) {
 	}
 }
 
+func TestPackUnpack_AckFlag(t *testing.T) {
+	codec := NewGosterCodec()
+	buf, err := codec.Pack(nil, inter.CmdHeartbeat, 0, nil, 99, true)
+	if err != nil {
+		t.Fatalf("Pack failed: %v", err)
+	}
+
+	packet, err := codec.Unpack(bytes.NewReader(buf), nil)
+	if err != nil {
+		t.Fatalf("Unpack failed: %v", err)
+	}
+
+	if !packet.IsAck {
+		t.Fatal("packet should be marked as ack")
+	}
+	if packet.CmdID != inter.CmdHeartbeat {
+		t.Fatalf("CmdID mismatch: got %v want %v", packet.CmdID, inter.CmdHeartbeat)
+	}
+}
+
 // 测试：解包时的 Magic 校验
 func TestUnpack_InvalidMagic(t *testing.T) {
 	codec := NewGosterCodec()
@@ -124,7 +145,7 @@ func TestUnpack_InvalidMagic(t *testing.T) {
 func TestUnpack_HeaderCorruption(t *testing.T) {
 	codec := NewGosterCodec()
 	payload := []byte("test")
-	buf, _ := codec.Pack(payload, inter.CmdHandshakeInit, 0, nil, 1)
+	buf, _ := codec.Pack(payload, inter.CmdHandshakeInit, 0, nil, 1, false)
 
 	// 修改 Header 中的一个字节 (Offset 6 is CmdID low byte)
 	buf[6] ^= 0xFF
@@ -139,7 +160,7 @@ func TestUnpack_HeaderCorruption(t *testing.T) {
 func TestUnpack_Plain_PayloadCorruption(t *testing.T) {
 	codec := NewGosterCodec()
 	payload := []byte("important data")
-	buf, _ := codec.Pack(payload, inter.CmdHandshakeInit, 0, nil, 1)
+	buf, _ := codec.Pack(payload, inter.CmdHandshakeInit, 0, nil, 1, false)
 
 	// 修改 Payload 中的一个字节
 	// Payload 始于 HeaderSize (32)
@@ -155,7 +176,7 @@ func TestUnpack_Plain_PayloadCorruption(t *testing.T) {
 func TestUnpack_Encrypted_Tampering(t *testing.T) {
 	codec := NewGosterCodec()
 	payload := []byte("secret data")
-	buf, _ := codec.Pack(payload, inter.CmdHandshakeInit, testKeyID, testSessionKey, 1)
+	buf, _ := codec.Pack(payload, inter.CmdHandshakeInit, testKeyID, testSessionKey, 1, false)
 
 	// 修改密文 (Payload部分)
 	buf[inter.HeaderSize] ^= 0xFF
@@ -166,14 +187,14 @@ func TestUnpack_Encrypted_Tampering(t *testing.T) {
 	}
 }
 
-// 测试：Payload 过大 (超过 100MB 限制)
+// 测试：Payload 过大 (超过 1MB 限制)
 func TestPack_TooLarge(t *testing.T) {
 	codec := NewGosterCodec()
 	// 测试 Unpack 的限制
 
 	fakeHeader := make([]byte, inter.HeaderSize)
 	binary.LittleEndian.PutUint16(fakeHeader[0:], inter.MagicNumber)
-	binary.LittleEndian.PutUint32(fakeHeader[12:], 100*1024*1024+1) // Length > 100MB
+	binary.LittleEndian.PutUint32(fakeHeader[12:], 1024*1024+1) // Length > 1MB
 
 	// 计算正确的 CRC 使得能过 Header 校验
 	crc := crc16Modbus(fakeHeader[:28])
@@ -188,12 +209,18 @@ func TestPack_TooLarge(t *testing.T) {
 // 测试：并发安全性 (Codec 应该是无状态的)
 func TestConcurrency(t *testing.T) {
 	codec := NewGosterCodec()
+	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
-		go func() {
+		wg.Add(1)
+		go func(seq uint64) {
+			defer wg.Done()
 			payload := []byte("data")
-			_, _ = codec.Pack(payload, inter.CmdLogReport, 0, nil, uint64(i))
-		}()
+			if _, err := codec.Pack(payload, inter.CmdLogReport, 0, nil, seq, false); err != nil {
+				t.Errorf("Pack failed: %v", err)
+			}
+		}(uint64(i))
 	}
+	wg.Wait()
 }
 
 // =============================================================================
@@ -206,7 +233,7 @@ func BenchmarkPack_Plain_1KB(b *testing.B) {
 	payload := generatePayload(1024)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = codec.Pack(payload, inter.CmdLogReport, 0, nil, uint64(i))
+		_, _ = codec.Pack(payload, inter.CmdLogReport, 0, nil, uint64(i), false)
 	}
 }
 
@@ -215,7 +242,7 @@ func BenchmarkPack_Plain_64KB(b *testing.B) {
 	payload := generatePayload(64 * 1024)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = codec.Pack(payload, inter.CmdLogReport, 0, nil, uint64(i))
+		_, _ = codec.Pack(payload, inter.CmdLogReport, 0, nil, uint64(i), false)
 	}
 }
 
@@ -225,7 +252,7 @@ func BenchmarkPack_Encrypted_1KB(b *testing.B) {
 	payload := generatePayload(1024)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = codec.Pack(payload, inter.CmdLogReport, testKeyID, testSessionKey, uint64(i))
+		_, _ = codec.Pack(payload, inter.CmdLogReport, testKeyID, testSessionKey, uint64(i), false)
 	}
 }
 
@@ -234,7 +261,7 @@ func BenchmarkPack_Encrypted_64KB(b *testing.B) {
 	payload := generatePayload(64 * 1024)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = codec.Pack(payload, inter.CmdLogReport, testKeyID, testSessionKey, uint64(i))
+		_, _ = codec.Pack(payload, inter.CmdLogReport, testKeyID, testSessionKey, uint64(i), false)
 	}
 }
 
@@ -243,7 +270,7 @@ func BenchmarkUnpack_Plain_1KB(b *testing.B) {
 	codec := NewGosterCodec()
 	payload := generatePayload(1024)
 	// 先 Pack 准备好数据
-	buf, _ := codec.Pack(payload, inter.CmdLogReport, 0, nil, 1)
+	buf, _ := codec.Pack(payload, inter.CmdLogReport, 0, nil, 1, false)
 	reader := bytes.NewReader(buf)
 
 	b.ResetTimer()
@@ -257,7 +284,7 @@ func BenchmarkUnpack_Plain_1KB(b *testing.B) {
 func BenchmarkUnpack_Encrypted_1KB(b *testing.B) {
 	codec := NewGosterCodec()
 	payload := generatePayload(1024)
-	buf, _ := codec.Pack(payload, inter.CmdLogReport, testKeyID, testSessionKey, 1)
+	buf, _ := codec.Pack(payload, inter.CmdLogReport, testKeyID, testSessionKey, 1, false)
 	reader := bytes.NewReader(buf)
 
 	b.ResetTimer()

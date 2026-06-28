@@ -1,65 +1,79 @@
 package device_manager
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/nhirsama/Goster-IoT/src/inter"
 )
 
-type MessageQueue struct {
-	queues   sync.Map
+// InMemoryDeviceCommandQueue 是设备下行队列的默认内存实现。
+type InMemoryDeviceCommandQueue struct {
+	mu       sync.Mutex
+	queues   map[string][]inter.DownlinkMessage
 	capacity int
 }
 
-func NewMessageQueue(cap int) inter.MessageQueue {
-	return &MessageQueue{
+// NewDeviceCommandQueue 创建默认内存态的设备下行队列。
+func NewDeviceCommandQueue(cap int) inter.DeviceCommandQueue {
+	return &InMemoryDeviceCommandQueue{
+		queues:   make(map[string][]inter.DownlinkMessage),
 		capacity: cap,
 	}
 }
 
-func (m *MessageQueue) Push(uuid string, message interface{}) error {
-	actual, _ := m.queues.LoadOrStore(uuid, make(chan interface{}, m.capacity))
-	q := actual.(chan interface{})
+func (m *InMemoryDeviceCommandQueue) Enqueue(uuid string, message inter.DownlinkMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	select {
-	case q <- message:
+	queue := append([]inter.DownlinkMessage(nil), m.queues[uuid]...)
+	if m.capacity > 0 && len(queue) >= m.capacity {
+		// 队列满策略：丢弃最早的一条并压入新指令。
+		queue = append(queue[1:], message)
+		m.queues[uuid] = queue
 		return nil
-	default:
-		// 队列满策略：丢弃最早的一条并压入新指令
-		select {
-		case <-q: // 弹出最早的
-		default:
-		}
-
-		select {
-		case q <- message:
-			return nil
-		default:
-			return errors.New("队列已满且无法清理")
-		}
 	}
+	m.queues[uuid] = append(queue, message)
+	return nil
 }
 
-func (m *MessageQueue) Pop(uuid string) (interface{}, bool) {
-	actual, exists := m.queues.Load(uuid)
-	if !exists {
-		return nil, false
+func (m *InMemoryDeviceCommandQueue) Requeue(uuid string, message inter.DownlinkMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	queue := append([]inter.DownlinkMessage(nil), m.queues[uuid]...)
+	if m.capacity > 0 && len(queue) >= m.capacity {
+		// 重试命令优先级更高，队列满时淘汰最新的一条待发消息，保住重试项。
+		queue = queue[:len(queue)-1]
 	}
-	q := actual.(chan interface{})
-	select {
-	case msg := <-q:
-		return msg, true
-	default:
-		return nil, false
+	if m.capacity > 0 && len(queue) >= m.capacity {
+		return inter.ErrDownlinkQueueFull
 	}
+	queue = append([]inter.DownlinkMessage{message}, queue...)
+	m.queues[uuid] = queue
+	return nil
 }
 
-func (m *MessageQueue) IsEmpty(uuid string) bool {
-	actual, exists := m.queues.Load(uuid)
-	if !exists {
-		return true
+func (m *InMemoryDeviceCommandQueue) Dequeue(uuid string) (inter.DownlinkMessage, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	queue := m.queues[uuid]
+	if len(queue) == 0 {
+		return inter.DownlinkMessage{}, false, nil
 	}
-	q := actual.(chan interface{})
-	return len(q) == 0
+	msg := queue[0]
+	queue = queue[1:]
+	if len(queue) == 0 {
+		delete(m.queues, uuid)
+	} else {
+		m.queues[uuid] = queue
+	}
+	return msg, true, nil
+}
+
+func (m *InMemoryDeviceCommandQueue) IsEmpty(uuid string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return len(m.queues[uuid]) == 0
 }

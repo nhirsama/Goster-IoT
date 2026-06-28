@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
@@ -12,13 +13,9 @@ import (
 )
 
 type webServer struct {
-	dataStore     inter.DataStore
-	deviceManager inter.DeviceManager
-	api           inter.Api
-	auth          AuthService
-	captcha       CaptchaVerifier
-	logger        inter.Logger
-	config        appcfg.WebConfig
+	apiModules []apiModule
+	logger     inter.Logger
+	config     appcfg.WebConfig
 }
 
 func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
@@ -34,50 +31,68 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 		return nil, err
 	}
 	ws := &webServer{
-		dataStore:     deps.DataStore,
-		deviceManager: deps.DeviceManager,
-		api:           deps.API,
-		auth:          deps.Auth,
-		captcha:       deps.Captcha,
-		logger:        deps.Logger,
-		config:        deps.Config,
+		logger: deps.Logger,
+		config: deps.Config,
 	}
-	if ws.auth == nil {
-		return nil, errors.New("auth service is required")
+	ws.apiModules = buildAPIModules(deps)
+	if len(ws.apiModules) == 0 {
+		return nil, errors.New("web api modules are required")
 	}
 	return ws, nil
 }
 
-// Start 启动标准 HTTP 服务器
+// Start 按配置创建监听器，再进入统一的 Serve 生命周期。
 func (ws *webServer) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	addr := appcfg.NormalizeWebConfig(ws.config).HTTPAddr
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		ws.log().Error("Web 服务监听失败", inter.Err(err))
+		return err
+	}
+	return ws.Serve(ctx, listener)
+}
+
+// Serve 使用已有监听器启动 HTTP 服务，并在 ctx 取消后优雅关闭。
+func (ws *webServer) Serve(ctx context.Context, listener net.Listener) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if listener == nil {
+		return errors.New("web listener is required")
+	}
+	defer listener.Close()
 
 	mux := http.NewServeMux()
 	ws.registerRoutes(mux)
 
 	server := &http.Server{
-		Addr:    addr,
 		Handler: mux,
 	}
 
-	// 启动 goroutine 监听 context 取消信号
+	stopShutdown := make(chan struct{})
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		ws.log().Info("收到关闭信号，准备关闭 Web 服务")
-
-		// 给予 5 秒优雅关闭时间
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			ws.log().Error("Web 服务关闭失败", inter.Err(err))
-		} else {
-			ws.log().Info("Web 服务已优雅关闭")
+		defer close(shutdownDone)
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = server.Shutdown(shutdownCtx)
+		case <-stopShutdown:
 		}
 	}()
+	defer close(stopShutdown)
 
-	ws.log().Info("Web 服务已启动", inter.String("addr", addr))
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	ws.log().Info("Web 服务已启动", inter.String("addr", listener.Addr().String()))
+	if err := server.Serve(listener); err != nil {
+		if errors.Is(err, http.ErrServerClosed) && ctx.Err() != nil {
+			<-shutdownDone
+			return nil
+		}
 		ws.log().Error("Web 服务监听失败", inter.Err(err))
 		return err
 	}

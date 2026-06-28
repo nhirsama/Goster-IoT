@@ -6,7 +6,10 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
+	t.Setenv("DB_DRIVER", "")
 	t.Setenv("DB_PATH", "")
+	t.Setenv("DB_DSN", "")
+	t.Setenv("DB_SCHEMA_MODE", "")
 	t.Setenv("WEB_HTTP_ADDR", "")
 	t.Setenv("API_TCP_ADDR", "")
 	t.Setenv("API_CORS_ALLOW_ORIGINS", "")
@@ -15,6 +18,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("WEB_DEVICE_LIST_MAX_PAGE_SIZE", "")
 	t.Setenv("WEB_METRICS_MIN_VALID_TIMESTAMP_MS", "")
 	t.Setenv("WEB_METRICS_DEFAULT_RANGE_LABEL", "")
+	t.Setenv("WEB_LOGIN_MAX_FAILURES", "")
+	t.Setenv("WEB_LOGIN_WINDOW", "")
+	t.Setenv("WEB_LOGIN_LOCKOUT", "")
 	t.Setenv("API_READ_TIMEOUT", "")
 	t.Setenv("API_REGISTER_ACK_GRACE_DELAY", "")
 	t.Setenv("AUTHBOSS_ROOT_URL", "")
@@ -40,8 +46,8 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if cfg.DB.Path != defaultDBPath {
-		t.Fatalf("unexpected db path: %s", cfg.DB.Path)
+	if cfg.DB.Driver != defaultDBDriver || cfg.DB.Path != defaultDBPath || cfg.DB.DSN != "" || cfg.DB.SchemaMode != defaultSQLiteSchemaMode {
+		t.Fatalf("unexpected db config: %+v", cfg.DB)
 	}
 	if cfg.Web.HTTPAddr != defaultWebHTTPAddr {
 		t.Fatalf("unexpected web http addr: %s", cfg.Web.HTTPAddr)
@@ -60,6 +66,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Web.Metrics.MinValidTimestampMs != defaultMetricsMinValidTimestampMs || cfg.Web.Metrics.DefaultRangeLabel != defaultMetricsRangeLabel {
 		t.Fatalf("unexpected web metrics config: %+v", cfg.Web.Metrics)
+	}
+	if cfg.Web.LoginProtection.MaxFailures != defaultLoginMaxFailures || cfg.Web.LoginProtection.Window != defaultLoginFailureWindow || cfg.Web.LoginProtection.Lockout != defaultLoginLockout {
+		t.Fatalf("unexpected login protection config: %+v", cfg.Web.LoginProtection)
 	}
 	if cfg.API.ReadTimeout != 60*time.Second || cfg.API.RegisterAckGraceDelay != 100*time.Millisecond {
 		t.Fatalf("unexpected api runtime config: %+v", cfg.API)
@@ -88,7 +97,10 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadEnvOverrides(t *testing.T) {
+	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_PATH", "/tmp/custom.db")
+	t.Setenv("DB_DSN", "")
+	t.Setenv("DB_SCHEMA_MODE", "managed")
 	t.Setenv("WEB_HTTP_ADDR", ":9000")
 	t.Setenv("API_TCP_ADDR", ":9001")
 	t.Setenv("API_CORS_ALLOW_ORIGINS", "https://fe.example.com")
@@ -97,6 +109,9 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("WEB_DEVICE_LIST_MAX_PAGE_SIZE", "2000")
 	t.Setenv("WEB_METRICS_MIN_VALID_TIMESTAMP_MS", "1700000000000")
 	t.Setenv("WEB_METRICS_DEFAULT_RANGE_LABEL", "24h")
+	t.Setenv("WEB_LOGIN_MAX_FAILURES", "7")
+	t.Setenv("WEB_LOGIN_WINDOW", "20m")
+	t.Setenv("WEB_LOGIN_LOCKOUT", "45m")
 	t.Setenv("API_READ_TIMEOUT", "75s")
 	t.Setenv("API_REGISTER_ACK_GRACE_DELAY", "250ms")
 	t.Setenv("AUTHBOSS_ROOT_URL", "https://iot.example.com")
@@ -126,8 +141,8 @@ func TestLoadEnvOverrides(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if cfg.DB.Path != "/tmp/custom.db" {
-		t.Fatalf("unexpected db path: %s", cfg.DB.Path)
+	if cfg.DB.Driver != "sqlite" || cfg.DB.Path != "/tmp/custom.db" || cfg.DB.DSN != "" || cfg.DB.SchemaMode != "managed" {
+		t.Fatalf("unexpected db config: %+v", cfg.DB)
 	}
 	if cfg.Web.HTTPAddr != ":9000" || cfg.API.TCPAddr != ":9001" {
 		t.Fatalf("unexpected listen addrs web=%s api=%s", cfg.Web.HTTPAddr, cfg.API.TCPAddr)
@@ -143,6 +158,9 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Web.Metrics.MinValidTimestampMs != 1700000000000 || cfg.Web.Metrics.DefaultRangeLabel != "24h" {
 		t.Fatalf("unexpected web metrics config: %+v", cfg.Web.Metrics)
+	}
+	if cfg.Web.LoginProtection.MaxFailures != 7 || cfg.Web.LoginProtection.Window != 20*time.Minute || cfg.Web.LoginProtection.Lockout != 45*time.Minute {
+		t.Fatalf("unexpected login protection config: %+v", cfg.Web.LoginProtection)
 	}
 	if cfg.API.ReadTimeout != 75*time.Second || cfg.API.RegisterAckGraceDelay != 250*time.Millisecond {
 		t.Fatalf("unexpected api config: %+v", cfg.API)
@@ -182,5 +200,26 @@ func TestResolveCookieSecureFallback(t *testing.T) {
 	}
 	if ResolveCookieSecure("", "dev", "http://localhost:8080") {
 		t.Fatal("dev + http should default secure cookie to false")
+	}
+}
+
+func TestLoadPostgresDBConfig(t *testing.T) {
+	t.Setenv("DB_DRIVER", "postgres")
+	t.Setenv("DB_PATH", "")
+	t.Setenv("DB_DSN", "postgres://iot:iot@localhost:5432/goster?sslmode=disable")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if cfg.DB.Driver != "postgres" {
+		t.Fatalf("unexpected db driver: %s", cfg.DB.Driver)
+	}
+	if cfg.DB.DSN != "postgres://iot:iot@localhost:5432/goster?sslmode=disable" {
+		t.Fatalf("unexpected db dsn: %s", cfg.DB.DSN)
+	}
+	if cfg.DB.SchemaMode != defaultPostgresSchemaMode {
+		t.Fatalf("unexpected postgres schema mode: %s", cfg.DB.SchemaMode)
 	}
 }

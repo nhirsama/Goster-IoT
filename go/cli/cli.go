@@ -2,18 +2,19 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/nhirsama/Goster-IoT/src/api"
 	"github.com/nhirsama/Goster-IoT/src/config"
-	"github.com/nhirsama/Goster-IoT/src/datastore"
-	"github.com/nhirsama/Goster-IoT/src/device_manager"
+	"github.com/nhirsama/Goster-IoT/src/core"
+	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
+	"github.com/nhirsama/Goster-IoT/src/iot_gateway"
 	"github.com/nhirsama/Goster-IoT/src/logger"
+	"github.com/nhirsama/Goster-IoT/src/persistence"
 	"github.com/nhirsama/Goster-IoT/src/web"
 )
 
@@ -23,81 +24,160 @@ func Run() {
 		stop()
 		fmt.Println("系统正常关闭")
 	}()
-	go start(ctx)
-	<-ctx.Done()
+
+	if err := RunWithArgs(ctx, os.Args[1:]); err != nil {
+		panic(err)
+	}
+}
+
+// RunWithArgs 解析并执行命令行参数。
+// 当前支持:
+// 1. 默认/serve: 启动整套后端服务
+// 2. db init: 显式初始化数据库结构
+// 3. db migrate: 当前与 init 复用同一套过渡迁移逻辑
+func RunWithArgs(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return serve(ctx)
+	}
+
+	switch args[0] {
+	case "serve":
+		if len(args) != 1 {
+			return fmt.Errorf("serve 不接受额外参数")
+		}
+		return serve(ctx)
+	case "db":
+		if len(args) < 2 {
+			return fmt.Errorf("db 子命令缺失，当前支持: init, migrate")
+		}
+		return runDBCommand(args[1])
+	default:
+		return fmt.Errorf("未知命令: %s", args[0])
+	}
+}
+
+// StartWithContext 以给定上下文启动整套 Go 后端服务。
+// 该入口主要供集成测试和未来的外部进程托管场景复用。
+func StartWithContext(ctx context.Context) {
+	if err := serve(ctx); err != nil {
+		panic(err)
+	}
 }
 
 func start(ctx context.Context) {
+	if err := serve(ctx); err != nil {
+		panic(err)
+	}
+}
+
+func serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	appCfg, err := config.Load()
 	if err != nil {
-		panic(fmt.Errorf("配置加载失败: %w", err))
+		return fmt.Errorf("配置加载失败: %w", err)
 	}
 
 	rootLogger := initRootLogger(appCfg.Logger)
 	rootLogger.Info("日志系统已初始化")
 
-	db, err := datastore.NewDataStoreSql(appCfg.DB.URL)
+	dbCfg := appCfg.DB
+	dbCfg.SchemaMode = "managed"
+
+	authStore, err := persistence.OpenAuthStore(dbCfg)
 	if err != nil {
-		rootLogger.Error("数据存储初始化失败", inter.Err(err))
-		panic(err)
+		rootLogger.Error("认证存储初始化失败", inter.Err(err))
+		return err
 	}
+	defer persistence.CloseIfPossible(authStore)
+
+	runtimeStore, err := persistence.OpenRuntimeStore(dbCfg)
+	if err != nil {
+		rootLogger.Error("业务存储初始化失败", inter.Err(err))
+		return err
+	}
+	defer persistence.CloseIfPossible(runtimeStore)
 
 	// Initialize Authboss (Encapsulated in web package)
-	ab, err := web.SetupAuthbossWithConfig(db, appCfg.Auth)
+	ab, err := identitycore.SetupAuthbossWithConfig(authStore, appCfg.Auth)
 	if err != nil {
 		rootLogger.Error("Authboss 初始化失败", inter.Err(err))
-		panic(err)
+		return err
 	}
-	authService, err := web.NewAuthService(ab)
+	authService, err := identitycore.NewAuthbossService(ab)
 	if err != nil {
 		rootLogger.Error("认证服务初始化失败", inter.Err(err))
-		panic(err)
+		return err
 	}
 
-	dm := device_manager.NewDeviceManagerWithConfig(db, appCfg.DeviceManager)
+	services := core.NewServicesWithConfig(runtimeStore, appCfg.DeviceManager)
 
-	apiLogger := rootLogger.With(inter.String("module", "api"))
+	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	api := api.NewApiWithConfig(db, dm, apiLogger, appCfg.API)
+	gateway := iot_gateway.NewGatewayFromCoreWithConfig(
+		services.DeviceRegistry,
+		services.DevicePresence,
+		services.TelemetryIngest,
+		services.DownlinkCommands,
+		gatewayLogger,
+		appCfg.API,
+	)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
-		DataStore:     db,
-		DeviceManager: dm,
-		API:           api,
-		Auth:          authService,
-		Captcha:       web.NewTurnstileServiceWithConfig(appCfg.Captcha),
-		Logger:        webLogger,
-		Config:        appCfg.Web,
+		DataStore:        runtimeStore,
+		DeviceRegistry:   services.DeviceRegistry,
+		DevicePresence:   services.DevicePresence,
+		DownlinkCommands: services.DownlinkCommands,
+		Auth:             authService,
+		Captcha:          web.NewTurnstileServiceWithConfig(appCfg.Captcha),
+		Logger:           webLogger,
+		Config:           appCfg.Web,
 	})
 	if err != nil {
 		rootLogger.Error("Web 服务初始化失败", inter.Err(err))
-		panic(err)
+		return err
 	}
 
-	// 使用 errgroup 管理多个服务的生命周期
-	errChan := make(chan error, 2)
-
+	errCh := make(chan error, 2)
 	go func() {
-		if err := webServer.Start(ctx); err != nil {
-			errChan <- fmt.Errorf("web server error: %w", err)
-		}
+		errCh <- webServer.Start(ctx)
 	}()
-
 	go func() {
-		if err := api.Start(ctx); err != nil {
-			errChan <- fmt.Errorf("api server error: %w", err)
-		}
+		errCh <- gateway.Start(ctx)
 	}()
 
 	select {
 	case <-ctx.Done():
-		rootLogger.Info("收到关闭信号，等待服务优雅关闭...")
-		// 给服务 5 秒时间完成清理
-		time.Sleep(5 * time.Second)
-		return
-	case err := <-errChan:
-		rootLogger.Error("服务启动失败", inter.Err(err))
-		panic(err)
+		return nil
+	case err := <-errCh:
+		if err != nil {
+			rootLogger.Error("后端服务异常退出", inter.Err(err))
+			cancel()
+			return err
+		}
+		cancel()
+		return nil
+	}
+}
+
+func runDBCommand(action string) error {
+	appCfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("配置加载失败: %w", err)
+	}
+
+	rootLogger := initRootLogger(appCfg.Logger)
+	switch action {
+	case "init", "migrate":
+		if err := persistence.EnsureSchema(appCfg.DB); err != nil {
+			rootLogger.Error("数据库结构初始化失败", inter.Err(err))
+			return err
+		}
+		rootLogger.Info("数据库结构已初始化", inter.String("action", action), inter.String("driver", appCfg.DB.Driver))
+		return nil
+	default:
+		return errors.New("未知 db 子命令，仅支持 init / migrate")
 	}
 }
 

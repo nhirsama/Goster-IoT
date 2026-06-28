@@ -11,7 +11,10 @@ import (
 )
 
 const (
-	defaultDatabaseURL                      = "postgres://postgres:postgres@localhost:5432/goster_iot?sslmode=disable"
+	defaultDBDriver                         = "sqlite"
+	defaultDBPath                           = "./data.db"
+	defaultSQLiteSchemaMode                 = "bootstrap"
+	defaultPostgresSchemaMode               = "managed"
 	defaultWebHTTPAddr                      = ":8080"
 	defaultAPITCPAddr                       = ":8081"
 	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
@@ -19,6 +22,9 @@ const (
 	defaultMaxAPIBodyBytes            int64 = 1 << 20
 	defaultMetricsMinValidTimestampMs int64 = 1672531200000
 	defaultMetricsRangeLabel                = "1h"
+	defaultLoginMaxFailures                 = 5
+	defaultLoginFailureWindow               = 10 * time.Minute
+	defaultLoginLockout                     = 15 * time.Minute
 )
 
 type AppConfig struct {
@@ -32,7 +38,10 @@ type AppConfig struct {
 }
 
 type DBConfig struct {
-	URL string
+	Driver     string
+	Path       string
+	DSN        string
+	SchemaMode string
 }
 
 type WebConfig struct {
@@ -41,6 +50,7 @@ type WebConfig struct {
 	MaxAPIBodyBytes     int64
 	DeviceListPage      PaginationConfig
 	Metrics             MetricsConfig
+	LoginProtection     LoginProtectionConfig
 }
 
 type APIConfig struct {
@@ -87,8 +97,18 @@ type MetricsConfig struct {
 	DefaultRangeLabel   string
 }
 
+type LoginProtectionConfig struct {
+	MaxFailures int
+	Window      time.Duration
+	Lockout     time.Duration
+}
+
 func DefaultDBConfig() DBConfig {
-	return DBConfig{URL: defaultDatabaseURL}
+	return DBConfig{
+		Driver:     defaultDBDriver,
+		Path:       defaultDBPath,
+		SchemaMode: defaultSQLiteSchemaMode,
+	}
 }
 
 func DefaultWebConfig() WebConfig {
@@ -103,6 +123,11 @@ func DefaultWebConfig() WebConfig {
 		Metrics: MetricsConfig{
 			MinValidTimestampMs: defaultMetricsMinValidTimestampMs,
 			DefaultRangeLabel:   defaultMetricsRangeLabel,
+		},
+		LoginProtection: LoginProtectionConfig{
+			MaxFailures: defaultLoginMaxFailures,
+			Window:      defaultLoginFailureWindow,
+			Lockout:     defaultLoginLockout,
 		},
 	}
 }
@@ -186,6 +211,13 @@ func NormalizeWebConfig(cfg WebConfig) WebConfig {
 
 	out.Metrics.MinValidTimestampMs = normalizePositiveInt64(out.Metrics.MinValidTimestampMs, base.Metrics.MinValidTimestampMs)
 	out.Metrics.DefaultRangeLabel = normalizeMetricsRangeLabel(out.Metrics.DefaultRangeLabel)
+	out.LoginProtection.MaxFailures = normalizePositiveInt(out.LoginProtection.MaxFailures, base.LoginProtection.MaxFailures)
+	if out.LoginProtection.Window <= 0 {
+		out.LoginProtection.Window = base.LoginProtection.Window
+	}
+	if out.LoginProtection.Lockout <= 0 {
+		out.LoginProtection.Lockout = base.LoginProtection.Lockout
+	}
 	return out
 }
 
@@ -242,6 +274,34 @@ func NormalizeDeviceManagerConfig(cfg DeviceManagerConfig) DeviceManagerConfig {
 	return out
 }
 
+func NormalizeDBConfig(cfg DBConfig) DBConfig {
+	base := DefaultDBConfig()
+	out := cfg
+	out.Driver = strings.ToLower(normalizeOrDefault(out.Driver, base.Driver))
+	switch out.Driver {
+	case "postgres", "postgresql":
+		out.Driver = "postgres"
+		out.DSN = strings.TrimSpace(out.DSN)
+		out.Path = strings.TrimSpace(out.Path)
+		out.SchemaMode = normalizeDBSchemaMode(out.SchemaMode, defaultPostgresSchemaMode)
+	default:
+		out.Driver = "sqlite"
+		out.Path = normalizeOrDefault(out.Path, base.Path)
+		out.DSN = strings.TrimSpace(out.DSN)
+		out.SchemaMode = normalizeDBSchemaMode(out.SchemaMode, defaultSQLiteSchemaMode)
+	}
+	return out
+}
+
+func normalizeDBSchemaMode(raw string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "bootstrap", "managed":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return fallback
+	}
+}
+
 // ResolveCookieSecure 根据配置值推导 Cookie Secure 标志。
 func ResolveCookieSecure(rawCookieSecure, rawEnv, rawRootURL string) bool {
 	if raw := strings.TrimSpace(rawCookieSecure); raw != "" {
@@ -268,7 +328,9 @@ func Load() (AppConfig, error) {
 }
 
 func prepareViper(v *viper.Viper) error {
-	v.SetDefault("db.url", defaultDatabaseURL)
+	v.SetDefault("db.driver", defaultDBDriver)
+	v.SetDefault("db.path", defaultDBPath)
+	v.SetDefault("db.dsn", "")
 	v.SetDefault("web.http_addr", defaultWebHTTPAddr)
 	v.SetDefault("web.api_cors_allow_origins", defaultAPICORSAllowOrigins)
 	v.SetDefault("web.max_api_body_bytes", defaultMaxAPIBodyBytes)
@@ -276,6 +338,9 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("web.device_list.max_page_size", 1000)
 	v.SetDefault("web.metrics.min_valid_timestamp_ms", defaultMetricsMinValidTimestampMs)
 	v.SetDefault("web.metrics.default_range_label", defaultMetricsRangeLabel)
+	v.SetDefault("web.login_protection.max_failures", defaultLoginMaxFailures)
+	v.SetDefault("web.login_protection.window", defaultLoginFailureWindow.String())
+	v.SetDefault("web.login_protection.lockout", defaultLoginLockout.String())
 
 	v.SetDefault("api.tcp_addr", defaultAPITCPAddr)
 	v.SetDefault("api.read_timeout", "60s")
@@ -300,7 +365,10 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("logger.service", "goster-iot")
 
 	binds := map[string]string{
-		"db.url":                                            "DATABASE_URL",
+		"db.driver":                                         "DB_DRIVER",
+		"db.path":                                           "DB_PATH",
+		"db.dsn":                                            "DB_DSN",
+		"db.schema_mode":                                    "DB_SCHEMA_MODE",
 		"web.http_addr":                                     "WEB_HTTP_ADDR",
 		"web.api_cors_allow_origins":                        "API_CORS_ALLOW_ORIGINS",
 		"web.max_api_body_bytes":                            "WEB_API_MAX_BODY_BYTES",
@@ -308,6 +376,9 @@ func prepareViper(v *viper.Viper) error {
 		"web.device_list.max_page_size":                     "WEB_DEVICE_LIST_MAX_PAGE_SIZE",
 		"web.metrics.min_valid_timestamp_ms":                "WEB_METRICS_MIN_VALID_TIMESTAMP_MS",
 		"web.metrics.default_range_label":                   "WEB_METRICS_DEFAULT_RANGE_LABEL",
+		"web.login_protection.max_failures":                 "WEB_LOGIN_MAX_FAILURES",
+		"web.login_protection.window":                       "WEB_LOGIN_WINDOW",
+		"web.login_protection.lockout":                      "WEB_LOGIN_LOCKOUT",
 		"api.tcp_addr":                                      "API_TCP_ADDR",
 		"api.read_timeout":                                  "API_READ_TIMEOUT",
 		"api.register_ack_grace_delay":                      "API_REGISTER_ACK_GRACE_DELAY",
@@ -361,10 +432,15 @@ func loadFromViper(v *viper.Viper) AppConfig {
 	registerAckGrace := parseDurationOrDefault(v.GetString("api.register_ack_grace_delay"), base.API.RegisterAckGraceDelay)
 	captchaVerifyTimeout := parseDurationOrDefault(v.GetString("captcha.verify_timeout"), base.Captcha.VerifyTimeout)
 	heartbeatDeadline := parseDurationOrDefault(v.GetString("device_manager.heartbeat_deadline"), base.DeviceManager.HeartbeatDeadline)
+	loginWindow := parseDurationOrDefault(v.GetString("web.login_protection.window"), base.Web.LoginProtection.Window)
+	loginLockout := parseDurationOrDefault(v.GetString("web.login_protection.lockout"), base.Web.LoginProtection.Lockout)
 
 	out := AppConfig{
 		DB: DBConfig{
-			URL: normalizeOrDefault(v.GetString("db.url"), base.DB.URL),
+			Driver:     strings.TrimSpace(v.GetString("db.driver")),
+			Path:       strings.TrimSpace(v.GetString("db.path")),
+			DSN:        strings.TrimSpace(v.GetString("db.dsn")),
+			SchemaMode: strings.TrimSpace(v.GetString("db.schema_mode")),
 		},
 		Web: WebConfig{
 			HTTPAddr:            strings.TrimSpace(v.GetString("web.http_addr")),
@@ -377,6 +453,11 @@ func loadFromViper(v *viper.Viper) AppConfig {
 			Metrics: MetricsConfig{
 				MinValidTimestampMs: normalizePositiveInt64(v.GetInt64("web.metrics.min_valid_timestamp_ms"), base.Web.Metrics.MinValidTimestampMs),
 				DefaultRangeLabel:   normalizeMetricsRangeLabel(v.GetString("web.metrics.default_range_label")),
+			},
+			LoginProtection: LoginProtectionConfig{
+				MaxFailures: normalizePositiveInt(v.GetInt("web.login_protection.max_failures"), base.Web.LoginProtection.MaxFailures),
+				Window:      loginWindow,
+				Lockout:     loginLockout,
 			},
 		},
 		API: APIConfig{
@@ -418,6 +499,7 @@ func loadFromViper(v *viper.Viper) AppConfig {
 			Env:       normalizeOrDefault(logEnv, base.Logger.Env),
 		},
 	}
+	out.DB = NormalizeDBConfig(out.DB)
 	out.Web = NormalizeWebConfig(out.Web)
 	out.API = NormalizeAPIConfig(out.API)
 	out.Auth = NormalizeAuthConfig(out.Auth)

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
+	"github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 )
@@ -17,24 +18,28 @@ type CaptchaVerifier interface {
 
 // WebServerDeps 描述 web 模块运行所需依赖。
 type WebServerDeps struct {
-	DataStore     inter.DataStore
-	DeviceManager inter.DeviceManager
-	API           inter.Api
-	Auth          AuthService
-	Captcha       CaptchaVerifier
-	Logger        inter.Logger
-	Config        appcfg.WebConfig
+	DataStore        inter.WebV1Store
+	DeviceRegistry   inter.DeviceRegistry
+	DevicePresence   inter.DevicePresence
+	DownlinkCommands inter.DownlinkCommandService
+	Auth             identity.Service
+	Captcha          CaptchaVerifier
+	Logger           inter.Logger
+	Config           appcfg.WebConfig
 }
 
 func (d *WebServerDeps) normalize() error {
 	if d.DataStore == nil {
-		return errors.New("web deps missing datastore")
+		return errors.New("web deps missing runtime store")
 	}
-	if d.DeviceManager == nil {
-		return errors.New("web deps missing device manager")
+	if d.DeviceRegistry == nil {
+		return errors.New("web deps missing device registry")
 	}
-	if d.API == nil {
-		return errors.New("web deps missing api service")
+	if d.DevicePresence == nil {
+		return errors.New("web deps missing device presence")
+	}
+	if d.DownlinkCommands == nil {
+		return errors.New("web deps missing downlink command service")
 	}
 	if d.Auth == nil {
 		return errors.New("web deps missing auth service")

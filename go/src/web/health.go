@@ -57,6 +57,11 @@ func (ws *webServer) readinessCheckHandler(w http.ResponseWriter, r *http.Reques
 // checkDatabaseConnection 执行简单的数据库查询以验证连接
 func (ws *webServer) checkDatabaseConnection() error {
 	// 尝试查询用户数量作为健康检查
-	_, err := ws.dataStore.GetUserCount()
-	return err
+	for _, module := range ws.apiModules {
+		if store := module.RuntimeStore(); store != nil {
+			_, err := store.GetUserCount()
+			return err
+		}
+	}
+	return nil
 }

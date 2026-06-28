@@ -1,6 +1,9 @@
 package inter
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // 定义鉴权相关的标准错误
 var (
@@ -26,12 +29,8 @@ const (
 	StatusDelayed                     // 延迟（心跳超过阈值但未完全判定为离线）
 )
 
-// DeviceManager 定义设备管理的核心业务逻辑接口
-// 合并了原有的 IdentityManager (身份与生命周期) 和 DeviceManager (运行时状态) 功能
-type DeviceManager interface {
-
-	// --- 身份与生命周期管理 (Identity & Lifecycle) ---
-
+// DeviceRegistry 定义设备身份、生命周期与管理端查询能力。
+type DeviceRegistry interface {
 	// GenerateUUID 根据设备元数据生成唯一的 UUID
 	GenerateUUID(meta DeviceMetadata) (uuid string)
 
@@ -65,25 +64,6 @@ type DeviceManager interface {
 	// DeleteDevice 物理删除设备
 	DeleteDevice(uuid string) error
 
-	// --- 运行时状态管理 (Runtime State) ---
-
-	// HandleHeartbeat 处理设备心跳
-	HandleHeartbeat(uuid string)
-
-	// QueryDeviceStatus 查询设备在线状态
-	QueryDeviceStatus(uuid string) (DeviceStatus, error)
-
-	// --- 消息队列 (Message Queue) ---
-
-	// QueuePush 将指令推入队列
-	QueuePush(uuid string, message interface{}) error
-	// QueuePop 从队列中弹出指令
-	QueuePop(uuid string) (interface{}, bool)
-	// QueueIsEmpty 检查队列是否为空
-	QueueIsEmpty(uuid string) bool
-
-	// --- 查询 (Query) ---
-
 	// ListDevices 分页列出设备，status 为 nil 时列出所有
 	ListDevices(status *AuthenticateStatusType, page, size int) ([]DeviceRecord, error)
 
@@ -92,9 +72,43 @@ type DeviceManager interface {
 
 	// GetDeviceMetadataByScope 在给定授权范围内查询设备详情。
 	GetDeviceMetadataByScope(scope Scope, uuid string) (DeviceMetadata, error)
+}
 
-	// --- 外部集成实体管理 ---
+// DevicePresence 定义设备在线状态能力。
+type DevicePresence interface {
+	// HandleHeartbeat 处理设备心跳
+	HandleHeartbeat(uuid string)
 
+	// QueryDeviceStatus 查询设备在线状态
+	QueryDeviceStatus(uuid string) (DeviceStatus, error)
+}
+
+// DeviceCommandQueue 定义面向设备的下行命令缓冲能力。
+// 当前默认实现仍在内存中，后续可替换为 Redis 等共享队列。
+type DeviceCommandQueue interface {
+	// Enqueue 将下行消息推入设备队列。
+	Enqueue(uuid string, message DownlinkMessage) error
+	// Requeue 将暂时发送失败的消息放回队列头部，等待下一次连接重试。
+	Requeue(uuid string, message DownlinkMessage) error
+	// Dequeue 从设备队列中弹出最早的一条下行消息。
+	Dequeue(uuid string) (DownlinkMessage, bool, error)
+	// IsEmpty 检查设备队列是否为空。
+	IsEmpty(uuid string) bool
+}
+
+// DownlinkCommandService 定义下行命令的编排能力。
+// 它负责命令持久化、入队以及发送状态流转，避免由 Web 或 Gateway 直接操作底层队列和命令表。
+type DownlinkCommandService interface {
+	Enqueue(scope Scope, uuid string, cmdID CmdID, command string, payloadJSON []byte) (DownlinkMessage, error)
+	PopDownlink(uuid string) (DownlinkMessage, bool, error)
+	Requeue(uuid string, message DownlinkMessage) error
+	MarkSent(commandID int64) error
+	MarkAcked(commandID int64) error
+	MarkFailed(commandID int64, errorText string) error
+}
+
+// ExternalEntityService 定义外部集成实体的管理能力。
+type ExternalEntityService interface {
 	// GenerateExternalUUID 为外部实体生成稳定 UUID
 	GenerateExternalUUID(source, entityID string) string
 
@@ -111,17 +125,19 @@ type DeviceManager interface {
 	QueryExternalObservations(source, entityID string, start, end int64, limit int) ([]ExternalObservation, error)
 }
 
-// MessageQueue 定义消息队列的底层操作接口
-// 用于缓冲后端发往设备的指令
-type MessageQueue interface {
-	// Push 入队
-	// 将指令推入指定 UUID 的队列中
-	Push(uuid string, message interface{}) error
+// TelemetryIngestService 定义设备遥测数据的接收与落库能力。
+// 网络层只负责协议与会话，这里的服务负责把解析后的数据沉淀到核心系统。
+type TelemetryIngestService interface {
+	IngestMetrics(uuid string, points []MetricPoint) error
+	IngestLog(uuid string, data LogUploadData) error
+	IngestEvent(uuid string, payload []byte) error
+	IngestDeviceError(uuid string, payload []byte) error
+}
 
-	// Pop 出队
-	// 从指定 UUID 的队列中取出最早的一条指令 (FIFO)
-	// 返回: (指令内容, 是否存在指令)
-	Pop(uuid string) (interface{}, bool)
-
-	IsEmpty(uuid string) bool
+// DevicePresenceStore 抽象设备在线状态的运行时存储。
+// 当前默认实现仍在内存中，后续可替换为 Redis 等共享存储。
+type DevicePresenceStore interface {
+	SaveLastSeen(uuid string, at time.Time)
+	LoadLastSeen(uuid string) (time.Time, bool)
+	Delete(uuid string)
 }
