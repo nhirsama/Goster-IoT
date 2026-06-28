@@ -41,7 +41,7 @@ async function isSessionValid(request: NextRequest): Promise<boolean> {
       method: "GET",
       headers: {
         cookie: request.headers.get("cookie") || "",
-        "X-Request-Id": `proxy_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        "X-Request-Id": `middleware_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       },
       cache: "no-store",
     });
@@ -66,7 +66,7 @@ async function isSessionValid(request: NextRequest): Promise<boolean> {
   }
 }
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {

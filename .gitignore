@@ -16,3 +16,7 @@ frontend/*.tsbuildinfo
 
 *.md
 *.pdf
+
+/frontend/pnpm-workspace.yaml
+
+.claude
