@@ -1,5 +1,10 @@
+# syntax=docker/dockerfile:1.7
+
 # Build Stage
-FROM golang:1.25 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -7,14 +12,17 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download all dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy the source code
 COPY . .
 
 # Build the Go app
 # CGO_ENABLED=0 ensures a statically linked binary suitable for Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -o goster-iot .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o goster-iot .
 
 # Final Stage
 FROM alpine:latest
