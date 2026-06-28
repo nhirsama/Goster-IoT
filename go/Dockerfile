@@ -27,6 +27,9 @@ RUN apk --no-cache add ca-certificates tzdata
 # Copy the binary from the builder stage
 COPY --from=builder /app/goster-iot .
 
+# Copy database migrations used by `goster-iot db migrate`
+COPY --from=builder /app/db ./db
+
 # Create a directory for persistent data
 RUN mkdir /data
 
