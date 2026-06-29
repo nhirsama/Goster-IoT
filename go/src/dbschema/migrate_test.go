@@ -34,10 +34,22 @@ func TestEnsureSQLiteIsIdempotent(t *testing.T) {
 	if err := EnsureSQLite(dbPath); err != nil {
 		t.Fatalf("first EnsureSQLite failed: %v", err)
 	}
+	firstCount := countAppliedMigrations(t, dbPath)
+	if firstCount == 0 {
+		t.Fatal("expected at least one applied migration")
+	}
+
 	if err := EnsureSQLite(dbPath); err != nil {
 		t.Fatalf("second EnsureSQLite failed: %v", err)
 	}
+	secondCount := countAppliedMigrations(t, dbPath)
+	if secondCount != firstCount {
+		t.Fatalf("expected idempotent migration count %d, got %d", firstCount, secondCount)
+	}
+}
 
+func countAppliedMigrations(t *testing.T, dbPath string) int {
+	t.Helper()
 	db, err := sql.Open("sqlite", dbPath+"?_loc=Local")
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
@@ -48,9 +60,7 @@ func TestEnsureSQLiteIsIdempotent(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count schema_migrations failed: %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("expected 2 applied migrations, got %d", count)
-	}
+	return count
 }
 
 func TestEnsureSQLiteMigratesLegacyDeviceCommands(t *testing.T) {

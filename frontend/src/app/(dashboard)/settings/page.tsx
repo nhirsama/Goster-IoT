@@ -1,12 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, getActiveTenantId, setActiveTenantId } from "@/lib/api-client";
-import { queryKeys } from "@/lib/query-keys";
 import { useAuth } from "@/hooks/use-auth";
-import { Building2, Check, User, Shield, ChevronRight } from "lucide-react";
+import { User, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,50 +12,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-type TenantStatus = "active" | "suspended" | "archived";
-type Tenant = {
-  id: string;
-  name: string;
-  status: TenantStatus;
-  role?: string;
-  created_at: string;
-  updated_at?: string | null;
-};
-type TenantListData = {
-  items: Tenant[];
-  total: number;
-};
-
 export default function SettingsPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { user } = useAuth();
   const permission = user?.permission || 0;
-  const tenantRoles = user?.tenant_roles || {};
-
-  const { data: tenantData } = useQuery({
-    queryKey: queryKeys.tenants,
-    queryFn: () => api.get<TenantListData>("/api/v1/tenants"),
-    enabled: permission >= 3,
-    retry: false,
-  });
-
-  const roleTenantItems = Object.keys(tenantRoles).map((id) => ({
-    id,
-    name: id === "tenant_legacy" ? "默认租户" : id,
-    status: "active" as TenantStatus,
-    role: tenantRoles[id],
-    created_at: new Date().toISOString(),
-  }));
-
-  const tenantItems = permission >= 3 ? tenantData?.items || roleTenantItems : roleTenantItems;
-  const activeTenantId = getActiveTenantId() || user?.active_tenant || tenantItems[0]?.id || "tenant_legacy";
-
-  const handleTenantSwitch = (tenantId: string) => {
-    setActiveTenantId(tenantId);
-    queryClient.invalidateQueries();
-    router.push("/");
-  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">

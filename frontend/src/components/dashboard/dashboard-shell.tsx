@@ -10,17 +10,14 @@ import { components } from "@/lib/api-types";
 import { getPermissionRoleLabel } from "@/lib/dashboard-meta";
 import { queryKeys } from "@/lib/query-keys";
 import { EmptyState } from "@/components/dashboard/empty-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Bell,
-  Fingerprint,
   Home,
   Layers,
   LogOut,
   Network,
   Shield,
-  Users,
   Wifi,
   Ban,
   RefreshCw,
@@ -41,7 +38,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type DeviceRecord = components["schemas"]["DeviceRecord"];
 type TenantStatus = "active" | "suspended" | "archived";
 type Tenant = {
   id: string;
@@ -99,7 +95,7 @@ export default function DashboardShell({
     },
   });
 
-  const { data: deviceData } = useQuery({
+  useQuery({
     queryKey: queryKeys.devicesByStatus("authenticated"),
     queryFn: () => api.get<components["schemas"]["DeviceListData"]>("/api/v1/devices", { status: "authenticated" }),
     enabled: permission > 0,
@@ -158,7 +154,6 @@ export default function DashboardShell({
     );
   }
 
-  const devices = deviceData?.items || [];
   const availableManagementEntries = managementEntries.filter((entry) => permission >= entry.minPermission);
   const managementDefaultHref = availableManagementEntries[0]?.href || "/blacklist";
   const mobileHomeActive = pathname === "/";

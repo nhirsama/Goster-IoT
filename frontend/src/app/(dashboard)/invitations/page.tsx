@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import { api, getApiErrorMessage } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { useAuth } from "@/hooks/use-auth";
@@ -61,9 +60,8 @@ function formatRelativeTime(value: string) {
 }
 
 export default function InvitationsPage() {
-  const router = useRouter();
   const queryClient = useQueryClient();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast, confirm } = useUx();
 
   const { data: invitationData, isLoading } = useQuery({
