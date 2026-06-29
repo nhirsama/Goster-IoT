@@ -80,6 +80,23 @@ CREATE TABLE IF NOT EXISTS tenant_users (
 
 CREATE INDEX IF NOT EXISTS idx_tenant_users_username ON tenant_users (username);
 
+CREATE TABLE IF NOT EXISTS tenant_invitations (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    role TEXT NOT NULL,
+    invited_by TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_invitations_username_status ON tenant_invitations (username, status);
+CREATE INDEX IF NOT EXISTS idx_tenant_invitations_expires_at ON tenant_invitations (expires_at);
+CREATE INDEX IF NOT EXISTS idx_tenant_invitations_tenant_id ON tenant_invitations (tenant_id);
+
 CREATE TABLE IF NOT EXISTS device_groups (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,

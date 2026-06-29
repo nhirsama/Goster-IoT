@@ -112,6 +112,11 @@ func (api *API) TenantByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) >= 2 && parts[1] == "invitations" {
+		api.CreateTenantInvitationHandler(w, r, tenantID)
+		return
+	}
+
 	api.Error(w, r, http.StatusNotFound, 40452, "path not found",
 		&ErrorDetail{Type: "not_found"})
 }
@@ -208,18 +213,29 @@ func (api *API) handleTenantUsers(w http.ResponseWriter, r *http.Request, tenant
 				api.InternalError(w, r, 50053, err)
 				return
 			}
-			if err := api.dataStore.AddTenantUser(tenantID, username, inter.TenantRole(payload.Role)); err != nil {
+
+			// 创建邀请而非直接添加
+			invitedBy, _ := r.Context().Value(ContextUsername).(string)
+			invitation, err := api.dataStore.CreateTenantInvitation(inter.TenantInvitation{
+				TenantID:  tenantID,
+				Username:  username,
+				Role:      inter.TenantRole(payload.Role),
+				InvitedBy: invitedBy,
+			})
+			if err != nil {
 				api.tenantError(w, r, err, 40454)
 				return
 			}
+
 			api.write(w, http.StatusCreated, Envelope{
 				Code:      0,
 				Message:   "ok",
 				RequestID: api.requestID(r),
 				Data: map[string]interface{}{
-					"action":  "add_tenant_user",
-					"target":  username,
-					"success": true,
+					"action":     "invite_tenant_user",
+					"target":     username,
+					"invitation": invitation,
+					"success":    true,
 				},
 			})
 		default:
@@ -240,6 +256,12 @@ func (api *API) handleTenantUsers(w http.ResponseWriter, r *http.Request, tenant
 	username, err := url.PathUnescape(rest[0])
 	if err != nil || strings.TrimSpace(username) == "" {
 		api.Error(w, r, http.StatusBadRequest, 40057, "invalid username",
+			&ErrorDetail{Type: "validation_error", Field: "username"})
+		return
+	}
+	currentUsername, _ := r.Context().Value(ContextUsername).(string)
+	if strings.TrimSpace(currentUsername) == strings.TrimSpace(username) {
+		api.Error(w, r, http.StatusBadRequest, 40058, "cannot remove yourself from tenant",
 			&ErrorDetail{Type: "validation_error", Field: "username"})
 		return
 	}

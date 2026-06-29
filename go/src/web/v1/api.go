@@ -133,6 +133,9 @@ func (api *API) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.Handle("/api/v1/tenants", protectedWithCSRF(api.TenantsHandler, inter.PermissionNone))
 	mux.Handle("/api/v1/tenants/", protectedWithCSRF(api.TenantByIDHandler, inter.PermissionReadOnly))
+
+	mux.Handle("/api/v1/invitations", protected(api.InvitationsHandler, inter.PermissionNone))
+	mux.Handle("/api/v1/invitations/", protectedWithCSRF(api.InvitationByIDHandler, inter.PermissionNone))
 }
 
 // RuntimeStore 返回数据存储，用于健康检查

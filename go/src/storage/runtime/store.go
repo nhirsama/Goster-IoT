@@ -186,3 +186,23 @@ func (s *Store) AddTenantUser(tenantID, username string, role inter.TenantRole) 
 func (s *Store) RemoveTenantUser(tenantID, username string) error {
 	return s.tenantRepo.RemoveTenantUser(tenantID, username)
 }
+
+func (s *Store) CreateTenantInvitation(invitation inter.TenantInvitation) (inter.TenantInvitation, error) {
+	return s.tenantRepo.CreateTenantInvitation(invitation)
+}
+
+func (s *Store) ListPendingInvitations(username string) ([]inter.TenantInvitation, error) {
+	return s.tenantRepo.ListPendingInvitations(username)
+}
+
+func (s *Store) GetInvitation(invitationID string) (inter.TenantInvitation, error) {
+	return s.tenantRepo.GetInvitation(invitationID)
+}
+
+func (s *Store) AcceptInvitation(invitationID string) error {
+	return s.tenantRepo.AcceptInvitation(invitationID)
+}
+
+func (s *Store) RejectInvitation(invitationID string) error {
+	return s.tenantRepo.RejectInvitation(invitationID)
+}

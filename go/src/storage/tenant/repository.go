@@ -218,6 +218,154 @@ func (r *Repository) RemoveTenantUser(tenantID, username string) error {
 	return nil
 }
 
+func (r *Repository) CreateTenantInvitation(invitation inter.TenantInvitation) (inter.TenantInvitation, error) {
+	tenantID := bunrepo.NormalizeTenantID(invitation.TenantID)
+	username := strings.TrimSpace(invitation.Username)
+	invitedBy := strings.TrimSpace(invitation.InvitedBy)
+
+	if username == "" {
+		return inter.TenantInvitation{}, errors.New("username is required")
+	}
+	if invitedBy == "" {
+		return inter.TenantInvitation{}, errors.New("invited_by is required")
+	}
+
+	// 验证租户存在
+	if _, err := r.GetTenant(tenantID); err != nil {
+		return inter.TenantInvitation{}, err
+	}
+
+	// 生成邀请 ID
+	id := fmt.Sprintf("inv_%s_%d", username, time.Now().UnixNano())
+	now := time.Now().UTC()
+	expiresAt := now.Add(7 * 24 * time.Hour) // 7天后过期
+
+	row := &bunrepo.TenantInvitationRow{
+		ID:        id,
+		TenantID:  tenantID,
+		Username:  username,
+		Role:      string(normalizeRole(invitation.Role)),
+		InvitedBy: invitedBy,
+		Status:    "pending",
+		ExpiresAt: expiresAt,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if _, err := r.db.NewInsert().
+		Model(row).
+		Returning("NULL").
+		Exec(context.Background()); err != nil {
+		return inter.TenantInvitation{}, err
+	}
+
+	return invitationFromRow(*row), nil
+}
+
+func (r *Repository) ListPendingInvitations(username string) ([]inter.TenantInvitation, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return []inter.TenantInvitation{}, nil
+	}
+
+	var rows []bunrepo.TenantInvitationRow
+	if err := r.db.NewSelect().
+		Model(&rows).
+		Where("username = ?", username).
+		Where("status = ?", "pending").
+		Where("expires_at > ?", time.Now().UTC()).
+		OrderExpr("created_at DESC").
+		Scan(context.Background()); err != nil {
+		return nil, err
+	}
+
+	out := make([]inter.TenantInvitation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, invitationFromRow(row))
+	}
+	return out, nil
+}
+
+func (r *Repository) GetInvitation(invitationID string) (inter.TenantInvitation, error) {
+	var row bunrepo.TenantInvitationRow
+	err := r.db.NewSelect().
+		Model(&row).
+		Where("id = ?", strings.TrimSpace(invitationID)).
+		Limit(1).
+		Scan(context.Background())
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return inter.TenantInvitation{}, inter.ErrInvitationNotFound
+		}
+		return inter.TenantInvitation{}, err
+	}
+	return invitationFromRow(row), nil
+}
+
+func (r *Repository) AcceptInvitation(invitationID string) error {
+	invitation, err := r.GetInvitation(invitationID)
+	if err != nil {
+		return err
+	}
+
+	if invitation.Status != "pending" {
+		return inter.ErrInvitationAccepted
+	}
+
+	if time.Now().UTC().After(invitation.ExpiresAt) {
+		return inter.ErrInvitationExpired
+	}
+
+	// 添加用户到租户
+	if err := r.AddTenantUser(invitation.TenantID, invitation.Username, invitation.Role); err != nil {
+		return err
+	}
+
+	// 更新邀请状态
+	_, err = r.db.NewUpdate().
+		Model((*bunrepo.TenantInvitationRow)(nil)).
+		Set("status = ?", "accepted").
+		Set("updated_at = ?", time.Now().UTC()).
+		Where("id = ?", invitationID).
+		Exec(context.Background())
+
+	return err
+}
+
+func (r *Repository) RejectInvitation(invitationID string) error {
+	invitation, err := r.GetInvitation(invitationID)
+	if err != nil {
+		return err
+	}
+
+	if invitation.Status != "pending" {
+		return inter.ErrInvitationAccepted
+	}
+
+	_, err = r.db.NewUpdate().
+		Model((*bunrepo.TenantInvitationRow)(nil)).
+		Set("status = ?", "rejected").
+		Set("updated_at = ?", time.Now().UTC()).
+		Where("id = ?", invitationID).
+		Exec(context.Background())
+
+	return err
+}
+
+func invitationFromRow(row bunrepo.TenantInvitationRow) inter.TenantInvitation {
+	return inter.TenantInvitation{
+		ID:        strings.TrimSpace(row.ID),
+		TenantID:  strings.TrimSpace(row.TenantID),
+		Username:  strings.TrimSpace(row.Username),
+		Role:      normalizeRole(inter.TenantRole(row.Role)),
+		InvitedBy: strings.TrimSpace(row.InvitedBy),
+		Status:    strings.TrimSpace(row.Status),
+		ExpiresAt: row.ExpiresAt,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
+}
+
 func tenantFromRow(row bunrepo.TenantRow) inter.Tenant {
 	return inter.Tenant{
 		ID:        strings.TrimSpace(row.ID),

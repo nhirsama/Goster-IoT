@@ -29,7 +29,12 @@ function getTenantStorage(): Storage | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
-  const storage = window.localStorage as Partial<Storage> | undefined;
+  let storage: Partial<Storage> | undefined;
+  try {
+    storage = window.localStorage as Partial<Storage> | undefined;
+  } catch {
+    return undefined;
+  }
   if (!storage) {
     return undefined;
   }
@@ -57,7 +62,12 @@ function getCookieValue(name: string): string | undefined {
 
 export function getActiveTenantId(): string | undefined {
   const storage = getTenantStorage();
-  const storageTenantId = storage ? normalizeTenantId(storage.getItem(TENANT_STORAGE_KEY)) : undefined;
+  let storageTenantId: string | undefined;
+  try {
+    storageTenantId = storage ? normalizeTenantId(storage.getItem(TENANT_STORAGE_KEY)) : undefined;
+  } catch {
+    storageTenantId = undefined;
+  }
   return storageTenantId || tenantMemoryFallback || normalizeTenantId(process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID);
 }
 
@@ -68,11 +78,15 @@ export function setActiveTenantId(tenantId?: string | null): void {
   if (!storage) {
     return;
   }
-  if (normalized) {
-    storage.setItem(TENANT_STORAGE_KEY, normalized);
-    return;
+  try {
+    if (normalized) {
+      storage.setItem(TENANT_STORAGE_KEY, normalized);
+      return;
+    }
+    storage.removeItem(TENANT_STORAGE_KEY);
+  } catch {
+    // Some browser contexts expose Storage but reject access at runtime.
   }
-  storage.removeItem(TENANT_STORAGE_KEY);
 }
 
 export class ApiError extends Error {

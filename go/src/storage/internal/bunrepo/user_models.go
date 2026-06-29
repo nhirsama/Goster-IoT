@@ -34,3 +34,17 @@ type TenantRow struct {
 	CreatedAt time.Time `bun:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at"`
 }
+
+type TenantInvitationRow struct {
+	bun.BaseModel `bun:"table:tenant_invitations"`
+
+	ID        string    `bun:"id,pk"`
+	TenantID  string    `bun:"tenant_id"`
+	Username  string    `bun:"username"`
+	Role      string    `bun:"role"`
+	InvitedBy string    `bun:"invited_by"`
+	Status    string    `bun:"status"` // pending, accepted, rejected, expired
+	ExpiresAt time.Time `bun:"expires_at"`
+	CreatedAt time.Time `bun:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at"`
+}

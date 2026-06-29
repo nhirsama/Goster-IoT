@@ -12,4 +12,8 @@ var (
 	ErrDeviceTenantMismatch  = errors.New("device: tenant mismatch")
 	ErrDeviceCommandNotFound = errors.New("device command: not found")
 	ErrDownlinkQueueFull     = errors.New("downlink queue: full")
+	ErrCannotRemoveSelf      = errors.New("tenant: cannot remove yourself")
+	ErrInvitationNotFound    = errors.New("tenant invitation: not found")
+	ErrInvitationExpired     = errors.New("tenant invitation: expired")
+	ErrInvitationAccepted    = errors.New("tenant invitation: already processed")
 )

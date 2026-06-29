@@ -176,6 +176,19 @@ type TenantRoleRepository interface {
 	GetUserTenantRoles(username string) (map[string]TenantRole, error)
 }
 
+// TenantInvitation 租户邀请
+type TenantInvitation struct {
+	ID        string     `json:"id"`
+	TenantID  string     `json:"tenant_id"`
+	Username  string     `json:"username"`
+	Role      TenantRole `json:"role"`
+	InvitedBy string     `json:"invited_by"`
+	Status    string     `json:"status"` // pending, accepted, rejected, expired
+	ExpiresAt time.Time  `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
 // TenantRepository 描述租户主档和租户成员管理能力。
 type TenantRepository interface {
 	ListTenants() ([]Tenant, error)
@@ -186,6 +199,11 @@ type TenantRepository interface {
 	ListTenantUsers(tenantID string) ([]TenantUser, error)
 	AddTenantUser(tenantID, username string, role TenantRole) error
 	RemoveTenantUser(tenantID, username string) error
+	CreateTenantInvitation(invitation TenantInvitation) (TenantInvitation, error)
+	ListPendingInvitations(username string) ([]TenantInvitation, error)
+	GetInvitation(invitationID string) (TenantInvitation, error)
+	AcceptInvitation(invitationID string) error
+	RejectInvitation(invitationID string) error
 }
 
 // DeviceRegistryStore 是设备注册服务依赖的最小仓储组合。

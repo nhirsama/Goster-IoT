@@ -27,6 +27,7 @@ import {
   Building2,
   Check,
   ChevronsUpDown,
+  Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -62,10 +63,10 @@ type NavEntry = {
 };
 
 const managementEntries: NavEntry[] = [
+  { href: "/invitations", label: "租户邀请", icon: Bell, minPermission: 1 },
   { href: "/pending", label: "待处理认证", icon: Bell, minPermission: 2 },
   { href: "/blacklist", label: "黑名单", icon: Ban, minPermission: 1 },
   { href: "/tenants", label: "租户管理", icon: Building2, minPermission: 3 },
-  { href: "/users", label: "用户管理", icon: Users, minPermission: 3 },
 ];
 
 function clsx(...values: Array<string | false>) {
@@ -186,180 +187,131 @@ export default function DashboardShell({
         </div>
       </header>
 
-      <aside className="hidden w-[300px] shrink-0 border-r border-slate-200/70 bg-white/70 backdrop-blur-xl lg:flex lg:flex-col">
-        <div className="border-b border-slate-200/70 px-5 py-5">
+      <aside className="hidden lg:flex lg:w-64 xl:w-72 shrink-0 border-r border-slate-200/70 bg-white/70 backdrop-blur-xl lg:flex-col">
+        <div className="border-b border-slate-200/70 px-4 py-4 shrink-0">
           <Link href="/" className="flex items-center gap-2.5">
             <div className="rounded-xl bg-primary p-2 text-primary-foreground shadow-sm">
               <Network className="h-5 w-5" />
             </div>
-            <div>
-              <p className="text-base font-semibold text-slate-900">Goster IoT</p>
-              <p className="text-xs text-slate-500">Device Control Center</p>
+            <div className="min-w-0">
+              <p className="text-base font-semibold text-slate-900 truncate">Goster IoT</p>
+              <p className="text-xs text-slate-500 truncate">{activeTenant?.name || "默认租户"}</p>
             </div>
           </Link>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto px-4 py-5">
-          <section className="space-y-3">
-            <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">租户上下文</div>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <button className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5 text-left text-sm transition hover:bg-slate-50" />
-                }
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <Building2 className="h-4 w-4 shrink-0 text-slate-500" />
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold text-slate-900">{activeTenant?.name || activeTenantId}</span>
-                    <span className="block truncate font-mono text-[11px] text-slate-500">{activeTenantId}</span>
-                  </span>
-                </span>
-                <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-72">
-                <DropdownMenuLabel>切换租户</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  {tenantItems.length === 0 ? (
-                    <DropdownMenuItem disabled>暂无可用租户</DropdownMenuItem>
-                  ) : (
-                    tenantItems.map((tenant) => (
-                      <DropdownMenuItem
-                        key={tenant.id}
-                        className="cursor-pointer"
-                        onClick={() => handleTenantSwitch(tenant.id)}
-                      >
-                        <Building2 className="h-4 w-4" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{tenant.name || tenant.id}</span>
-                          <span className="block truncate font-mono text-[11px] text-slate-500">{tenant.id}</span>
-                        </span>
-                        {tenant.id === activeTenantId ? <Check className="h-4 w-4 text-primary" /> : null}
-                      </DropdownMenuItem>
-                    ))
-                  )}
-                </DropdownMenuGroup>
-                {permission >= 3 ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/tenants")}>
-                      <Building2 className="h-4 w-4" />
-                      管理租户
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </section>
-
-          <section className="space-y-3">
-            <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">在线设备</div>
-            <div className="space-y-1.5">
-              <Link
-                href="/devices"
-                className={clsx(
-                  "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition",
-                  pathname === "/devices"
-                    ? "border-primary/30 bg-primary/10 text-primary"
-                    : "border-transparent bg-white/80 text-slate-700 hover:border-slate-200 hover:bg-slate-50"
-                )}
-              >
-                <Wifi className="h-4 w-4" />
-                在线设备列表
-              </Link>
-
-              {devices.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center">
-                  <Wifi className="mx-auto h-5 w-5 text-slate-300" />
-                  <p className="mt-2 text-xs text-slate-400">暂无在线设备</p>
-                </div>
-              ) : (
-                devices.map((device: DeviceRecord) => {
-                  const active = pathname === "/devices/detail";
-                  return (
-                    <Link
-                      key={device.uuid}
-                      href={`/devices/detail?uuid=${encodeURIComponent(device.uuid)}`}
-                      className={clsx(
-                        "block rounded-xl border px-3 py-2.5 transition",
-                        active
-                          ? "border-primary/30 bg-primary/10"
-                          : "border-transparent bg-white/80 hover:border-slate-200 hover:bg-slate-50"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className={clsx("truncate text-sm font-medium", active ? "text-primary" : "text-slate-800")}>
-                            {device.meta.name}
-                          </p>
-                          <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                            <Fingerprint className="h-3 w-3" />
-                            <span className="truncate font-mono">{device.uuid.split("-")[0]}</span>
-                          </div>
-                        </div>
-                        <span
-                          className={clsx(
-                            "h-2.5 w-2.5 shrink-0 rounded-full",
-                            device.runtime?.status === 1
-                              ? "bg-emerald-500"
-                              : device.runtime?.status === 2
-                                ? "bg-amber-500"
-                                : "bg-slate-300"
-                          )}
-                        />
-                      </div>
-                    </Link>
-                  );
-                })
+        <div className="flex-1 overflow-y-auto px-3 py-3 min-h-0">
+          <nav className="space-y-0.5">
+            <Link
+              href="/"
+              className={clsx(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                pathname === "/"
+                  ? "bg-primary/10 text-primary"
+                  : "text-slate-700 hover:bg-slate-100"
               )}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">管理模块</div>
-            <div className="space-y-1.5">
-              {availableManagementEntries.map((entry) => {
-                const active = pathname === entry.href;
-                return (
-                  <Link
-                    key={entry.href}
-                    href={entry.href}
-                    className={clsx(
-                      "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition",
-                      active
-                        ? "border-primary/30 bg-primary/10 text-primary"
-                        : "border-transparent bg-white/80 text-slate-700 hover:border-slate-200 hover:bg-slate-50"
-                    )}
-                  >
-                    <entry.icon className="h-4 w-4" />
-                    {entry.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
+            >
+              <Home className="h-4 w-4" />
+              概览
+            </Link>
+            <Link
+              href="/devices"
+              className={clsx(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                pathname === "/devices" || pathname === "/devices/detail"
+                  ? "bg-primary/10 text-primary"
+                  : "text-slate-700 hover:bg-slate-100"
+              )}
+            >
+              <Wifi className="h-4 w-4" />
+              设备管理
+            </Link>
+            {availableManagementEntries.map((entry) => {
+              const active = pathname === entry.href;
+              return (
+                <Link
+                  key={entry.href}
+                  href={entry.href}
+                  className={clsx(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-slate-700 hover:bg-slate-100"
+                  )}
+                >
+                  <entry.icon className="h-4 w-4" />
+                  {entry.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
 
-        <div className="border-t border-slate-200/70 px-4 py-4">
-          <div className="mb-3 flex items-center justify-between rounded-xl border border-slate-200 bg-white/80 px-3 py-2">
-            <div>
-              <p className="text-sm font-medium text-slate-900">{user?.username}</p>
-              <p className="text-xs text-slate-500">{getPermissionRoleLabel(permission)}</p>
-            </div>
-            <Badge variant="outline" className="rounded-full bg-slate-50 text-slate-600">
-              在线
-            </Badge>
-          </div>
-          <Button
-            variant="outline"
-            className="w-full justify-start border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-            onClick={() => logoutMutation.mutate()}
-            disabled={logoutMutation.isPending}
-          >
-            <LogOut className="h-4 w-4" />
-            退出系统
-          </Button>
+        <div className="border-t border-slate-200/70 px-3 py-3 shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-slate-100 min-w-0" />
+              }
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-700 font-medium text-sm">
+                {user?.username?.charAt(0).toUpperCase() || "U"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-slate-900">{user?.username}</p>
+                <p className="truncate text-xs text-slate-500">{getPermissionRoleLabel(permission)}</p>
+              </div>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top" className="w-64">
+              <DropdownMenuGroup>
+                <div className="px-2 py-1.5">
+                  <p className="text-sm font-medium text-slate-900">{user?.username}</p>
+                  <p className="text-xs text-slate-500">{getPermissionRoleLabel(permission)}</p>
+                </div>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>切换租户</DropdownMenuLabel>
+                {tenantItems.length === 0 ? (
+                  <DropdownMenuItem disabled>暂无可用租户</DropdownMenuItem>
+                ) : (
+                  tenantItems.map((tenant) => (
+                    <DropdownMenuItem
+                      key={tenant.id}
+                      className="cursor-pointer"
+                      onClick={() => handleTenantSwitch(tenant.id)}
+                    >
+                      <Building2 className="h-4 w-4" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{tenant.name || tenant.id}</span>
+                        <span className="block truncate font-mono text-[11px] text-slate-500">{tenant.id}</span>
+                      </span>
+                      {tenant.id === activeTenantId ? <Check className="h-4 w-4 text-primary" /> : null}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/settings")}>
+                  <Settings className="h-4 w-4" />
+                  设置
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  className="cursor-pointer text-rose-600 focus:text-rose-600"
+                  onClick={() => logoutMutation.mutate()}
+                  disabled={logoutMutation.isPending}
+                >
+                  <LogOut className="h-4 w-4" />
+                  退出登录
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
