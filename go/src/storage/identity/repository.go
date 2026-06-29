@@ -109,7 +109,7 @@ func (r *Repository) Save(ctx context.Context, user authboss.User) error {
 			return authboss.ErrUserNotFound
 		}
 
-		return userstorage.SyncLegacyTenantRole(ctx, tx, u.Username, inter.PermissionType(u.Permission))
+		return nil
 	})
 }
 
@@ -129,11 +129,8 @@ func (r *Repository) Create(ctx context.Context, user authboss.User) error {
 			return err
 		}
 
-		if count == 0 {
-			u.Permission = int(inter.PermissionAdmin)
-		} else {
-			u.Permission = int(inter.PermissionNone)
-		}
+		firstAccount := count == 0
+		u.Permission = int(inter.PermissionNone)
 		if strings.TrimSpace(u.Username) == "" && strings.TrimSpace(u.OAuth2Provider) != "" {
 			u.Username = u.OAuth2Provider + "_" + u.OAuth2UID
 		}
@@ -150,7 +147,10 @@ func (r *Repository) Create(ctx context.Context, user authboss.User) error {
 		}
 		u.ID = int(row.ID)
 
-		return userstorage.SyncLegacyTenantRole(ctx, tx, u.Username, inter.PermissionType(u.Permission))
+		if firstAccount {
+			return userstorage.SyncLegacyTenantRole(ctx, tx, u.Username, inter.PermissionAdmin)
+		}
+		return nil
 	})
 }
 

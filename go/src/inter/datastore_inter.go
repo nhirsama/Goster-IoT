@@ -166,6 +166,7 @@ type ExternalEntityRepository interface {
 type UserRepository interface {
 	GetUserCount() (int, error)
 	ListUsers() ([]User, error)
+	ListUsersByTenant(tenantID string) ([]User, error)
 	GetUserPermission(username string) (PermissionType, error)
 	UpdateUserPermission(username string, perm PermissionType) error
 }
@@ -178,6 +179,7 @@ type TenantRoleRepository interface {
 // TenantRepository 描述租户主档和租户成员管理能力。
 type TenantRepository interface {
 	ListTenants() ([]Tenant, error)
+	ListUserTenants(username string) ([]Tenant, error)
 	GetTenant(tenantID string) (Tenant, error)
 	CreateTenant(tenant Tenant) (Tenant, error)
 	UpdateTenant(tenantID string, updates Tenant) (Tenant, error)
@@ -218,6 +220,7 @@ type WebV1Store interface {
 type User struct {
 	Username   string         `json:"username"`
 	Permission PermissionType `json:"permission"`
+	TenantRole TenantRole     `json:"tenant_role,omitempty"`
 	CreatedAt  time.Time      `json:"created_at"`
 }
 

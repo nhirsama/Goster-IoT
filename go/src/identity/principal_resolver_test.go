@@ -53,6 +53,12 @@ func TestTenantPrincipalResolverMemberUsesRequestedTenant(t *testing.T) {
 	if principal.Scope.TenantID != "tenant_b" {
 		t.Fatalf("unexpected tenant id: got=%s want=%s", principal.Scope.TenantID, "tenant_b")
 	}
+	if principal.Role != inter.TenantRoleRO {
+		t.Fatalf("unexpected role: got=%s want=%s", principal.Role, inter.TenantRoleRO)
+	}
+	if principal.Permission != inter.PermissionReadOnly {
+		t.Fatalf("unexpected permission: got=%d want=%d", principal.Permission, inter.PermissionReadOnly)
+	}
 	if principal.TenantRoles["tenant_a"] != inter.TenantRoleRW {
 		t.Fatalf("unexpected tenant roles: %+v", principal.TenantRoles)
 	}
@@ -88,16 +94,15 @@ func TestTenantPrincipalResolverAdminCanSwitchTenant(t *testing.T) {
 		},
 	})
 
-	principal, err := resolver.Resolve(context.Background(), stubSessionUser{
+	_, err := resolver.Resolve(context.Background(), stubSessionUser{
 		username: "admin",
 		perm:     inter.PermissionAdmin,
 	}, "tenant_other")
-	if err != nil {
-		t.Fatalf("Resolve failed: %v", err)
+	if err == nil {
+		t.Fatal("admin without tenant membership should not switch to an unrelated tenant")
 	}
-
-	if principal.Scope.TenantID != "tenant_other" {
-		t.Fatalf("unexpected admin tenant id: got=%s want=%s", principal.Scope.TenantID, "tenant_other")
+	if err != inter.ErrCrossTenantScope {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -120,5 +125,41 @@ func TestTenantPrincipalResolverFallsBackToLegacyTenant(t *testing.T) {
 
 	if principal.Scope.TenantID != "tenant_legacy" {
 		t.Fatalf("unexpected default tenant id: got=%s want=%s", principal.Scope.TenantID, "tenant_legacy")
+	}
+	if principal.Role != inter.TenantRoleRO || principal.Permission != inter.PermissionReadOnly {
+		t.Fatalf("unexpected default tenant role/permission: role=%s permission=%d", principal.Role, principal.Permission)
+	}
+}
+
+func TestTenantPrincipalResolverDerivesPermissionFromTenantRole(t *testing.T) {
+	resolver := NewTenantPrincipalResolver(stubTenantRoleStore{
+		roles: map[string]map[string]inter.TenantRole{
+			"member": {
+				"tenant_rw":    inter.TenantRoleRW,
+				"tenant_admin": inter.TenantRoleAdmin,
+			},
+		},
+	})
+
+	principal, err := resolver.Resolve(context.Background(), stubSessionUser{
+		username: "member",
+		perm:     inter.PermissionNone,
+	}, "tenant_rw")
+	if err != nil {
+		t.Fatalf("Resolve tenant_rw failed: %v", err)
+	}
+	if principal.Permission != inter.PermissionReadWrite {
+		t.Fatalf("tenant_rw should derive readwrite permission, got %d", principal.Permission)
+	}
+
+	principal, err = resolver.Resolve(context.Background(), stubSessionUser{
+		username: "member",
+		perm:     inter.PermissionNone,
+	}, "tenant_admin")
+	if err != nil {
+		t.Fatalf("Resolve tenant_admin failed: %v", err)
+	}
+	if principal.Permission != inter.PermissionAdmin {
+		t.Fatalf("tenant_admin should derive admin permission, got %d", principal.Permission)
 	}
 }

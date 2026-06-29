@@ -66,12 +66,6 @@ func (api *API) AuthMiddleware(next http.HandlerFunc, minPerm inter.PermissionTy
 			return
 		}
 
-		if user.GetPermission() < minPerm {
-			api.ErrorWithRequestID(w, http.StatusForbidden, rid, 40301, "forbidden",
-				&ErrorDetail{Type: "permission_denied"})
-			return
-		}
-
 		requestedTenant := api.requestedTenantID(r)
 		principal, err := api.principalResolver.Resolve(r.Context(), user, requestedTenant)
 		if err != nil {
@@ -84,13 +78,21 @@ func (api *API) AuthMiddleware(next http.HandlerFunc, minPerm inter.PermissionTy
 			return
 		}
 
+		if principal.Permission < minPerm {
+			api.ErrorWithRequestID(w, http.StatusForbidden, rid, 40301, "forbidden",
+				&ErrorDetail{Type: "permission_denied"})
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), ContextRequestID, rid)
 		ctx = context.WithValue(ctx, ContextUsername, principal.Username)
 		ctx = context.WithValue(ctx, ContextPerm, principal.Permission)
 		ctx = context.WithValue(ctx, ContextTenantID, principal.Scope.TenantID)
+		ctx = context.WithValue(ctx, ContextTenantRole, principal.Role)
 		ctx = logger.IntoContext(ctx, logger.FromContext(ctx).With(
 			inter.String("username", principal.Username),
 			inter.Int("permission", int(principal.Permission)),
+			inter.String("tenant_role", string(principal.Role)),
 			inter.String("requested_tenant_id", requestedTenant),
 			inter.String("tenant_id", principal.Scope.TenantID),
 		))

@@ -38,6 +38,28 @@ func (r *Repository) ListTenants() ([]inter.Tenant, error) {
 	return out, nil
 }
 
+func (r *Repository) ListUserTenants(username string) ([]inter.Tenant, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return []inter.Tenant{}, nil
+	}
+	var rows []bunrepo.TenantRow
+	if err := r.db.NewSelect().
+		Model(&rows).
+		Join("JOIN tenant_users AS tu ON tu.tenant_id = tenant_row.id").
+		Where("tu.username = ?", username).
+		OrderExpr("tenant_row.created_at ASC, tenant_row.id ASC").
+		Scan(context.Background()); err != nil {
+		return nil, err
+	}
+
+	out := make([]inter.Tenant, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, tenantFromRow(row))
+	}
+	return out, nil
+}
+
 func (r *Repository) GetTenant(tenantID string) (inter.Tenant, error) {
 	var row bunrepo.TenantRow
 	err := r.db.NewSelect().

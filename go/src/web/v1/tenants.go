@@ -13,13 +13,23 @@ import (
 func (api *API) TenantsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		tenants, err := api.dataStore.ListTenants()
+		username, _ := r.Context().Value(ContextUsername).(string)
+		tenantRoles, err := api.dataStore.GetUserTenantRoles(username)
 		if err != nil {
 			api.InternalError(w, r, 50051, err)
 			return
 		}
+		tenants, err := api.dataStore.ListUserTenants(username)
+		if err != nil {
+			api.InternalError(w, r, 50051, err)
+			return
+		}
+		items := make([]map[string]interface{}, 0, len(tenants))
+		for _, tenant := range tenants {
+			items = append(items, tenantWithRolePayload(tenant, tenantRoles[tenant.ID]))
+		}
 		api.OK(w, r, map[string]interface{}{
-			"items": tenants,
+			"items": items,
 			"total": len(tenants),
 		})
 	case http.MethodPost:
@@ -39,6 +49,17 @@ func (api *API) TenantsHandler(w http.ResponseWriter, r *http.Request) {
 				&ErrorDetail{Type: "validation_error", Field: "name"})
 			return
 		}
+		if !isValidTenantStatus(payload.Status, true) {
+			api.Error(w, r, http.StatusBadRequest, 40058, "invalid tenant status",
+				&ErrorDetail{Type: "validation_error", Field: "status"})
+			return
+		}
+		username, _ := r.Context().Value(ContextUsername).(string)
+		if strings.TrimSpace(username) == "" {
+			api.Error(w, r, http.StatusUnauthorized, 40151, "unauthorized",
+				&ErrorDetail{Type: "auth_required"})
+			return
+		}
 		tenant, err := api.dataStore.CreateTenant(inter.Tenant{
 			Name:   name,
 			Status: inter.TenantStatus(payload.Status),
@@ -47,6 +68,10 @@ func (api *API) TenantsHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			api.Error(w, r, http.StatusConflict, 40951, "create tenant failed",
 				&ErrorDetail{Type: "conflict", Field: "name", Reason: err.Error()})
+			return
+		}
+		if err := api.dataStore.AddTenantUser(tenant.ID, username, inter.TenantRoleAdmin); err != nil {
+			api.InternalError(w, r, 50054, err)
 			return
 		}
 		api.write(w, http.StatusCreated, Envelope{
@@ -94,6 +119,9 @@ func (api *API) TenantByIDHandler(w http.ResponseWriter, r *http.Request) {
 func (api *API) handleTenantDetail(w http.ResponseWriter, r *http.Request, tenantID string) {
 	switch r.Method {
 	case http.MethodGet:
+		if !api.ensureTenantAccess(w, r, tenantID, inter.PermissionReadOnly) {
+			return
+		}
 		tenant, err := api.dataStore.GetTenant(tenantID)
 		if err != nil {
 			api.tenantError(w, r, err, 40453)
@@ -101,6 +129,9 @@ func (api *API) handleTenantDetail(w http.ResponseWriter, r *http.Request, tenan
 		}
 		api.OK(w, r, tenant)
 	case http.MethodPatch:
+		if !api.ensureTenantAccess(w, r, tenantID, inter.PermissionAdmin) {
+			return
+		}
 		var payload struct {
 			Name   string                 `json:"name,omitempty"`
 			Status string                 `json:"status,omitempty"`
@@ -109,6 +140,11 @@ func (api *API) handleTenantDetail(w http.ResponseWriter, r *http.Request, tenan
 		if err := DecodeBody(r, &payload, api.maxAPIBodyBytes()); err != nil {
 			api.Error(w, r, http.StatusBadRequest, 40054, "invalid json body",
 				&ErrorDetail{Type: "validation_error"})
+			return
+		}
+		if !isValidTenantStatus(payload.Status, true) {
+			api.Error(w, r, http.StatusBadRequest, 40058, "invalid tenant status",
+				&ErrorDetail{Type: "validation_error", Field: "status"})
 			return
 		}
 		tenant, err := api.dataStore.UpdateTenant(tenantID, inter.Tenant{
@@ -127,6 +163,9 @@ func (api *API) handleTenantDetail(w http.ResponseWriter, r *http.Request, tenan
 }
 
 func (api *API) handleTenantUsers(w http.ResponseWriter, r *http.Request, tenantID string, rest []string) {
+	if !api.ensureTenantAccess(w, r, tenantID, inter.PermissionAdmin) {
+		return
+	}
 	if len(rest) == 0 {
 		switch r.Method {
 		case http.MethodGet:
@@ -153,6 +192,11 @@ func (api *API) handleTenantUsers(w http.ResponseWriter, r *http.Request, tenant
 			if username == "" {
 				api.Error(w, r, http.StatusBadRequest, 40056, "username is required",
 					&ErrorDetail{Type: "validation_error", Field: "username"})
+				return
+			}
+			if !isValidTenantRole(payload.Role) {
+				api.Error(w, r, http.StatusBadRequest, 40059, "invalid tenant role",
+					&ErrorDetail{Type: "validation_error", Field: "role"})
 				return
 			}
 			if _, err := api.dataStore.GetUserPermission(username); err != nil {
@@ -216,4 +260,53 @@ func (api *API) tenantError(w http.ResponseWriter, r *http.Request, err error, n
 		return
 	}
 	api.InternalError(w, r, 50052, err)
+}
+
+func (api *API) ensureTenantAccess(w http.ResponseWriter, r *http.Request, tenantID string, minPerm inter.PermissionType) bool {
+	if api.tenantID(r) != tenantID {
+		api.Error(w, r, http.StatusForbidden, 40351, "forbidden",
+			&ErrorDetail{Type: "tenant_access_denied", Field: "tenant_id"})
+		return false
+	}
+	perm, _ := r.Context().Value(ContextPerm).(inter.PermissionType)
+	if perm < minPerm {
+		api.Error(w, r, http.StatusForbidden, 40352, "forbidden",
+			&ErrorDetail{Type: "permission_denied"})
+		return false
+	}
+	return true
+}
+
+func tenantWithRolePayload(tenant inter.Tenant, role inter.TenantRole) map[string]interface{} {
+	return map[string]interface{}{
+		"id":         tenant.ID,
+		"name":       tenant.Name,
+		"status":     tenant.Status,
+		"created_at": tenant.CreatedAt,
+		"updated_at": tenant.UpdatedAt,
+		"meta":       tenant.Meta,
+		"role":       role,
+	}
+}
+
+func isValidTenantStatus(status string, allowEmpty bool) bool {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	if normalized == "" {
+		return allowEmpty
+	}
+	switch normalized {
+	case string(inter.TenantStatusActive), string(inter.TenantStatusSuspended), string(inter.TenantStatusArchived):
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidTenantRole(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case string(inter.TenantRoleAdmin), string(inter.TenantRoleRW), string(inter.TenantRoleRO):
+		return true
+	default:
+		return false
+	}
 }

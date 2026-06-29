@@ -54,6 +54,45 @@ func (r *Repository) ListUsers() ([]inter.User, error) {
 	return out, nil
 }
 
+func (r *Repository) ListUsersByTenant(tenantID string) ([]inter.User, error) {
+	tenantID = bunrepo.NormalizeTenantID(tenantID)
+	var rows []struct {
+		Username  sql.NullString `bun:"username"`
+		CreatedAt sql.NullTime   `bun:"created_at"`
+		Role      sql.NullString `bun:"role"`
+	}
+	if err := r.db.NewSelect().
+		TableExpr("users AS u").
+		ColumnExpr("u.username AS username").
+		ColumnExpr("u.created_at AS created_at").
+		ColumnExpr("tu.role AS role").
+		Join("LEFT JOIN tenant_users AS tu ON tu.username = u.username AND tu.tenant_id = ?", tenantID).
+		OrderExpr("u.created_at ASC, u.id ASC").
+		Scan(context.Background(), &rows); err != nil {
+		return nil, err
+	}
+
+	out := make([]inter.User, 0, len(rows))
+	for _, row := range rows {
+		user := inter.User{}
+		if row.Username.Valid {
+			user.Username = row.Username.String
+		} else {
+			user.Username = "Unknown"
+		}
+		if row.CreatedAt.Valid {
+			user.CreatedAt = row.CreatedAt.Time
+		}
+		if row.Role.Valid && strings.TrimSpace(row.Role.String) != "" {
+			role := bunrepo.NormalizeTenantRole(row.Role.String)
+			user.TenantRole = role
+			user.Permission = inter.PermissionFromTenantRole(role)
+		}
+		out = append(out, user)
+	}
+	return out, nil
+}
+
 func (r *Repository) GetUserPermission(username string) (inter.PermissionType, error) {
 	var row struct {
 		Permission int `bun:"permission"`

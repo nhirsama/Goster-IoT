@@ -102,6 +102,9 @@ func TestAPIAuthHandlersValidation(t *testing.T) {
 
 func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 	env := newTestAPI(t)
+	if err := env.dataStore.AddTenantUser("tenant_legacy", "admin", inter.TenantRoleAdmin); err != nil {
+		t.Fatalf("failed to seed admin tenant role: %v", err)
+	}
 	user := &identitycore.AuthUser{
 		Username:   "admin",
 		Email:      "admin@test.local",
@@ -119,6 +122,8 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), authboss.CTXKeyUser, user))
 	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextUsername, "admin"))
 	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextPerm, inter.PermissionAdmin))
+	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextTenantID, "tenant_legacy"))
+	req = req.WithContext(context.WithValue(req.Context(), apiv1.ContextTenantRole, inter.TenantRoleAdmin))
 	rec = httptest.NewRecorder()
 	env.api.MeHandler(rec, req)
 	if rec.Code != http.StatusOK {
@@ -160,6 +165,9 @@ func TestAPILogoutAndMeAndAuthMiddleware(t *testing.T) {
 		nextCalled = true
 		if got := r.Context().Value(apiv1.ContextUsername); got != "admin" {
 			t.Fatalf("unexpected context username: %v", got)
+		}
+		if got := r.Context().Value(apiv1.ContextPerm); got != inter.PermissionAdmin {
+			t.Fatalf("unexpected context permission: %v", got)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}, inter.PermissionReadOnly).ServeHTTP(rec, okReq)
@@ -261,8 +269,8 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/tester/permission", bytes.NewBufferString(`{"permission":1}`))
 	rec = httptest.NewRecorder()
 	env.api.UserPermissionHandler(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("update permission expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGone {
+		t.Fatalf("deprecated permission endpoint expected 410, got %d, body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/devices/"+uuid, nil)
@@ -386,31 +394,15 @@ func TestAPIRefreshTokenNotFound(t *testing.T) {
 	}
 }
 
-func TestAPIUserPermissionValidationAndNotFound(t *testing.T) {
+func TestAPIUserPermissionEndpointDeprecated(t *testing.T) {
 	env := newTestAPI(t)
-	seedUser(t, env.dataStore, "perm_user")
-	beforePerm, err := env.dataStore.GetUserPermission("perm_user")
-	if err != nil {
-		t.Fatalf("failed to get initial permission: %v", err)
-	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/perm_user/permission",
 		bytes.NewBufferString(`{"permission":"bad"}`))
 	rec := httptest.NewRecorder()
 	env.api.UserPermissionHandler(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("invalid permission should return 400, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	if perm, err := env.dataStore.GetUserPermission("perm_user"); err != nil || perm != beforePerm {
-		t.Fatalf("permission should remain unchanged after invalid request: perm=%d err=%v", perm, err)
-	}
-
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/not_exist/permission",
-		bytes.NewBufferString(`{"permission":2}`))
-	rec = httptest.NewRecorder()
-	env.api.UserPermissionHandler(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("user not found should return 404, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGone {
+		t.Fatalf("deprecated permission endpoint should return 410, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -447,35 +439,6 @@ func TestAPIDeviceTokenVisibilityByPermission(t *testing.T) {
 	detailMeta := readwriteData["meta"].(map[string]interface{})
 	if token, ok := detailMeta["token"].(string); !ok || strings.TrimSpace(token) == "" {
 		t.Fatalf("readwrite user should see token")
-	}
-}
-
-func TestAPIUserPermissionGuardsSelfAndLastAdmin(t *testing.T) {
-	env := newTestAPI(t)
-	seedUser(t, env.dataStore, "admin_only")
-
-	selfReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin_only/permission",
-		bytes.NewBufferString(`{"permission":1}`))
-	selfReq = withUserPerm(selfReq, "admin_only", inter.PermissionAdmin)
-	selfRec := httptest.NewRecorder()
-	env.api.UserPermissionHandler(selfRec, selfReq)
-	if selfRec.Code != http.StatusBadRequest {
-		t.Fatalf("self demotion should return 400, got %d", selfRec.Code)
-	}
-	if code := mustJSONEnvelope(t, selfRec).Code; code != 40046 {
-		t.Fatalf("self demotion expected code 40046, got %d", code)
-	}
-
-	lastAdminReq := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin_only/permission",
-		bytes.NewBufferString(`{"permission":1}`))
-	lastAdminReq = withUserPerm(lastAdminReq, "other_admin", inter.PermissionAdmin)
-	lastAdminRec := httptest.NewRecorder()
-	env.api.UserPermissionHandler(lastAdminRec, lastAdminReq)
-	if lastAdminRec.Code != http.StatusBadRequest {
-		t.Fatalf("last admin demotion should return 400, got %d", lastAdminRec.Code)
-	}
-	if code := mustJSONEnvelope(t, lastAdminRec).Code; code != 40047 {
-		t.Fatalf("last admin demotion expected code 40047, got %d", code)
 	}
 }
 

@@ -13,10 +13,11 @@ import (
 type ContextKey string
 
 const (
-	ContextRequestID ContextKey = "request_id"
-	ContextUsername  ContextKey = "username"
-	ContextPerm      ContextKey = "permission"
-	ContextTenantID  ContextKey = "tenant_id"
+	ContextRequestID  ContextKey = "request_id"
+	ContextUsername   ContextKey = "username"
+	ContextPerm       ContextKey = "permission"
+	ContextTenantID   ContextKey = "tenant_id"
+	ContextTenantRole ContextKey = "tenant_role"
 )
 
 // ErrorDetail 描述 v1 接口返回的结构化错误信息。
@@ -130,8 +131,8 @@ func (api *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/v1/users", protected(api.UsersHandler, inter.PermissionAdmin))
 	mux.Handle("/api/v1/users/", protectedWithCSRF(api.UserPermissionHandler, inter.PermissionAdmin))
 
-	mux.Handle("/api/v1/tenants", protectedWithCSRF(api.TenantsHandler, inter.PermissionAdmin))
-	mux.Handle("/api/v1/tenants/", protectedWithCSRF(api.TenantByIDHandler, inter.PermissionAdmin))
+	mux.Handle("/api/v1/tenants", protectedWithCSRF(api.TenantsHandler, inter.PermissionNone))
+	mux.Handle("/api/v1/tenants/", protectedWithCSRF(api.TenantByIDHandler, inter.PermissionReadOnly))
 }
 
 // RuntimeStore 返回数据存储，用于健康检查

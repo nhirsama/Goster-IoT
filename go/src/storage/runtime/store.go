@@ -139,6 +139,10 @@ func (s *Store) ListUsers() ([]inter.User, error) {
 	return s.userRepo.ListUsers()
 }
 
+func (s *Store) ListUsersByTenant(tenantID string) ([]inter.User, error) {
+	return s.userRepo.ListUsersByTenant(tenantID)
+}
+
 func (s *Store) GetUserPermission(username string) (inter.PermissionType, error) {
 	return s.userRepo.GetUserPermission(username)
 }
@@ -153,6 +157,10 @@ func (s *Store) GetUserTenantRoles(username string) (map[string]inter.TenantRole
 
 func (s *Store) ListTenants() ([]inter.Tenant, error) {
 	return s.tenantRepo.ListTenants()
+}
+
+func (s *Store) ListUserTenants(username string) ([]inter.Tenant, error) {
+	return s.tenantRepo.ListUserTenants(username)
 }
 
 func (s *Store) GetTenant(tenantID string) (inter.Tenant, error) {

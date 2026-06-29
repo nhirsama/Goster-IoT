@@ -238,7 +238,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 列出系统用户。 */
+        /**
+         * 列出账号。
+         * @description 当前租户的 `tenant_admin` 可访问。返回系统账号列表，并附带账号在当前租户下的成员角色（如存在）。
+         */
         get: operations["listUsers"];
         put?: never;
         post?: never;
@@ -248,7 +251,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users/{username}/permission": {
+    "/api/v1/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出当前账号可访问的租户。
+         * @description 账号可以加入多个租户。普通账号只返回自己加入的租户；当前租户 `tenant_admin` 可用于租户管理界面。
+         */
+        get: operations["listTenants"];
+        put?: never;
+        /**
+         * 创建新租户。
+         * @description 已认证账号可创建新租户；创建者会自动成为该租户的 `tenant_admin`。
+         */
+        post: operations["createTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取租户详情。 */
+        get: operations["getTenant"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 更新租户信息。
+         * @description 仅该租户的 `tenant_admin` 可更新租户主档。
+         */
+        patch: operations["updateTenant"];
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出租户用户。
+         * @description 返回指定租户的所有账号及其角色。仅该租户的 `tenant_admin` 可访问。
+         */
+        get: operations["listTenantUsers"];
+        put?: never;
+        /**
+         * 添加用户到租户。
+         * @description 将账号添加到租户并分配租户内角色。仅该租户的 `tenant_admin` 可操作。
+         */
+        post: operations["addTenantUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/users/{username}": {
         parameters: {
             query?: never;
             header?: never;
@@ -257,9 +329,90 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 更新用户权限等级。 */
-        post: operations["updateUserPermission"];
+        post?: never;
+        /**
+         * 从租户移除用户。
+         * @description 仅该租户的 `tenant_admin` 可操作。
+         */
+        delete: operations["removeTenantUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出设备分组。
+         * @description 返回当前租户下的所有设备分组。
+         */
+        get: operations["listDeviceGroups"];
+        put?: never;
+        /**
+         * 创建设备分组。
+         * @description 在当前租户下创建新的设备分组。
+         */
+        post: operations["createDeviceGroup"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取分组详情。 */
+        get: operations["getDeviceGroup"];
+        put?: never;
+        post?: never;
+        /** 删除设备分组。 */
+        delete: operations["deleteDeviceGroup"];
+        options?: never;
+        head?: never;
+        /** 更新分组信息。 */
+        patch: operations["updateDeviceGroup"];
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出分组内的设备。 */
+        get: operations["listGroupDevices"];
+        put?: never;
+        /** 添加设备到分组。 */
+        post: operations["addDeviceToGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/devices/{uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 从分组移除设备。 */
+        delete: operations["removeDeviceFromGroup"];
         options?: never;
         head?: never;
         patch?: never;
@@ -355,11 +508,15 @@ export interface components {
         AuthSession: {
             username: string;
             email?: string | null;
+            /** @description 当前租户角色派生出的有效权限：tenant_ro=1，tenant_rw=2，tenant_admin=3。 */
             permission: components["schemas"]["PermissionType"];
+            /** @description 当前生效租户下的账号角色。 */
+            current_role?: components["schemas"]["TenantRole"];
             /** @description 当前生效租户（由 `X-Tenant-Id` 或服务端默认策略解析）。 */
             active_tenant?: string;
+            /** @description 账号加入的所有租户及其角色。 */
             tenant_roles?: {
-                [key: string]: "tenant_admin" | "tenant_rw" | "tenant_ro";
+                [key: string]: components["schemas"]["TenantRole"];
             };
             /** @default true */
             authenticated: boolean;
@@ -517,7 +674,13 @@ export interface components {
         };
         User: {
             username: string;
-            permission: components["schemas"]["PermissionType"];
+            /**
+             * @deprecated
+             * @description 兼容字段，表示当前租户角色派生出的有效权限；新实现应优先使用 `tenant_role`。
+             */
+            permission?: components["schemas"]["PermissionType"];
+            /** @description 账号在当前租户下的角色；未加入当前租户时为空。 */
+            tenant_role?: components["schemas"]["TenantRole"];
             /** Format: date-time */
             created_at: string;
             extensions?: {
@@ -533,11 +696,120 @@ export interface components {
         UserListResponse: components["schemas"]["ApiResponseBase"] & {
             data: components["schemas"]["UserListData"];
         };
-        UpdatePermissionRequest: {
-            permission: components["schemas"]["PermissionType"];
-            extensions?: {
+        /**
+         * @description 租户角色：
+         *     - tenant_admin: 租户管理员（可管理租户内用户和设备）
+         *     - tenant_rw: 租户读写（可操作设备和数据）
+         *     - tenant_ro: 租户只读（仅查看）
+         * @enum {string}
+         */
+        TenantRole: "tenant_admin" | "tenant_rw" | "tenant_ro";
+        /**
+         * @description 租户状态：
+         *     - active: 活跃
+         *     - suspended: 暂停
+         *     - archived: 归档
+         * @enum {string}
+         */
+        TenantStatus: "active" | "suspended" | "archived";
+        Tenant: {
+            /** @description 租户 ID */
+            id: string;
+            /** @description 租户名称 */
+            name: string;
+            status: components["schemas"]["TenantStatus"];
+            /** @description 当前账号在该租户下的角色；仅列表接口保证返回。 */
+            role?: components["schemas"]["TenantRole"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string;
+            /** @description 租户元数据 */
+            meta?: {
                 [key: string]: unknown;
             };
+        };
+        TenantListResponse: components["schemas"]["ApiResponseBase"] & {
+            data: {
+                items: components["schemas"]["Tenant"][];
+                total: number;
+            };
+        };
+        TenantResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["Tenant"];
+        };
+        CreateTenantRequest: {
+            /** @description 租户名称 */
+            name: string;
+            status?: components["schemas"]["TenantStatus"];
+            meta?: {
+                [key: string]: unknown;
+            };
+        };
+        UpdateTenantRequest: {
+            name?: string;
+            status?: components["schemas"]["TenantStatus"];
+            meta?: {
+                [key: string]: unknown;
+            };
+        };
+        TenantUser: {
+            tenant_id: string;
+            username: string;
+            role: components["schemas"]["TenantRole"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        TenantUserListResponse: components["schemas"]["ApiResponseBase"] & {
+            data: {
+                items: components["schemas"]["TenantUser"][];
+                total: number;
+            };
+        };
+        AddTenantUserRequest: {
+            username: string;
+            role: components["schemas"]["TenantRole"];
+        };
+        DeviceGroup: {
+            /** @description 分组 ID */
+            id: string;
+            /** @description 所属租户 ID */
+            tenant_id: string;
+            /** @description 分组名称 */
+            name: string;
+            /** @description 分组描述 */
+            description?: string | null;
+            /** @description 设备数量 */
+            device_count?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        DeviceGroupListResponse: components["schemas"]["ApiResponseBase"] & {
+            data: {
+                items: components["schemas"]["DeviceGroup"][];
+                total: number;
+                page: number;
+                size: number;
+            };
+        };
+        DeviceGroupResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["DeviceGroup"];
+        };
+        CreateDeviceGroupRequest: {
+            /** @description 分组名称 */
+            name: string;
+            /** @description 分组描述 */
+            description?: string | null;
+        };
+        UpdateDeviceGroupRequest: {
+            name?: string;
+            description?: string | null;
+        };
+        AddDeviceToGroupRequest: {
+            /** @description 设备 UUID */
+            uuid: string;
         };
     };
     responses: {
@@ -610,6 +882,10 @@ export interface components {
         TenantHeader: string;
         /** @description 设备分组过滤参数（当前阶段仅保留契约位，后续实现组级过滤）。 */
         GroupID: string;
+        /** @description 租户 ID */
+        TenantID: string;
+        /** @description 设备分组 ID */
+        GroupIDPath: string;
     };
     requestBodies: never;
     headers: never;
@@ -1016,7 +1292,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 用户列表。 */
+            /** @description 账号列表。 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1029,23 +1305,157 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
-    updateUserPermission: {
+    listTenants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 租户列表。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTenantRequest"];
+            };
+        };
+        responses: {
+            /** @description 租户已创建。 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getTenant: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                username: components["parameters"]["Username"];
+                /** @description 租户 ID */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 租户详情。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户 ID */
+                tenant_id: components["parameters"]["TenantID"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdatePermissionRequest"];
+                "application/json": components["schemas"]["UpdateTenantRequest"];
             };
         };
         responses: {
-            /** @description 权限已更新。 */
+            /** @description 租户已更新。 */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTenantUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户 ID */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 租户用户列表。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantUserListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addTenantUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户 ID */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTenantUserRequest"];
+            };
+        };
+        responses: {
+            /** @description 用户已添加。 */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1054,6 +1464,273 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    removeTenantUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户 ID */
+                tenant_id: components["parameters"]["TenantID"];
+                username: components["parameters"]["Username"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 用户已移除。 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDeviceGroups: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                size?: components["parameters"]["Size"];
+            };
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 设备分组列表。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceGroupListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createDeviceGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDeviceGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description 分组已创建。 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceGroupResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getDeviceGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                /** @description 设备分组 ID */
+                group_id: components["parameters"]["GroupIDPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 分组详情。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceGroupResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteDeviceGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                /** @description 设备分组 ID */
+                group_id: components["parameters"]["GroupIDPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 分组已删除。 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateDeviceGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                /** @description 设备分组 ID */
+                group_id: components["parameters"]["GroupIDPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDeviceGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description 分组已更新。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceGroupResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGroupDevices: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                /** @description 设备分组 ID */
+                group_id: components["parameters"]["GroupIDPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 分组设备列表。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceListData"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addDeviceToGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                /** @description 设备分组 ID */
+                group_id: components["parameters"]["GroupIDPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddDeviceToGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description 设备已添加。 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    removeDeviceFromGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                /** @description 设备分组 ID */
+                group_id: components["parameters"]["GroupIDPath"];
+                uuid: components["parameters"]["DeviceUUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 设备已移除。 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

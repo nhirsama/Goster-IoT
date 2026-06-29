@@ -57,10 +57,6 @@ func TestRepositoryCreateLoadAndTenantRoleSync(t *testing.T) {
 	if got.Username != "member" {
 		t.Fatalf("unexpected username: %s", got.Username)
 	}
-	if got.GetPermission() != inter.PermissionAdmin {
-		t.Fatalf("first user should be admin, got=%v", got.GetPermission())
-	}
-
 	runtimeStore, err := storageruntime.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatalf("OpenSQLite runtime store failed: %v", err)

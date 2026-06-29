@@ -23,6 +23,19 @@ const (
 	TenantRoleRO    TenantRole = "tenant_ro"
 )
 
+func PermissionFromTenantRole(role TenantRole) PermissionType {
+	switch role {
+	case TenantRoleAdmin:
+		return PermissionAdmin
+	case TenantRoleRW:
+		return PermissionReadWrite
+	case TenantRoleRO:
+		return PermissionReadOnly
+	default:
+		return PermissionNone
+	}
+}
+
 type TenantStatus string
 
 const (
@@ -72,6 +85,7 @@ type Principal struct {
 type RequestPrincipal struct {
 	Username    string                `json:"username"`
 	Permission  PermissionType        `json:"permission"`
+	Role        TenantRole            `json:"role"`
 	Scope       Scope                 `json:"scope"`
 	TenantRoles map[string]TenantRole `json:"tenant_roles,omitempty"`
 }

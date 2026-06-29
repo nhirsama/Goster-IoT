@@ -106,6 +106,15 @@ func withPerm(req *http.Request, perm inter.PermissionType) *http.Request {
 	return req.WithContext(ctx)
 }
 
+func withTenantPerm(req *http.Request, tenantID string, role inter.TenantRole) *http.Request {
+	perm := inter.PermissionFromTenantRole(role)
+	ctx := context.WithValue(req.Context(), apiv1.ContextPerm, perm)
+	ctx = context.WithValue(ctx, apiv1.ContextTenantRole, role)
+	ctx = context.WithValue(ctx, apiv1.ContextTenantID, tenantID)
+	ctx = context.WithValue(ctx, apiv1.ContextRequestID, "req_test")
+	return req.WithContext(ctx)
+}
+
 func withUserPerm(req *http.Request, username string, perm inter.PermissionType) *http.Request {
 	ctx := context.WithValue(req.Context(), apiv1.ContextUsername, username)
 	ctx = context.WithValue(ctx, apiv1.ContextPerm, perm)

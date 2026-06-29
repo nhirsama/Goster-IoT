@@ -37,6 +37,7 @@ type Tenant = {
   id: string;
   name: string;
   status: TenantStatus;
+  role?: TenantRole;
   created_at: string;
   updated_at?: string | null;
 };
@@ -98,19 +99,23 @@ export default function TenantsPage() {
   const tenantsQuery = useQuery({
     queryKey: queryKeys.tenants,
     queryFn: () => api.get<TenantListData>("/api/v1/tenants"),
-    enabled: isAuthenticated && user?.permission === 3,
+    enabled: isAuthenticated,
   });
+
+  const tenants = tenantsQuery.data?.items || emptyTenants;
+  const selectedTenant = tenants.find((tenant) => tenant.id === selectedTenantId) || tenants[0];
+  const canManageSelectedTenant = selectedTenant?.role === "tenant_admin";
 
   const tenantUsersQuery = useQuery({
     queryKey: queryKeys.tenantUsers(selectedTenantId),
     queryFn: () => api.get<TenantUserListData>(`/api/v1/tenants/${encodeURIComponent(selectedTenantId)}/users`),
-    enabled: isAuthenticated && user?.permission === 3 && !!selectedTenantId,
+    enabled: isAuthenticated && canManageSelectedTenant && !!selectedTenantId,
   });
 
   const usersQuery = useQuery({
     queryKey: queryKeys.users,
     queryFn: () => api.get<UserListData>("/api/v1/users"),
-    enabled: isAuthenticated && user?.permission === 3,
+    enabled: isAuthenticated && canManageSelectedTenant,
   });
 
   const createTenantMutation = useMutation({
@@ -124,7 +129,9 @@ export default function TenantsPage() {
       setNewTenantName("");
       setNewTenantStatus("active");
       setSelectedTenantId(tenant.id);
+      setActiveTenantId(tenant.id);
       queryClient.invalidateQueries({ queryKey: queryKeys.tenants });
+      queryClient.invalidateQueries({ queryKey: queryKeys.authMe });
     },
     onError: (error: unknown) => {
       toast.error(getApiErrorMessage(error, "创建租户失败"));
@@ -174,7 +181,6 @@ export default function TenantsPage() {
     },
   });
 
-  const tenants = tenantsQuery.data?.items || emptyTenants;
   const filteredTenants = useMemo(() => {
     const normalized = keyword.trim().toLowerCase();
     if (!normalized) return tenants;
@@ -182,9 +188,16 @@ export default function TenantsPage() {
       [tenant.id, tenant.name, tenant.status].some((value) => value.toLowerCase().includes(normalized))
     );
   }, [keyword, tenants]);
-  const selectedTenant = tenants.find((tenant) => tenant.id === selectedTenantId) || tenants[0];
   const members = tenantUsersQuery.data?.items || [];
   const knownUsers = usersQuery.data?.items || [];
+
+  const switchTenant = async (tenantId: string) => {
+    setActiveTenantId(tenantId);
+    setSelectedTenantId(tenantId);
+    await refetchAuth();
+    queryClient.invalidateQueries();
+    toast.success("当前租户已切换");
+  };
 
   if (authLoading) {
     return <EmptyState icon={RefreshCw} title="正在校验会话状态" description="请稍候..." className="py-24" />;
@@ -192,10 +205,6 @@ export default function TenantsPage() {
 
   if (!isAuthenticated) {
     return <EmptyState icon={ShieldAlert} title="需要登录" description="请先登录后再访问租户管理。" className="py-24" />;
-  }
-
-  if (user?.permission !== 3) {
-    return <EmptyState icon={ShieldAlert} title="权限不足" description="只有超级管理员可以管理租户。" className="py-24" />;
   }
 
   return (
@@ -296,6 +305,13 @@ export default function TenantsPage() {
                         >
                           <span className="block truncate font-semibold text-slate-900">{tenant.name}</span>
                           <span className="block truncate font-mono text-xs text-slate-500">{tenant.id}</span>
+                          {tenant.role ? (
+                            <span className="mt-1 inline-flex">
+                              <Badge variant="outline" className={roleMeta[tenant.role].className}>
+                                {roleMeta[tenant.role].label}
+                              </Badge>
+                            </span>
+                          ) : null}
                         </button>
                       </TableCell>
                       <TableCell>
@@ -309,13 +325,7 @@ export default function TenantsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={async () => {
-                              setActiveTenantId(tenant.id);
-                              setSelectedTenantId(tenant.id);
-                              await refetchAuth();
-                              queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
-                              toast.success("当前租户已切换");
-                            }}
+                            onClick={() => switchTenant(tenant.id)}
                           >
                             <Check className="h-4 w-4" />
                             切换
@@ -328,7 +338,7 @@ export default function TenantsPage() {
                                 status: event.target.value as TenantStatus,
                               })
                             }
-                            disabled={updateTenantMutation.isPending}
+                            disabled={tenant.role !== "tenant_admin" || updateTenantMutation.isPending}
                             className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm"
                           >
                             {statusOptions.map((status) => (
@@ -347,15 +357,16 @@ export default function TenantsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+          <Card>
           <CardHeader className="border-b border-slate-200/70 pb-4">
             <div className="space-y-1">
               <CardTitle className="text-base font-semibold text-slate-900">租户成员</CardTitle>
               <p className="font-mono text-xs text-slate-500">{selectedTenant?.id || selectedTenantId}</p>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4 p-4">
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <CardContent className="space-y-4 p-4">
+            {canManageSelectedTenant ? (
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
                   <Input
@@ -391,9 +402,13 @@ export default function TenantsPage() {
                 <UserPlus className="h-4 w-4" />
                 保存成员
               </Button>
-            </div>
+              </div>
+            ) : (
+              <EmptyState icon={ShieldAlert} title="权限不足" description="只有该租户管理员可以管理成员。" className="py-10" />
+            )}
 
-            <div className="rounded-lg border border-slate-200">
+            {canManageSelectedTenant ? (
+              <div className="rounded-lg border border-slate-200">
               {tenantUsersQuery.isLoading ? (
                 <EmptyState icon={RefreshCw} title="正在加载成员" description="请稍候..." className="py-16" />
               ) : members.length === 0 ? (
@@ -438,7 +453,8 @@ export default function TenantsPage() {
                   ))}
                 </div>
               )}
-            </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

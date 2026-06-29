@@ -40,14 +40,15 @@ func (r *tenantPrincipalResolver) Resolve(
 		return inter.RequestPrincipal{}, err
 	}
 
-	tenantID, err := resolveTenantID(user.GetPermission(), requestedTenant, roles)
+	tenantID, role, err := resolveTenantRole(requestedTenant, roles)
 	if err != nil {
 		return inter.RequestPrincipal{}, err
 	}
 
 	return inter.RequestPrincipal{
 		Username:   user.GetUsername(),
-		Permission: user.GetPermission(),
+		Permission: inter.PermissionFromTenantRole(role),
+		Role:       role,
 		Scope: inter.Scope{
 			TenantID: tenantID,
 		},
@@ -76,29 +77,24 @@ func NormalizeTenantID(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-func resolveTenantID(perm inter.PermissionType, requestedTenant string, roles map[string]inter.TenantRole) (string, error) {
-	if perm >= inter.PermissionAdmin {
-		if requestedTenant != "" {
-			return requestedTenant, nil
-		}
-		return chooseDefaultTenant(roles), nil
-	}
-
+func resolveTenantRole(requestedTenant string, roles map[string]inter.TenantRole) (string, inter.TenantRole, error) {
 	if requestedTenant != "" {
-		if _, ok := roles[requestedTenant]; ok {
-			return requestedTenant, nil
+		role, ok := roles[requestedTenant]
+		if ok {
+			return requestedTenant, role, nil
 		}
-		return "", inter.ErrCrossTenantScope
+		return "", "", inter.ErrCrossTenantScope
 	}
 
 	tenantID := chooseDefaultTenant(roles)
 	if tenantID == "" {
-		return "", inter.ErrTenantRequired
+		return "", "", nil
 	}
-	if _, ok := roles[tenantID]; !ok {
-		return "", inter.ErrTenantRequired
+	role, ok := roles[tenantID]
+	if !ok {
+		return "", "", nil
 	}
-	return tenantID, nil
+	return tenantID, role, nil
 }
 
 func chooseDefaultTenant(roles map[string]inter.TenantRole) string {

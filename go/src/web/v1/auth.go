@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -147,21 +148,17 @@ func (api *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		authboss.DelSession(w, authboss.SessionHalfAuthKey)
 	}
 
-	perm := int(inter.PermissionNone)
-	if sessionUser, ok := user.(inter.SessionUser); ok {
-		perm = int(sessionUser.GetPermission())
+	sessionData, err := api.sessionPayload(r, username, email)
+	if err != nil {
+		api.InternalError(w, r, 50019, err)
+		return
 	}
 
 	api.write(w, http.StatusCreated, Envelope{
 		Code:      0,
 		Message:   "created",
 		RequestID: api.requestID(r),
-		Data: map[string]interface{}{
-			"username":      username,
-			"email":         email,
-			"permission":    perm,
-			"authenticated": true,
-		},
+		Data:      sessionData,
 	})
 }
 
@@ -304,10 +301,8 @@ func (api *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := ""
-	perm := int(inter.PermissionNone)
 	if sessionUser, ok := pidUser.(inter.SessionUser); ok {
 		email = sessionUser.GetEmail()
-		perm = int(sessionUser.GetPermission())
 	}
 
 	// 生成 CSRF token 并设置 cookie
@@ -318,13 +313,13 @@ func (api *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	api.SetCSRFCookie(w, r, csrfToken)
 
-	api.OK(w, r, map[string]interface{}{
-		"username":      pidUser.GetPID(),
-		"email":         email,
-		"permission":    perm,
-		"authenticated": true,
-		"csrf_token":    csrfToken,
-	})
+	sessionData, err := api.sessionPayload(r, pidUser.GetPID(), email)
+	if err != nil {
+		api.InternalError(w, r, 50019, err)
+		return
+	}
+	sessionData["csrf_token"] = csrfToken
+	api.OK(w, r, sessionData)
 }
 
 // LogoutHandler 清理当前用户的会话和 remember-me 凭据。
@@ -370,15 +365,67 @@ func (api *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 		api.InternalError(w, r, 50014, err)
 		return
 	}
+	role, _ := r.Context().Value(ContextTenantRole).(inter.TenantRole)
 
 	api.OK(w, r, map[string]interface{}{
 		"username":      username,
 		"email":         email,
 		"permission":    int(perm),
+		"current_role":  roleOrNil(role),
 		"active_tenant": api.tenantID(r),
 		"tenant_roles":  tenantRoles,
 		"authenticated": true,
 	})
+}
+
+func (api *API) sessionPayload(r *http.Request, username, email string) (map[string]interface{}, error) {
+	tenantRoles, err := api.dataStore.GetUserTenantRoles(username)
+	if err != nil {
+		return nil, err
+	}
+	tenantID, role := resolveSessionTenantRole(api.requestedTenantID(r), tenantRoles)
+	return map[string]interface{}{
+		"username":      username,
+		"email":         email,
+		"permission":    int(inter.PermissionFromTenantRole(role)),
+		"current_role":  roleOrNil(role),
+		"active_tenant": tenantID,
+		"tenant_roles":  tenantRoles,
+		"authenticated": true,
+	}, nil
+}
+
+func resolveSessionTenantRole(requestedTenant string, tenantRoles map[string]inter.TenantRole) (string, inter.TenantRole) {
+	requestedTenant = strings.TrimSpace(requestedTenant)
+	if requestedTenant != "" {
+		if role, ok := tenantRoles[requestedTenant]; ok {
+			return requestedTenant, role
+		}
+		return "", ""
+	}
+	if role, ok := tenantRoles[inter.DefaultTenantID]; ok {
+		return inter.DefaultTenantID, role
+	}
+	ids := make([]string, 0, len(tenantRoles))
+	for tenantID := range tenantRoles {
+		tenantID = strings.TrimSpace(tenantID)
+		if tenantID != "" {
+			ids = append(ids, tenantID)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return "", ""
+	}
+	tenantID := ids[0]
+	return tenantID, tenantRoles[tenantID]
+}
+
+func roleOrNil(role inter.TenantRole) interface{} {
+	if role == "" {
+		return nil
+	}
+	return role
 }
 
 func clientIPFromRequest(r *http.Request) string {

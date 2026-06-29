@@ -346,10 +346,12 @@ paths:
     get:
       tags: [User]
       operationId: listUsers
-      summary: 列出系统用户。
+      summary: 列出账号。
+      description: |
+        当前租户的 `tenant_admin` 可访问。返回系统账号列表，并附带账号在当前租户下的成员角色（如存在）。
       responses:
         '200':
-          description: 用户列表。
+          description: 账号列表。
           content:
             application/json:
               schema:
@@ -359,42 +361,13 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
-  /api/v1/users/{username}/permission:
-    post:
-      tags: [User]
-      operationId: updateUserPermission
-      summary: 更新用户权限等级。
-      parameters:
-        - $ref: '#/components/parameters/Username'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePermissionRequest'
-      responses:
-        '200':
-          description: 权限已更新。
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ActionResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
   /api/v1/tenants:
     get:
       tags: [Tenant]
       operationId: listTenants
-      summary: 列出所有租户。
+      summary: 列出当前账号可访问的租户。
       description: |
-        仅管理员可访问。返回系统中所有租户列表。
+        账号可以加入多个租户。普通账号只返回自己加入的租户；当前租户 `tenant_admin` 可用于租户管理界面。
       responses:
         '200':
           description: 租户列表。
@@ -412,7 +385,7 @@ paths:
       operationId: createTenant
       summary: 创建新租户。
       description: |
-        仅管理员可访问。创建新租户并返回租户信息。
+        已认证账号可创建新租户；创建者会自动成为该租户的 `tenant_admin`。
       requestBody:
         required: true
         content:
@@ -460,6 +433,8 @@ paths:
       tags: [Tenant]
       operationId: updateTenant
       summary: 更新租户信息。
+      description: |
+        仅该租户的 `tenant_admin` 可更新租户主档。
       parameters:
         - $ref: '#/components/parameters/TenantID'
       requestBody:
@@ -490,7 +465,7 @@ paths:
       operationId: listTenantUsers
       summary: 列出租户用户。
       description: |
-        返回指定租户的所有用户及其角色。
+        返回指定租户的所有账号及其角色。仅该租户的 `tenant_admin` 可访问。
       parameters:
         - $ref: '#/components/parameters/TenantID'
       responses:
@@ -512,7 +487,7 @@ paths:
       operationId: addTenantUser
       summary: 添加用户到租户。
       description: |
-        将用户添加到租户并分配角色。
+        将账号添加到租户并分配租户内角色。仅该租户的 `tenant_admin` 可操作。
       parameters:
         - $ref: '#/components/parameters/TenantID'
       requestBody:
@@ -544,6 +519,8 @@ paths:
       tags: [Tenant]
       operationId: removeTenantUser
       summary: 从租户移除用户。
+      description: |
+        仅该租户的 `tenant_admin` 可操作。
       parameters:
         - $ref: '#/components/parameters/TenantID'
         - $ref: '#/components/parameters/Username'
@@ -1056,7 +1033,7 @@ components:
 
     AuthSession:
       type: object
-      required: [username, permission]
+      required: [username, permission, authenticated]
       properties:
         username:
           type: string
@@ -1065,9 +1042,19 @@ components:
           nullable: true
         permission:
           $ref: '#/components/schemas/PermissionType'
+          description: 当前租户角色派生出的有效权限：tenant_ro=1，tenant_rw=2，tenant_admin=3。
+        current_role:
+          $ref: '#/components/schemas/TenantRole'
+          nullable: true
+          description: 当前生效租户下的账号角色。
         active_tenant:
           type: string
           description: 当前生效租户（由 `X-Tenant-Id` 或服务端默认策略解析）。
+        tenant_roles:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/TenantRole'
+          description: 账号加入的所有租户及其角色。
         authenticated:
           type: boolean
           default: true
@@ -1352,12 +1339,18 @@ components:
 
     User:
       type: object
-      required: [username, permission, created_at]
+      required: [username, created_at]
       properties:
         username:
           type: string
         permission:
           $ref: '#/components/schemas/PermissionType'
+          deprecated: true
+          description: 兼容字段，表示当前租户角色派生出的有效权限；新实现应优先使用 `tenant_role`。
+        tenant_role:
+          $ref: '#/components/schemas/TenantRole'
+          nullable: true
+          description: 账号在当前租户下的角色；未加入当前租户时为空。
         created_at:
           type: string
           format: date-time
@@ -1386,15 +1379,6 @@ components:
             data:
               $ref: '#/components/schemas/UserListData'
 
-    UpdatePermissionRequest:
-      type: object
-      required: [permission]
-      properties:
-        permission:
-          $ref: '#/components/schemas/PermissionType'
-        extensions:
-          type: object
-          additionalProperties: true
     # 租户相关 Schema
     TenantRole:
       type: string
@@ -1426,6 +1410,9 @@ components:
           description: 租户名称
         status:
           $ref: '#/components/schemas/TenantStatus'
+        role:
+          $ref: '#/components/schemas/TenantRole'
+          description: 当前账号在该租户下的角色；仅列表接口保证返回。
         created_at:
           type: string
           format: date-time
