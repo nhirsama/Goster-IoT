@@ -365,12 +365,18 @@ func (api *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	if su, ok := u.(inter.SessionUser); ok {
 		email = su.GetEmail()
 	}
+	tenantRoles, err := api.dataStore.GetUserTenantRoles(username)
+	if err != nil {
+		api.InternalError(w, r, 50014, err)
+		return
+	}
 
 	api.OK(w, r, map[string]interface{}{
 		"username":      username,
 		"email":         email,
 		"permission":    int(perm),
 		"active_tenant": api.tenantID(r),
+		"tenant_roles":  tenantRoles,
 		"authenticated": true,
 	})
 }

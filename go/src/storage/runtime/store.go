@@ -33,6 +33,7 @@ var (
 	_ inter.ExternalEntityRepository = (*Store)(nil)
 	_ inter.UserRepository           = (*Store)(nil)
 	_ inter.TenantRoleRepository     = (*Store)(nil)
+	_ inter.TenantRepository         = (*Store)(nil)
 	_ inter.CoreStore                = (*Store)(nil)
 	_ inter.WebV1Store               = (*Store)(nil)
 )
@@ -148,4 +149,32 @@ func (s *Store) UpdateUserPermission(username string, perm inter.PermissionType)
 
 func (s *Store) GetUserTenantRoles(username string) (map[string]inter.TenantRole, error) {
 	return s.tenantRepo.GetUserTenantRoles(username)
+}
+
+func (s *Store) ListTenants() ([]inter.Tenant, error) {
+	return s.tenantRepo.ListTenants()
+}
+
+func (s *Store) GetTenant(tenantID string) (inter.Tenant, error) {
+	return s.tenantRepo.GetTenant(tenantID)
+}
+
+func (s *Store) CreateTenant(tenant inter.Tenant) (inter.Tenant, error) {
+	return s.tenantRepo.CreateTenant(tenant)
+}
+
+func (s *Store) UpdateTenant(tenantID string, updates inter.Tenant) (inter.Tenant, error) {
+	return s.tenantRepo.UpdateTenant(tenantID, updates)
+}
+
+func (s *Store) ListTenantUsers(tenantID string) ([]inter.TenantUser, error) {
+	return s.tenantRepo.ListTenantUsers(tenantID)
+}
+
+func (s *Store) AddTenantUser(tenantID, username string, role inter.TenantRole) error {
+	return s.tenantRepo.AddTenantUser(tenantID, username, role)
+}
+
+func (s *Store) RemoveTenantUser(tenantID, username string) error {
+	return s.tenantRepo.RemoveTenantUser(tenantID, username)
 }

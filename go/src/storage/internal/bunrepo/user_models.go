@@ -19,6 +19,18 @@ type UserRow struct {
 type TenantRoleRow struct {
 	bun.BaseModel `bun:"table:tenant_users"`
 
-	TenantID string `bun:"tenant_id"`
-	Role     string `bun:"role"`
+	TenantID  string    `bun:"tenant_id,pk"`
+	Username  string    `bun:"username,pk"`
+	Role      string    `bun:"role"`
+	CreatedAt time.Time `bun:"created_at"`
+}
+
+type TenantRow struct {
+	bun.BaseModel `bun:"table:tenants"`
+
+	ID        string    `bun:"id,pk"`
+	Name      string    `bun:"name"`
+	Status    string    `bun:"status"`
+	CreatedAt time.Time `bun:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at"`
 }

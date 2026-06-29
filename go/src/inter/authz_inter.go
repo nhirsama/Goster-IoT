@@ -3,6 +3,7 @@ package inter
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 type PlatformRole string
@@ -21,6 +22,30 @@ const (
 	TenantRoleRW    TenantRole = "tenant_rw"
 	TenantRoleRO    TenantRole = "tenant_ro"
 )
+
+type TenantStatus string
+
+const (
+	TenantStatusActive    TenantStatus = "active"
+	TenantStatusSuspended TenantStatus = "suspended"
+	TenantStatusArchived  TenantStatus = "archived"
+)
+
+type Tenant struct {
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	Status    TenantStatus           `json:"status"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+	Meta      map[string]interface{} `json:"meta,omitempty"`
+}
+
+type TenantUser struct {
+	TenantID  string     `json:"tenant_id"`
+	Username  string     `json:"username"`
+	Role      TenantRole `json:"role"`
+	CreatedAt time.Time  `json:"created_at"`
+}
 
 type GroupRole string
 

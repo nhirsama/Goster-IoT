@@ -358,6 +358,9 @@ export interface components {
             permission: components["schemas"]["PermissionType"];
             /** @description 当前生效租户（由 `X-Tenant-Id` 或服务端默认策略解析）。 */
             active_tenant?: string;
+            tenant_roles?: {
+                [key: string]: "tenant_admin" | "tenant_rw" | "tenant_ro";
+            };
             /** @default true */
             authenticated: boolean;
             extensions?: {

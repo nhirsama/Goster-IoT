@@ -7,6 +7,8 @@ var (
 	ErrDeviceNotFound        = errors.New("device: not found")
 	ErrDeviceTokenNotFound   = errors.New("device: token not found")
 	ErrUserNotFound          = errors.New("user: not found")
+	ErrTenantNotFound        = errors.New("tenant: not found")
+	ErrTenantUserNotFound    = errors.New("tenant user: not found")
 	ErrDeviceTenantMismatch  = errors.New("device: tenant mismatch")
 	ErrDeviceCommandNotFound = errors.New("device command: not found")
 	ErrDownlinkQueueFull     = errors.New("downlink queue: full")

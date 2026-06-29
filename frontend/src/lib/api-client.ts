@@ -4,6 +4,7 @@ export type ApiRequestConfig = Omit<RequestInit, "method" | "body">;
 type ApiPrimitive = string | number | boolean | null | undefined;
 type ApiParams = Record<string, ApiPrimitive>;
 const TENANT_STORAGE_KEY = "goster_tenant_id";
+const CSRF_COOKIE_KEY = "csrf_token";
 let tenantMemoryFallback: string | undefined;
 type ApiErrorDetail = {
   type: string;
@@ -40,6 +41,18 @@ function getTenantStorage(): Storage | undefined {
     return undefined;
   }
   return storage as Storage;
+}
+
+function getCookieValue(name: string): string | undefined {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  const prefix = `${name}=`;
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+    ?.slice(prefix.length);
 }
 
 export function getActiveTenantId(): string | undefined {
@@ -124,6 +137,12 @@ async function request<T>(
   }
   if (activeTenantId && !requestHeaders.has("X-Tenant-Id")) {
     requestHeaders.set("X-Tenant-Id", activeTenantId);
+  }
+  if (method !== "GET" && !requestHeaders.has("X-CSRF-Token")) {
+    const csrfToken = getCookieValue(CSRF_COOKIE_KEY);
+    if (csrfToken) {
+      requestHeaders.set("X-CSRF-Token", decodeURIComponent(csrfToken));
+    }
   }
   requestHeaders.set("X-Request-Id", requestId);
 
@@ -223,6 +242,12 @@ export const api = {
     body?: unknown,
     config?: ApiRequestConfig
   ) => request<T>(path as string, "POST", body, config),
+
+  patch: <T = unknown, P extends keyof paths | (string & {}) = keyof paths | (string & {})>(
+    path: P,
+    body?: unknown,
+    config?: ApiRequestConfig
+  ) => request<T>(path as string, "PATCH", body, config),
 
   delete: <T = unknown, P extends keyof paths | (string & {}) = keyof paths | (string & {})>(
     path: P,

@@ -36,7 +36,11 @@ import {
   ShieldAlert,
   Wifi,
   Activity,
-  SendHorizontal
+  SendHorizontal,
+  Braces,
+  Eraser,
+  Wand2,
+  AlertCircle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -61,12 +65,48 @@ type EnqueueCommandResponse = {
   enqueued_at?: string | null;
 };
 
-const downlinkCommandOptions: { value: DownlinkCommand; label: string; hint: string }[] = [
-  { value: "action_exec", label: "远程动作 (ACTION_EXEC)", hint: "例如重启、切换工作模式等动作指令" },
-  { value: "config_push", label: "配置下发 (CONFIG_PUSH)", hint: "下发设备运行配置" },
-  { value: "ota_data", label: "OTA 数据 (OTA_DATA)", hint: "下发 OTA 数据分片" },
-  { value: "screen_wy", label: "屏幕刷新 (SCREEN_WY)", hint: "下发屏幕渲染数据" },
+const downlinkCommandOptions: { value: DownlinkCommand; label: string; hint: string; template: string }[] = [
+  {
+    value: "action_exec",
+    label: "远程动作 (ACTION_EXEC)",
+    hint: "适合重启、切换模式、触发一次性动作。",
+    template: '{\n  "op": "reboot",\n  "delay_ms": 1000\n}',
+  },
+  {
+    value: "config_push",
+    label: "配置下发 (CONFIG_PUSH)",
+    hint: "适合更新采样间隔、阈值、运行策略等配置。",
+    template: '{\n  "sampling_interval_ms": 5000,\n  "upload_batch_size": 32,\n  "enabled": true\n}',
+  },
+  {
+    value: "ota_data",
+    label: "OTA 数据 (OTA_DATA)",
+    hint: "适合下发 OTA 分片元数据和分片内容。",
+    template: '{\n  "job_id": "ota-001",\n  "chunk_index": 0,\n  "chunk_total": 1,\n  "data_b64": ""\n}',
+  },
+  {
+    value: "screen_wy",
+    label: "屏幕刷新 (SCREEN_WY)",
+    hint: "适合更新屏幕标题、文本、提示状态。",
+    template: '{\n  "title": "Goster IoT",\n  "lines": [\"online\", \"sync ok\"]\n}',
+  },
 ];
+
+function parsePayloadText(raw: string): { ok: true; value: unknown; pretty: string } | { ok: false; message: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: true, value: undefined, pretty: "" };
+  }
+  try {
+    const value = JSON.parse(trimmed) as unknown;
+    return { ok: true, value, pretty: JSON.stringify(value, null, 2) };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "payload 必须是合法 JSON",
+    };
+  }
+}
 
 export default function DeviceMetricsPage() {
   return (
@@ -86,8 +126,8 @@ function DeviceMetricsPageContent() {
   const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
   const [command, setCommand] = useState<DownlinkCommand>("action_exec");
-  const [payloadText, setPayloadText] = useState('{"op":"reboot"}');
-  const [lastEnqueuedCommandId, setLastEnqueuedCommandId] = useState<number | null>(null);
+  const [payloadText, setPayloadText] = useState(downlinkCommandOptions[0].template);
+  const [lastEnqueuedCommand, setLastEnqueuedCommand] = useState<EnqueueCommandResponse | null>(null);
 
   // 获取设备详情
   const { data: device, isLoading: deviceLoading } = useQuery({
@@ -147,28 +187,26 @@ function DeviceMetricsPageContent() {
 
   const enqueueCommandMutation = useMutation({
     mutationFn: async () => {
-      const raw = payloadText.trim();
-      let payload: unknown = undefined;
-      if (raw.length > 0) {
-        try {
-          payload = JSON.parse(raw);
-        } catch {
-          throw new Error("payload 必须是合法 JSON");
-        }
+      const parsed = parsePayloadText(payloadText);
+      if (!parsed.ok) {
+        throw new Error(parsed.message);
       }
       return api.post<EnqueueCommandResponse>(`/api/v1/devices/${uuid}/commands`, {
         command,
-        payload,
+        payload: parsed.value,
       });
     },
     onSuccess: (result) => {
-      setLastEnqueuedCommandId(result.command_id);
+      setLastEnqueuedCommand(result);
       toast.success(`指令已入队 #${result.command_id}`);
     },
     onError: (error: unknown) => {
       toast.error(getApiErrorMessage(error, "指令下发失败，请稍后重试"));
     },
   });
+
+  const selectedCommandOption = downlinkCommandOptions.find((item) => item.value === command) || downlinkCommandOptions[0];
+  const parsedPayload = useMemo(() => parsePayloadText(payloadText), [payloadText]);
 
   const handleCopyToken = () => {
     if (device?.meta?.token) {
@@ -219,7 +257,6 @@ function DeviceMetricsPageContent() {
   }
 
   const permission = user?.permission || 0;
-  const selectedCommandOption = downlinkCommandOptions.find((item) => item.value === command) || downlinkCommandOptions[0];
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
@@ -364,15 +401,30 @@ function DeviceMetricsPageContent() {
       {permission >= 2 && (
         <Card className="border-none shadow-sm bg-white">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-bold text-slate-900">云端指令下发</CardTitle>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-base font-bold text-slate-900">云端指令下发</CardTitle>
+                <p className="mt-1 text-xs text-slate-500">指令会进入设备下行队列，设备下一次保持会话或上线时由网关发送。</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${parsedPayload.ok ? "bg-emerald-500" : "bg-rose-500"}`} />
+                <span className="text-xs font-semibold text-slate-500">{parsedPayload.ok ? "JSON 有效" : "JSON 无效"}</span>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-[1.2fr_2fr_auto] md:items-end">
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_1.6fr]">
               <label className="space-y-1">
                 <span className="text-xs font-black text-slate-400 uppercase tracking-widest">指令类型</span>
                 <select
                   value={command}
-                  onChange={(event) => setCommand(event.target.value as DownlinkCommand)}
+                  onChange={(event) => {
+                    const nextCommand = event.target.value as DownlinkCommand;
+                    const option = downlinkCommandOptions.find((item) => item.value === nextCommand);
+                    setCommand(nextCommand);
+                    setPayloadText(option?.template || "");
+                    setLastEnqueuedCommand(null);
+                  }}
                   className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-blue-300 focus:ring-3 focus:ring-blue-100"
                 >
                   {downlinkCommandOptions.map((option) => (
@@ -381,6 +433,7 @@ function DeviceMetricsPageContent() {
                     </option>
                   ))}
                 </select>
+                <span className="block text-xs text-slate-500">{selectedCommandOption.hint}</span>
               </label>
 
               <label className="space-y-1">
@@ -388,26 +441,85 @@ function DeviceMetricsPageContent() {
                 <textarea
                   value={payloadText}
                   onChange={(event) => setPayloadText(event.target.value)}
-                  className="min-h-[88px] w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs font-mono text-slate-700 outline-none transition-colors focus:border-blue-300 focus:ring-3 focus:ring-blue-100"
+                  className={`min-h-[150px] w-full rounded-lg border bg-white p-3 text-xs font-mono text-slate-700 outline-none transition-colors focus:ring-3 ${
+                    parsedPayload.ok
+                      ? "border-slate-200 focus:border-blue-300 focus:ring-blue-100"
+                      : "border-rose-200 focus:border-rose-300 focus:ring-rose-100"
+                  }`}
                   placeholder='{"op":"reboot"}'
                 />
               </label>
+            </div>
+
+            {!parsedPayload.ok ? (
+              <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{parsedPayload.message}</span>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPayloadText(selectedCommandOption.template)}
+                >
+                  <Wand2 className="h-4 w-4" />
+                  使用模板
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!parsedPayload.ok || !payloadText.trim()}
+                  onClick={() => {
+                    if (parsedPayload.ok) {
+                      setPayloadText(parsedPayload.pretty);
+                    }
+                  }}
+                >
+                  <Braces className="h-4 w-4" />
+                  格式化
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setPayloadText("")}>
+                  <Eraser className="h-4 w-4" />
+                  清空
+                </Button>
+              </div>
 
               <Button
-                className="h-9 w-full md:w-auto bg-blue-600 text-white hover:bg-blue-700"
-                disabled={enqueueCommandMutation.isPending}
+                className="h-9 bg-blue-600 text-white hover:bg-blue-700"
+                disabled={enqueueCommandMutation.isPending || !parsedPayload.ok}
                 onClick={() => enqueueCommandMutation.mutate()}
               >
                 <SendHorizontal className="h-4 w-4 mr-2" />
-                {enqueueCommandMutation.isPending ? "发送中..." : "发送指令"}
+                {enqueueCommandMutation.isPending ? "入队中..." : "加入下行队列"}
               </Button>
             </div>
 
-            <p className="text-xs text-slate-500">{selectedCommandOption.hint}</p>
-            {lastEnqueuedCommandId ? (
-              <p className="text-xs font-semibold text-emerald-700">
-                最近一次入队成功：command_id #{lastEnqueuedCommandId}
-              </p>
+            {lastEnqueuedCommand ? (
+              <div className="grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 sm:grid-cols-4">
+                <div>
+                  <p className="font-black uppercase tracking-wider text-emerald-600">Command ID</p>
+                  <p className="mt-1 font-mono font-semibold">#{lastEnqueuedCommand.command_id}</p>
+                </div>
+                <div>
+                  <p className="font-black uppercase tracking-wider text-emerald-600">CmdID</p>
+                  <p className="mt-1 font-mono font-semibold">0x{lastEnqueuedCommand.cmd_id.toString(16).padStart(4, "0")}</p>
+                </div>
+                <div>
+                  <p className="font-black uppercase tracking-wider text-emerald-600">状态</p>
+                  <p className="mt-1 font-semibold">{lastEnqueuedCommand.status}</p>
+                </div>
+                <div>
+                  <p className="font-black uppercase tracking-wider text-emerald-600">入队时间</p>
+                  <p className="mt-1 font-semibold">
+                    {lastEnqueuedCommand.enqueued_at
+                      ? new Date(lastEnqueuedCommand.enqueued_at).toLocaleTimeString("zh-CN", { hour12: false })
+                      : "-"}
+                  </p>
+                </div>
+              </div>
             ) : null}
           </CardContent>
         </Card>

@@ -312,5 +312,7 @@ func isNotFoundError(err error) bool {
 	return errors.Is(err, inter.ErrDeviceNotFound) ||
 		errors.Is(err, inter.ErrDeviceTokenNotFound) ||
 		errors.Is(err, inter.ErrUserNotFound) ||
+		errors.Is(err, inter.ErrTenantNotFound) ||
+		errors.Is(err, inter.ErrTenantUserNotFound) ||
 		errors.Is(err, inter.ErrDeviceCommandNotFound)
 }
