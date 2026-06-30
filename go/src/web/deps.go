@@ -19,6 +19,8 @@ type CaptchaVerifier interface {
 // WebServerDeps 描述 web 模块运行所需依赖。
 type WebServerDeps struct {
 	DataStore        inter.WebV1Store
+	IngressStore     inter.CoreStore
+	TelemetryIngest  inter.TelemetryIngestService
 	DeviceRegistry   inter.DeviceRegistry
 	DevicePresence   inter.DevicePresence
 	DownlinkCommands inter.DownlinkCommandService
@@ -40,6 +42,9 @@ func (d *WebServerDeps) normalize() error {
 	}
 	if d.DownlinkCommands == nil {
 		return errors.New("web deps missing downlink command service")
+	}
+	if d.IngressStore != nil && d.TelemetryIngest == nil {
+		return errors.New("web deps missing telemetry ingest service")
 	}
 	if d.Auth == nil {
 		return errors.New("web deps missing auth service")

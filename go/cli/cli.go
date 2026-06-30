@@ -126,6 +126,8 @@ func serve(ctx context.Context) error {
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:        runtimeStore,
+		IngressStore:     runtimeStore,
+		TelemetryIngest:  services.TelemetryIngest,
 		DeviceRegistry:   services.DeviceRegistry,
 		DevicePresence:   services.DevicePresence,
 		DownlinkCommands: services.DownlinkCommands,

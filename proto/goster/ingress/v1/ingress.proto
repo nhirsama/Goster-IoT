@@ -1,0 +1,574 @@
+syntax = "proto3";
+
+package goster.ingress.v1;
+
+option go_package = "github.com/nhirsama/Goster-IoT/proto/gen/goster/ingress/v1;ingressv1";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// ProtocolIngressCoreService 由 core-api 实现，protocol-ingress 微服务消费。
+//
+// 这个接口定义必须保持协议无关：core-api 不应该理解 Zigbee、MQTT、自定义 TCP
+// 等具体协议，也不应该暴露某个协议的专有 RPC。protocol-ingress 的各类 adapter
+// 负责把具体协议转换为这里定义的通用设备、实体、事件、命令和状态模型。
+service ProtocolIngressCoreService {
+  // AuthenticateDevice 校验设备/会话凭据。凭据可以来自 token、证书、签名、设备地址、MQTT client id 等，
+  // 但在本接口中统一表达为 Credential 和 DeviceIdentity。
+  rpc AuthenticateDevice(AuthenticateDeviceRequest) returns (AuthenticateDeviceResponse);
+
+  // RegisterDevice 提交新发现或自注册设备。具体协议的发现、入网、interview、握手过程由 adapter 处理。
+  rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceResponse);
+
+  // ReportHeartbeat 上报设备在线状态。作为独立 RPC 保留，避免高频心跳必须走完整事件批处理。
+  rpc ReportHeartbeat(ReportHeartbeatRequest) returns (ReportHeartbeatResponse);
+
+  // IngestEvents 批量写入归一化后的遥测、状态、日志、事件、错误和命令回执。
+  rpc IngestEvents(IngestEventsRequest) returns (IngestEventsResponse);
+
+  // PullCommands 为在线设备或连接会话拉取下行命令。
+  rpc PullCommands(PullCommandsRequest) returns (PullCommandsResponse);
+
+  // UpdateCommandStatus 回填下行命令状态，例如已发送、已确认、失败、重新入队或过期。
+  rpc UpdateCommandStatus(UpdateCommandStatusRequest) returns (UpdateCommandStatusResponse);
+}
+
+// Transport 表示消息进入 protocol-ingress 时使用的通用传输层。
+// 不使用具体协议名，避免 core-api 与 adapter 实现耦合。
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_STREAM = 1;       // 长连接流式传输，例如 TCP、串口、WebSocket。
+  TRANSPORT_MESSAGE_BUS = 2;  // 消息总线，例如 MQTT、NATS、AMQP。
+  TRANSPORT_REQUEST_REPLY = 3;// 请求/响应，例如 HTTP、ConnectRPC、gRPC。
+  TRANSPORT_DATAGRAM = 4;     // 无连接报文，例如 UDP。
+  TRANSPORT_LOCAL = 5;        // 本地进程、插件或嵌入式 adapter。
+}
+
+// EventType 表示 core-api 可理解的归一化事件类别。
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_DEVICE_DISCOVERED = 1;
+  EVENT_TYPE_DEVICE_REGISTER = 2;
+  EVENT_TYPE_HEARTBEAT = 3;
+  EVENT_TYPE_TELEMETRY = 4;
+  EVENT_TYPE_STATE = 5;
+  EVENT_TYPE_LOG = 6;
+  EVENT_TYPE_DEVICE_EVENT = 7;
+  EVENT_TYPE_DEVICE_ERROR = 8;
+  EVENT_TYPE_AVAILABILITY = 9;
+  EVENT_TYPE_TOPOLOGY = 10;
+  EVENT_TYPE_COMMAND_ACK = 11;
+  EVENT_TYPE_COMMAND_FAILED = 12;
+  EVENT_TYPE_RAW = 13;
+}
+
+enum AuthStatus {
+  AUTH_STATUS_UNSPECIFIED = 0;
+  AUTH_STATUS_ACCEPTED = 1;
+  AUTH_STATUS_PENDING = 2;
+  AUTH_STATUS_REJECTED = 3;
+  AUTH_STATUS_REVOKED = 4;
+  AUTH_STATUS_UNKNOWN = 5;
+}
+
+enum RegistrationStatus {
+  REGISTRATION_STATUS_UNSPECIFIED = 0;
+  REGISTRATION_STATUS_ACCEPTED = 1;
+  REGISTRATION_STATUS_PENDING = 2;
+  REGISTRATION_STATUS_REJECTED = 3;
+}
+
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  COMMAND_STATUS_QUEUED = 1;
+  COMMAND_STATUS_SENT = 2;
+  COMMAND_STATUS_ACKED = 3;
+  COMMAND_STATUS_FAILED = 4;
+  COMMAND_STATUS_REQUEUED = 5;
+  COMMAND_STATUS_EXPIRED = 6;
+}
+
+enum DeviceAvailability {
+  DEVICE_AVAILABILITY_UNSPECIFIED = 0;
+  DEVICE_AVAILABILITY_ONLINE = 1;
+  DEVICE_AVAILABILITY_DELAYED = 2;
+  DEVICE_AVAILABILITY_OFFLINE = 3;
+}
+
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+// IngressContext 描述消息从哪里、以何种方式进入 protocol-ingress。
+// 字段保持通用，具体协议名和私有上下文放入 labels/extensions/raw 中。
+message IngressContext {
+  string request_id = 1;
+  string trace_id = 2;
+  string correlation_id = 3;
+
+  // protocol-ingress 实例的稳定 ID，例如 ingress-shanghai-01。
+  string source_instance = 10;
+  // adapter 实例 ID，例如 tcp-listener-main、mqtt-adapter-01、mesh-adapter-home。
+  string adapter_id = 11;
+  // adapter 自己声明的协议族名称，仅用于诊断和路由，不作为 core-api 的强类型分支依据。
+  string protocol_name = 12;
+  string protocol_version = 13;
+  Transport transport = 14;
+
+  // 来自 topic/path/header/device payload 的不可信租户提示。core-api 在持久化租户数据前必须重新解析归属。
+  string tenant_hint = 20;
+  // 当 protocol-ingress 使用 core 签发的 adapter 凭据时可携带已解析租户；core-api 仍可二次校验。
+  string tenant_id = 21;
+
+  google.protobuf.Timestamp received_at = 30;
+
+  NetworkContext network = 40;
+  MessageContext message = 41;
+  FrameContext frame = 42;
+
+  map<string, string> labels = 100;
+  google.protobuf.Struct extensions = 101;
+}
+
+message NetworkContext {
+  string remote_addr = 1;
+  string local_addr = 2;
+  string peer_id = 3;
+  string client_id = 4;
+  string username = 5;
+  string tls_server_name = 6;
+  string peer_certificate_sha256 = 7;
+  string user_agent = 8;
+}
+
+// MessageContext 描述消息型传输的通用上下文。
+// 可承载 MQTT topic、NATS subject、HTTP path、WebSocket channel 等，不绑定某种消息协议。
+message MessageContext {
+  string broker = 1;
+  string subject = 2;          // topic、subject、path、channel 等统一放这里。
+  string reply_subject = 3;
+  bytes correlation_data = 4;
+  int32 qos = 5;
+  bool retained = 6;
+  bool duplicate = 7;
+  string content_type = 8;
+  string payload_format = 9;
+  map<string, string> properties = 10;
+}
+
+// FrameContext 描述帧式/流式传输中的通用帧元数据。
+// 自定义 TCP 的 magic、cmd_id、key_id、ACK、加密、压缩等都可以映射到这里。
+message FrameContext {
+  uint32 magic_number = 1;
+  uint32 command_code = 2;
+  uint32 key_id = 3;
+  uint64 sequence = 4;
+  bool is_ack = 5;
+  bool is_encrypted = 6;
+  bool is_compressed = 7;
+  uint32 payload_len = 8;
+  map<string, string> headers = 20;
+}
+
+message Credential {
+  string type = 1;       // token、signature、certificate、psk、api_key、none 等。
+  string value = 2;      // 明文凭据仅限安全通道；生产中可传摘要或签名。
+  bytes binary_value = 3;
+  string issuer = 4;
+  google.protobuf.Timestamp issued_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  google.protobuf.Struct claims = 7;
+}
+
+message DeviceIdentity {
+  // 示例：uuid、token_hash、ieee_address、mac、sn、client_id、vendor_id、logical_name。
+  string type = 1;
+  string value = 2;
+  string issuer = 3;
+}
+
+message DeviceDescriptor {
+  // core-api 已知时填写 Goster 规范 UUID。
+  string uuid = 1;
+  string name = 2;
+
+  // 当前 Goster DeviceMetadata 字段。
+  string serial_number = 10;
+  string mac_address = 11;
+  string hardware_version = 12;
+  string software_version = 13;
+  string config_version = 14;
+
+  // 通用 IoT 设备元数据。
+  string manufacturer = 20;
+  string vendor = 21;
+  string model = 22;
+  string model_id = 23;
+  string firmware_version = 24;
+  string hardware_revision = 25;
+  string software_build_id = 26;
+  string power_source = 27;
+  string device_type = 28;      // sensor、actuator、router、coordinator、gateway、controller 等。
+  string network_address = 29;  // 短地址、节点地址、总线地址等。
+
+  repeated DeviceIdentity identities = 40;
+  repeated EntityDescriptor entities = 50;
+  repeated EndpointDescriptor endpoints = 51;
+  repeated GroupDescriptor groups = 52;
+  repeated CapabilityDescriptor capabilities = 53;
+
+  DeviceAvailability availability = 70;
+  google.protobuf.Timestamp first_seen_at = 80;
+  google.protobuf.Timestamp last_seen_at = 81;
+  map<string, string> labels = 90;
+  google.protobuf.Struct attributes = 100;
+}
+
+message EntityDescriptor {
+  // 归一化模型中的稳定实体 ID，例如 device-001.temperature。
+  string entity_id = 1;
+  string device_id = 2;
+  string name = 3;
+  string domain = 4;       // sensor、binary_sensor、switch、light、cover 等。
+  string value_type = 5;   // number、bool、string、json、bytes。
+  string device_class = 6; // temperature、humidity、illuminance、battery 等。
+  string state_class = 7;
+  string unit = 8;
+  bool readable = 9;
+  bool writable = 10;
+  EndpointRef endpoint = 20;
+  google.protobuf.Struct attributes = 100;
+}
+
+// EndpointDescriptor 表示设备上的逻辑端点、接口、通道或功能单元。
+// 对 Zigbee 可映射 endpoint；对自定义协议可映射通道/模块；对 MQTT 可映射 entity group。
+message EndpointDescriptor {
+  string endpoint_id = 1;
+  string name = 2;
+  uint32 numeric_id = 3;
+  uint32 profile_id = 4;
+  uint32 device_type_id = 5;
+  repeated FunctionBlockDescriptor input_functions = 10;
+  repeated FunctionBlockDescriptor output_functions = 11;
+  repeated BindingDescriptor bindings = 20;
+  repeated ReportingRule reporting_rules = 21;
+  repeated SceneDescriptor scenes = 22;
+  google.protobuf.Struct attributes = 100;
+}
+
+message EndpointRef {
+  string device_identity = 1;
+  string endpoint_id = 2;
+  uint32 numeric_endpoint_id = 3;
+  string group_id = 4;
+  uint32 numeric_group_id = 5;
+}
+
+// FunctionBlockDescriptor 表示一个功能块、cluster、service、register bank 或能力集合。
+message FunctionBlockDescriptor {
+  string function_id = 1;
+  string name = 2;
+  uint32 numeric_id = 3;
+  repeated AttributeDescriptor attributes = 4;
+  repeated CommandDescriptor commands = 5;
+}
+
+message AttributeDescriptor {
+  string attribute_id = 1;
+  string name = 2;
+  uint32 numeric_id = 3;
+  string data_type = 4;
+  Value value = 5;
+  bool readable = 6;
+  bool writable = 7;
+  bool reportable = 8;
+  bool manufacturer_specific = 9;
+  string unit = 10;
+  google.protobuf.Struct metadata = 100;
+}
+
+message CommandDescriptor {
+  string command_id = 1;
+  string name = 2;
+  uint32 numeric_id = 3;
+  string direction = 4; // uplink、downlink、bidirectional。
+  google.protobuf.Struct schema = 5;
+}
+
+message BindingDescriptor {
+  string function_name = 1;
+  string function_id = 2;
+  uint32 numeric_function_id = 3;
+  string target_type = 4; // endpoint、group、device、topic、subject 等。
+  EndpointRef target_endpoint = 5;
+  string target_address = 6;
+}
+
+message ReportingRule {
+  string function_name = 1;
+  string function_id = 2;
+  string attribute_name = 3;
+  string attribute_id = 4;
+  google.protobuf.Duration minimum_interval = 5;
+  google.protobuf.Duration maximum_interval = 6;
+  double reportable_change = 7;
+}
+
+message SceneDescriptor {
+  string scene_id = 1;
+  uint32 numeric_id = 2;
+  string name = 3;
+}
+
+message GroupDescriptor {
+  string group_id = 1;
+  uint32 numeric_id = 2;
+  string name = 3;
+  repeated EndpointRef members = 4;
+}
+
+message CapabilityDescriptor {
+  string name = 1;
+  string property = 2;
+  string type = 3;         // binary、numeric、enum、composite、light、switch 等。
+  string access = 4;       // 原始 adapter 的访问标志文本。
+  bool readable = 5;
+  bool writable = 6;
+  string unit = 7;
+  string value_min = 8;
+  string value_max = 9;
+  string description = 10;
+  repeated string allowed_values = 11;
+  repeated CapabilityDescriptor features = 12;
+  google.protobuf.Struct metadata = 100;
+}
+
+message Value {
+  oneof kind {
+    double number_value = 1;
+    string string_value = 2;
+    bool bool_value = 3;
+    bytes bytes_value = 4;
+    google.protobuf.Struct json_value = 5;
+  }
+}
+
+message MetricPoint {
+  string name = 1;         // temperature、humidity、lux、battery、linkquality 等。
+  Value value = 2;
+  string unit = 3;
+  google.protobuf.Timestamp observed_at = 4;
+
+  // 兼容当前 Goster MetricPoint.Type：1=temp，2=humidity，4=lux。新接入优先使用 name + unit。
+  uint32 legacy_metric_type = 10;
+
+  string entity_id = 20;
+  EndpointRef endpoint = 21;
+  string function_name = 22;
+  string function_id = 23;
+  uint32 numeric_function_id = 24;
+  string attribute_name = 25;
+  string attribute_id = 26;
+  uint32 numeric_attribute_id = 27;
+
+  map<string, string> tags = 100;
+}
+
+message StatePoint {
+  string name = 1;         // state、occupancy、contact、action、brightness、color_temp 等。
+  Value value = 2;
+  string unit = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  string entity_id = 10;
+  EndpointRef endpoint = 11;
+  map<string, string> tags = 100;
+}
+
+message LogRecord {
+  LogLevel level = 1;
+  string message = 2;
+  string namespace = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  google.protobuf.Struct fields = 10;
+}
+
+message RawPayload {
+  string content_type = 1; // application/json、application/octet-stream、text/plain。
+  bytes body = 2;
+  google.protobuf.Struct json = 3;
+  string text = 4;
+  string schema = 5;
+}
+
+message CanonicalDeviceEvent {
+  // 借鉴 CloudEvents 的事件上下文。event_id + event_source 应保持唯一，可用于幂等和去重。
+  string event_id = 1;
+  string event_source = 2;
+  string spec_version = 3; // 例如 goster.ingress.v1。
+  EventType event_type = 4;
+  string event_type_name = 5; // adapter 特定类型，例如 device_joined、alarm_triggered。
+
+  IngressContext context = 10;
+  DeviceIdentity primary_identity = 20;
+  repeated DeviceIdentity identities = 21;
+  DeviceDescriptor device = 22;
+
+  google.protobuf.Timestamp occurred_at = 30;
+  google.protobuf.Timestamp received_at = 31;
+  string idempotency_key = 32;
+  string correlation_id = 33;
+
+  repeated MetricPoint metrics = 40;
+  repeated StatePoint states = 41;
+  repeated LogRecord logs = 42;
+  DeviceAvailability availability = 43;
+  CommandReceipt command_receipt = 44;
+
+  RawPayload raw = 90;
+  google.protobuf.Struct extensions = 100;
+}
+
+message CommandReceipt {
+  int64 command_id = 1;
+  string command_uuid = 2;
+  CommandStatus status = 3;
+  uint32 protocol_command_code = 4;
+  string operation = 5;
+  string error_text = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  RawPayload raw = 20;
+}
+
+message AuthenticateDeviceRequest {
+  IngressContext context = 1;
+  repeated Credential credentials = 2;
+  repeated DeviceIdentity identities = 3;
+  DeviceDescriptor device_hint = 4;
+}
+
+message AuthenticateDeviceResponse {
+  AuthStatus status = 1;
+  string uuid = 2;
+  string tenant_id = 3;
+  string reason = 4;
+  DeviceDescriptor device = 5;
+}
+
+message RegisterDeviceRequest {
+  IngressContext context = 1;
+  DeviceDescriptor device = 2;
+  RawPayload raw = 3;
+}
+
+message RegisterDeviceResponse {
+  RegistrationStatus status = 1;
+  string uuid = 2;
+  string tenant_id = 3;
+  // core 为需要凭据重连的设备签发的 token 或等价凭据。
+  Credential credential = 4;
+  string reason = 5;
+  DeviceDescriptor device = 6;
+}
+
+message ReportHeartbeatRequest {
+  IngressContext context = 1;
+  DeviceIdentity primary_identity = 2;
+  repeated DeviceIdentity identities = 3;
+  string uuid = 4;
+  DeviceAvailability availability = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  google.protobuf.Struct state = 7;
+}
+
+message ReportHeartbeatResponse {
+  string uuid = 1;
+  string tenant_id = 2;
+  DeviceAvailability availability = 3;
+}
+
+message IngestEventsRequest {
+  IngressContext context = 1;
+  repeated CanonicalDeviceEvent events = 2;
+  bool allow_partial_success = 3;
+}
+
+message EventIngestResult {
+  string event_id = 1;
+  bool success = 2;
+  string uuid = 3;
+  string tenant_id = 4;
+  string error_code = 5;
+  string error_message = 6;
+}
+
+message IngestEventsResponse {
+  repeated EventIngestResult results = 1;
+}
+
+message PullCommandsRequest {
+  IngressContext context = 1;
+  string uuid = 2;
+  DeviceIdentity primary_identity = 3;
+  repeated DeviceIdentity identities = 4;
+  int32 max_count = 5;
+  repeated string supported_operations = 6;
+  repeated string supported_protocol_names = 7;
+}
+
+message PullCommandsResponse {
+  repeated CanonicalCommand commands = 1;
+}
+
+message CanonicalCommand {
+  int64 command_id = 1;
+  string command_uuid = 2;
+  string tenant_id = 3;
+  string uuid = 4;
+
+  DeviceIdentity target_identity = 10;
+  string target_entity_id = 11;
+  EndpointRef target_endpoint = 12;
+
+  // 通用操作名：config_push、ota_data、action_exec、set、get、read_attribute、write_attribute 等。
+  string operation = 20;
+  uint32 protocol_command_code = 21; // 适用时填写具体协议的 command code。
+  RawPayload payload = 22;
+  google.protobuf.Duration timeout = 23;
+  int32 max_attempts = 24;
+
+  // adapter_options 承载 adapter 私有下行参数，例如 topic、qos、cluster、attribute、endpoint、加密/压缩标志等。
+  google.protobuf.Struct adapter_options = 40;
+  map<string, string> properties = 41;
+
+  google.protobuf.Timestamp created_at = 80;
+  google.protobuf.Timestamp expires_at = 81;
+  map<string, string> labels = 100;
+}
+
+message UpdateCommandStatusRequest {
+  IngressContext context = 1;
+  int64 command_id = 2;
+  string command_uuid = 3;
+  CommandStatus status = 4;
+  string error_text = 5;
+  uint32 protocol_command_code = 6;
+  RawPayload raw = 7;
+  google.protobuf.Timestamp observed_at = 8;
+
+  // uuid/target_identity/operation/raw 用于状态回填时保持队列一致性。
+  // 特别是 REQUEUED 场景，core-api 需要知道把哪条命令重新放回哪个设备队列。
+  string uuid = 9;
+  DeviceIdentity target_identity = 10;
+  CanonicalCommand command = 11;
+  string operation = 12;
+}
+
+message UpdateCommandStatusResponse {
+  bool success = 1;
+  CommandStatus status = 2;
+}

@@ -10,12 +10,14 @@ import (
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
+	"github.com/nhirsama/Goster-IoT/src/web/ingress"
 )
 
 type webServer struct {
-	apiModules []apiModule
-	logger     inter.Logger
-	config     appcfg.WebConfig
+	apiModules     []apiModule
+	logger         inter.Logger
+	config         appcfg.WebConfig
+	ingressHandler *ingress.CoreService
 }
 
 func NewWebServer(deps WebServerDeps) (inter.WebServer, error) {
@@ -35,6 +37,9 @@ func newWebServer(deps WebServerDeps) (*webServer, error) {
 		config: deps.Config,
 	}
 	ws.apiModules = buildAPIModules(deps)
+	if deps.IngressStore != nil {
+		ws.ingressHandler = ingress.NewCoreService(deps.DeviceRegistry, deps.DevicePresence, deps.TelemetryIngest, deps.DownlinkCommands, deps.IngressStore)
+	}
 	if len(ws.apiModules) == 0 {
 		return nil, errors.New("web api modules are required")
 	}
