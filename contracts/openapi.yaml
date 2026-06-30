@@ -361,6 +361,73 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /api/v1/invitations:
+    get:
+      tags: [Tenant]
+      operationId: listPendingTenantInvitations
+      summary: 列出当前账号收到的待处理租户邀请。
+      description: |
+        返回当前登录账号尚未处理且未过期的租户邀请。
+      responses:
+        '200':
+          description: 租户邀请列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantInvitationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/invitations/{invitation_id}/accept:
+    post:
+      tags: [Tenant]
+      operationId: acceptTenantInvitation
+      summary: 接受租户邀请。
+      description: |
+        仅邀请接收账号本人可接受该邀请。接受成功后账号会加入邀请对应租户。
+      parameters:
+        - $ref: '#/components/parameters/InvitationID'
+      responses:
+        '200':
+          description: 邀请已接受。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantInvitationActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/invitations/{invitation_id}/reject:
+    post:
+      tags: [Tenant]
+      operationId: rejectTenantInvitation
+      summary: 拒绝租户邀请。
+      description: |
+        仅邀请接收账号本人可拒绝该邀请。
+      parameters:
+        - $ref: '#/components/parameters/InvitationID'
+      responses:
+        '200':
+          description: 邀请已拒绝。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantInvitationActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/v1/tenants:
     get:
       tags: [Tenant]
@@ -484,10 +551,11 @@ paths:
 
     post:
       tags: [Tenant]
-      operationId: addTenantUser
-      summary: 添加用户到租户。
+      operationId: inviteTenantUser
+      summary: 邀请用户加入租户。
       description: |
-        将账号添加到租户并分配租户内角色。仅该租户的 `tenant_admin` 可操作。
+        创建租户邀请并分配目标租户角色；用户接受邀请后才会成为租户成员。
+        仅该租户的 `tenant_admin` 可操作。
       parameters:
         - $ref: '#/components/parameters/TenantID'
       requestBody:
@@ -495,14 +563,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddTenantUserRequest'
+              $ref: '#/components/schemas/InviteTenantUserRequest'
       responses:
         '201':
-          description: 用户已添加。
+          description: 邀请已创建。
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActionResponse'
+                $ref: '#/components/schemas/InviteTenantUserResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -513,6 +581,39 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /api/v1/tenants/{tenant_id}/invitations:
+    post:
+      tags: [Tenant]
+      operationId: createTenantInvitation
+      summary: 创建租户邀请。
+      description: |
+        创建租户邀请。仅该租户的 `tenant_admin` 可操作。
+        该接口与 `POST /api/v1/tenants/{tenant_id}/users` 的邀请语义一致，
+        但响应体直接返回创建出的邀请对象。
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteTenantUserRequest'
+      responses:
+        '201':
+          description: 邀请已创建。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantInvitationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/tenants/{tenant_id}/users/{username}:
     delete:
@@ -844,6 +945,15 @@ components:
         type: string
         minLength: 1
       description: 租户 ID
+
+    InvitationID:
+      name: invitation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: 租户邀请 ID
 
     GroupIDPath:
       name: group_id
@@ -1511,7 +1621,97 @@ components:
                   type: integer
                   minimum: 0
 
-    AddTenantUserRequest:
+    TenantInvitationStatus:
+      type: string
+      enum: [pending, accepted, rejected, expired]
+      description: |
+        租户邀请状态：
+        - pending: 待处理
+        - accepted: 已接受
+        - rejected: 已拒绝
+        - expired: 已过期
+
+    TenantInvitation:
+      type: object
+      required: [id, tenant_id, username, role, invited_by, status, expires_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: 租户邀请 ID
+        tenant_id:
+          type: string
+          description: 邀请加入的租户 ID
+        username:
+          type: string
+          description: 被邀请账号用户名
+        role:
+          $ref: '#/components/schemas/TenantRole'
+        invited_by:
+          type: string
+          description: 邀请发起账号用户名
+        status:
+          $ref: '#/components/schemas/TenantInvitationStatus'
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TenantInvitationListData:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenantInvitation'
+        total:
+          type: integer
+          minimum: 0
+
+    TenantInvitationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/TenantInvitationListData'
+
+    TenantInvitationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/TenantInvitation'
+
+    TenantInvitationActionResult:
+      type: object
+      required: [action, success]
+      properties:
+        action:
+          type: string
+          enum: [accept, reject]
+        success:
+          type: boolean
+          default: true
+
+    TenantInvitationActionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/TenantInvitationActionResult'
+
+    InviteTenantUserRequest:
       type: object
       required: [username, role]
       properties:
@@ -1520,6 +1720,36 @@ components:
           minLength: 1
         role:
           $ref: '#/components/schemas/TenantRole'
+
+    AddTenantUserRequest:
+      deprecated: true
+      allOf:
+        - $ref: '#/components/schemas/InviteTenantUserRequest'
+
+    InviteTenantUserResult:
+      type: object
+      required: [action, target, invitation, success]
+      properties:
+        action:
+          type: string
+          enum: [invite_tenant_user]
+        target:
+          type: string
+          description: 被邀请账号用户名
+        invitation:
+          $ref: '#/components/schemas/TenantInvitation'
+        success:
+          type: boolean
+          default: true
+
+    InviteTenantUserResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/InviteTenantUserResult'
 
     # 设备分组相关 Schema
     DeviceGroup:

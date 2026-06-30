@@ -38,32 +38,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-type TenantStatus = "active" | "suspended" | "archived";
-type TenantRole = "tenant_admin" | "tenant_rw" | "tenant_ro";
+type TenantStatus = components["schemas"]["TenantStatus"];
+type TenantRole = components["schemas"]["TenantRole"];
 type TenantTab = "members" | "overview" | "settings";
-type Tenant = {
-  id: string;
-  name: string;
-  status: TenantStatus;
-  role?: TenantRole;
-  created_at: string;
+type Tenant = Omit<components["schemas"]["Tenant"], "updated_at"> & {
   updated_at?: string | null;
 };
-type TenantUser = {
-  tenant_id: string;
-  username: string;
-  role: TenantRole;
-  created_at: string;
-};
-type TenantListData = {
-  items: Tenant[];
-  total: number;
-};
-type TenantUserListData = {
-  items: TenantUser[];
-  total: number;
-};
+type TenantUser = components["schemas"]["TenantUser"];
+type TenantListData = components["schemas"]["TenantListResponse"]["data"];
+type TenantUserListData = components["schemas"]["TenantUserListResponse"]["data"];
 type UserListData = components["schemas"]["UserListData"];
+type InviteTenantUserResult = components["schemas"]["InviteTenantUserResult"];
 
 const statusMeta: Record<TenantStatus, { label: string; className: string; dotClassName: string }> = {
   active: {
@@ -303,7 +288,7 @@ export default function TenantsPage() {
 
   const addTenantUserMutation = useMutation({
     mutationFn: () =>
-      api.post(`/api/v1/tenants/${encodeURIComponent(effectiveSelectedTenantId)}/users`, {
+      api.post<InviteTenantUserResult>(`/api/v1/tenants/${encodeURIComponent(effectiveSelectedTenantId)}/users`, {
         username: memberUsername.trim(),
         role: memberRole,
       }),

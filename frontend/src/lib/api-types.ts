@@ -251,6 +251,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出当前账号收到的待处理租户邀请。
+         * @description 返回当前登录账号尚未处理且未过期的租户邀请。
+         */
+        get: operations["listPendingTenantInvitations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invitations/{invitation_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 接受租户邀请。
+         * @description 仅邀请接收账号本人可接受该邀请。接受成功后账号会加入邀请对应租户。
+         */
+        post: operations["acceptTenantInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invitations/{invitation_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 拒绝租户邀请。
+         * @description 仅邀请接收账号本人可拒绝该邀请。
+         */
+        post: operations["rejectTenantInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenants": {
         parameters: {
             query?: never;
@@ -310,10 +370,33 @@ export interface paths {
         get: operations["listTenantUsers"];
         put?: never;
         /**
-         * 添加用户到租户。
-         * @description 将账号添加到租户并分配租户内角色。仅该租户的 `tenant_admin` 可操作。
+         * 邀请用户加入租户。
+         * @description 创建租户邀请并分配目标租户角色；用户接受邀请后才会成为租户成员。
+         *     仅该租户的 `tenant_admin` 可操作。
          */
-        post: operations["addTenantUser"];
+        post: operations["inviteTenantUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 创建租户邀请。
+         * @description 创建租户邀请。仅该租户的 `tenant_admin` 可操作。
+         *     该接口与 `POST /api/v1/tenants/{tenant_id}/users` 的邀请语义一致，
+         *     但响应体直接返回创建出的邀请对象。
+         */
+        post: operations["createTenantInvitation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -766,9 +849,69 @@ export interface components {
                 total: number;
             };
         };
-        AddTenantUserRequest: {
+        /**
+         * @description 租户邀请状态：
+         *     - pending: 待处理
+         *     - accepted: 已接受
+         *     - rejected: 已拒绝
+         *     - expired: 已过期
+         * @enum {string}
+         */
+        TenantInvitationStatus: "pending" | "accepted" | "rejected" | "expired";
+        TenantInvitation: {
+            /** @description 租户邀请 ID */
+            id: string;
+            /** @description 邀请加入的租户 ID */
+            tenant_id: string;
+            /** @description 被邀请账号用户名 */
             username: string;
             role: components["schemas"]["TenantRole"];
+            /** @description 邀请发起账号用户名 */
+            invited_by: string;
+            status: components["schemas"]["TenantInvitationStatus"];
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TenantInvitationListData: {
+            items: components["schemas"]["TenantInvitation"][];
+            total: number;
+        };
+        TenantInvitationListResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["TenantInvitationListData"];
+        };
+        TenantInvitationResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["TenantInvitation"];
+        };
+        TenantInvitationActionResult: {
+            /** @enum {string} */
+            action: "accept" | "reject";
+            /** @default true */
+            success: boolean;
+        };
+        TenantInvitationActionResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["TenantInvitationActionResult"];
+        };
+        InviteTenantUserRequest: {
+            username: string;
+            role: components["schemas"]["TenantRole"];
+        };
+        /** @deprecated */
+        AddTenantUserRequest: components["schemas"]["InviteTenantUserRequest"];
+        InviteTenantUserResult: {
+            /** @enum {string} */
+            action: "invite_tenant_user";
+            /** @description 被邀请账号用户名 */
+            target: string;
+            invitation: components["schemas"]["TenantInvitation"];
+            /** @default true */
+            success: boolean;
+        };
+        InviteTenantUserResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["InviteTenantUserResult"];
         };
         DeviceGroup: {
             /** @description 分组 ID */
@@ -884,6 +1027,8 @@ export interface components {
         GroupID: string;
         /** @description 租户 ID */
         TenantID: string;
+        /** @description 租户邀请 ID */
+        InvitationID: string;
         /** @description 设备分组 ID */
         GroupIDPath: string;
     };
@@ -1305,6 +1450,81 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    listPendingTenantInvitations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 租户邀请列表。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantInvitationListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    acceptTenantInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户邀请 ID */
+                invitation_id: components["parameters"]["InvitationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 邀请已接受。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantInvitationActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rejectTenantInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户邀请 ID */
+                invitation_id: components["parameters"]["InvitationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 邀请已拒绝。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantInvitationActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listTenants: {
         parameters: {
             query?: never;
@@ -1438,7 +1658,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
-    addTenantUser: {
+    inviteTenantUser: {
         parameters: {
             query?: never;
             header?: never;
@@ -1450,17 +1670,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AddTenantUserRequest"];
+                "application/json": components["schemas"]["InviteTenantUserRequest"];
             };
         };
         responses: {
-            /** @description 用户已添加。 */
+            /** @description 邀请已创建。 */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ActionResponse"];
+                    "application/json": components["schemas"]["InviteTenantUserResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -1468,6 +1688,37 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    createTenantInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 租户 ID */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteTenantUserRequest"];
+            };
+        };
+        responses: {
+            /** @description 邀请已创建。 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantInvitationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     removeTenantUser: {

@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getApiErrorMessage } from "@/lib/api-client";
+import { components } from "@/lib/api-types";
 import { queryKeys } from "@/lib/query-keys";
 import { useAuth } from "@/hooks/use-auth";
 import { useUx } from "@/components/providers/ux-provider";
@@ -12,22 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Bell, Building2, Check, Clock, RefreshCw, Shield, X } from "lucide-react";
 
-type TenantRole = "tenant_admin" | "tenant_rw" | "tenant_ro";
-type TenantInvitation = {
-  id: string;
-  tenant_id: string;
-  username: string;
-  role: TenantRole;
-  invited_by: string;
-  status: string;
-  expires_at: string;
-  created_at: string;
-  updated_at: string;
-};
-type InvitationListData = {
-  items: TenantInvitation[];
-  total: number;
-};
+type TenantRole = components["schemas"]["TenantRole"];
+type InvitationListData = components["schemas"]["TenantInvitationListData"];
 
 const roleLabels: Record<TenantRole, string> = {
   tenant_admin: "租户管理员",

@@ -195,6 +195,7 @@ type TenantRepository interface {
 	ListUserTenants(username string) ([]Tenant, error)
 	GetTenant(tenantID string) (Tenant, error)
 	CreateTenant(tenant Tenant) (Tenant, error)
+	CreateTenantWithOwner(tenant Tenant, ownerUsername string) (Tenant, error)
 	UpdateTenant(tenantID string, updates Tenant) (Tenant, error)
 	ListTenantUsers(tenantID string) ([]TenantUser, error)
 	AddTenantUser(tenantID, username string, role TenantRole) error

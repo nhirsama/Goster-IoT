@@ -60,18 +60,14 @@ func (api *API) TenantsHandler(w http.ResponseWriter, r *http.Request) {
 				&ErrorDetail{Type: "auth_required"})
 			return
 		}
-		tenant, err := api.dataStore.CreateTenant(inter.Tenant{
+		tenant, err := api.dataStore.CreateTenantWithOwner(inter.Tenant{
 			Name:   name,
 			Status: inter.TenantStatus(payload.Status),
 			Meta:   payload.Meta,
-		})
+		}, username)
 		if err != nil {
 			api.Error(w, r, http.StatusConflict, 40951, "create tenant failed",
 				&ErrorDetail{Type: "conflict", Field: "name", Reason: err.Error()})
-			return
-		}
-		if err := api.dataStore.AddTenantUser(tenant.ID, username, inter.TenantRoleAdmin); err != nil {
-			api.InternalError(w, r, 50054, err)
 			return
 		}
 		api.write(w, http.StatusCreated, Envelope{
@@ -113,6 +109,14 @@ func (api *API) TenantByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(parts) >= 2 && parts[1] == "invitations" {
+		if len(parts) != 2 {
+			api.Error(w, r, http.StatusNotFound, 40452, "path not found",
+				&ErrorDetail{Type: "not_found"})
+			return
+		}
+		if !api.ensureTenantAccess(w, r, tenantID, inter.PermissionAdmin) {
+			return
+		}
 		api.CreateTenantInvitationHandler(w, r, tenantID)
 		return
 	}

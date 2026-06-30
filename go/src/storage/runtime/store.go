@@ -171,6 +171,10 @@ func (s *Store) CreateTenant(tenant inter.Tenant) (inter.Tenant, error) {
 	return s.tenantRepo.CreateTenant(tenant)
 }
 
+func (s *Store) CreateTenantWithOwner(tenant inter.Tenant, ownerUsername string) (inter.Tenant, error) {
+	return s.tenantRepo.CreateTenantWithOwner(tenant, ownerUsername)
+}
+
 func (s *Store) UpdateTenant(tenantID string, updates inter.Tenant) (inter.Tenant, error) {
 	return s.tenantRepo.UpdateTenant(tenantID, updates)
 }

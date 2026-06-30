@@ -2,7 +2,9 @@ package tenant
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -77,9 +79,47 @@ func (r *Repository) GetTenant(tenantID string) (inter.Tenant, error) {
 }
 
 func (r *Repository) CreateTenant(tenant inter.Tenant) (inter.Tenant, error) {
+	row, err := newTenantRow(tenant)
+	if err != nil {
+		return inter.Tenant{}, err
+	}
+	if _, err := r.db.NewInsert().
+		Model(row).
+		Returning("NULL").
+		Exec(context.Background()); err != nil {
+		return inter.Tenant{}, err
+	}
+	return tenantFromRow(*row), nil
+}
+
+func (r *Repository) CreateTenantWithOwner(tenant inter.Tenant, ownerUsername string) (inter.Tenant, error) {
+	ownerUsername = strings.TrimSpace(ownerUsername)
+	if ownerUsername == "" {
+		return inter.Tenant{}, errors.New("owner username is required")
+	}
+	row, err := newTenantRow(tenant)
+	if err != nil {
+		return inter.Tenant{}, err
+	}
+	err = r.db.RunInTx(context.Background(), nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().
+			Model(row).
+			Returning("NULL").
+			Exec(ctx); err != nil {
+			return err
+		}
+		return upsertTenantUser(ctx, tx, row.ID, ownerUsername, inter.TenantRoleAdmin, row.CreatedAt)
+	})
+	if err != nil {
+		return inter.Tenant{}, err
+	}
+	return tenantFromRow(*row), nil
+}
+
+func newTenantRow(tenant inter.Tenant) (*bunrepo.TenantRow, error) {
 	name := strings.TrimSpace(tenant.Name)
 	if name == "" {
-		return inter.Tenant{}, errors.New("tenant name is required")
+		return nil, errors.New("tenant name is required")
 	}
 	status := normalizeTenantStatus(tenant.Status)
 	id := strings.TrimSpace(tenant.ID)
@@ -94,13 +134,7 @@ func (r *Repository) CreateTenant(tenant inter.Tenant) (inter.Tenant, error) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if _, err := r.db.NewInsert().
-		Model(row).
-		Returning("NULL").
-		Exec(context.Background()); err != nil {
-		return inter.Tenant{}, err
-	}
-	return tenantFromRow(*row), nil
+	return row, nil
 }
 
 func (r *Repository) UpdateTenant(tenantID string, updates inter.Tenant) (inter.Tenant, error) {
@@ -183,17 +217,21 @@ func (r *Repository) AddTenantUser(tenantID, username string, role inter.TenantR
 	if _, err := r.GetTenant(tenantID); err != nil {
 		return err
 	}
+	return upsertTenantUser(context.Background(), r.db, tenantID, username, role, time.Now().UTC())
+}
+
+func upsertTenantUser(ctx context.Context, db bun.IDB, tenantID, username string, role inter.TenantRole, createdAt time.Time) error {
 	row := &bunrepo.TenantRoleRow{
 		TenantID:  tenantID,
 		Username:  username,
 		Role:      string(normalizeRole(role)),
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: createdAt,
 	}
-	_, err := r.db.NewRaw(`
+	_, err := db.NewRaw(`
 		INSERT INTO tenant_users (tenant_id, username, role, created_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(tenant_id, username) DO UPDATE SET role = excluded.role
-	`, row.TenantID, row.Username, row.Role, row.CreatedAt).Exec(context.Background())
+	`, row.TenantID, row.Username, row.Role, row.CreatedAt).Exec(ctx)
 	return err
 }
 
@@ -235,8 +273,10 @@ func (r *Repository) CreateTenantInvitation(invitation inter.TenantInvitation) (
 		return inter.TenantInvitation{}, err
 	}
 
-	// 生成邀请 ID
-	id := fmt.Sprintf("inv_%s_%d", username, time.Now().UnixNano())
+	id, err := newInvitationID()
+	if err != nil {
+		return inter.TenantInvitation{}, err
+	}
 	now := time.Now().UTC()
 	expiresAt := now.Add(7 * 24 * time.Hour) // 7天后过期
 
@@ -287,12 +327,16 @@ func (r *Repository) ListPendingInvitations(username string) ([]inter.TenantInvi
 }
 
 func (r *Repository) GetInvitation(invitationID string) (inter.TenantInvitation, error) {
+	return getInvitation(context.Background(), r.db, invitationID)
+}
+
+func getInvitation(ctx context.Context, db bun.IDB, invitationID string) (inter.TenantInvitation, error) {
 	var row bunrepo.TenantInvitationRow
-	err := r.db.NewSelect().
+	err := db.NewSelect().
 		Model(&row).
 		Where("id = ?", strings.TrimSpace(invitationID)).
 		Limit(1).
-		Scan(context.Background())
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return inter.TenantInvitation{}, inter.ErrInvitationNotFound
@@ -303,53 +347,82 @@ func (r *Repository) GetInvitation(invitationID string) (inter.TenantInvitation,
 }
 
 func (r *Repository) AcceptInvitation(invitationID string) error {
-	invitation, err := r.GetInvitation(invitationID)
-	if err != nil {
-		return err
-	}
-
-	if invitation.Status != "pending" {
-		return inter.ErrInvitationAccepted
-	}
-
-	if time.Now().UTC().After(invitation.ExpiresAt) {
-		return inter.ErrInvitationExpired
-	}
-
-	// 添加用户到租户
-	if err := r.AddTenantUser(invitation.TenantID, invitation.Username, invitation.Role); err != nil {
-		return err
-	}
-
-	// 更新邀请状态
-	_, err = r.db.NewUpdate().
-		Model((*bunrepo.TenantInvitationRow)(nil)).
-		Set("status = ?", "accepted").
-		Set("updated_at = ?", time.Now().UTC()).
-		Where("id = ?", invitationID).
-		Exec(context.Background())
-
-	return err
+	invitationID = strings.TrimSpace(invitationID)
+	return r.db.RunInTx(context.Background(), nil, func(ctx context.Context, tx bun.Tx) error {
+		invitation, err := getInvitation(ctx, tx, invitationID)
+		if err != nil {
+			return err
+		}
+		if invitation.Status != "pending" {
+			return inter.ErrInvitationAccepted
+		}
+		now := time.Now().UTC()
+		if now.After(invitation.ExpiresAt) {
+			return inter.ErrInvitationExpired
+		}
+		if err := upsertTenantUser(ctx, tx, invitation.TenantID, invitation.Username, invitation.Role, now); err != nil {
+			return err
+		}
+		res, err := tx.NewUpdate().
+			Model((*bunrepo.TenantInvitationRow)(nil)).
+			Set("status = ?", "accepted").
+			Set("updated_at = ?", now).
+			Where("id = ?", invitationID).
+			Where("status = ?", "pending").
+			Where("expires_at > ?", now).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return inter.ErrInvitationAccepted
+		}
+		return nil
+	})
 }
 
 func (r *Repository) RejectInvitation(invitationID string) error {
-	invitation, err := r.GetInvitation(invitationID)
-	if err != nil {
-		return err
+	invitationID = strings.TrimSpace(invitationID)
+	return r.db.RunInTx(context.Background(), nil, func(ctx context.Context, tx bun.Tx) error {
+		invitation, err := getInvitation(ctx, tx, invitationID)
+		if err != nil {
+			return err
+		}
+		if invitation.Status != "pending" {
+			return inter.ErrInvitationAccepted
+		}
+		now := time.Now().UTC()
+		res, err := tx.NewUpdate().
+			Model((*bunrepo.TenantInvitationRow)(nil)).
+			Set("status = ?", "rejected").
+			Set("updated_at = ?", now).
+			Where("id = ?", invitationID).
+			Where("status = ?", "pending").
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return inter.ErrInvitationAccepted
+		}
+		return nil
+	})
+}
+
+func newInvitationID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
 	}
-
-	if invitation.Status != "pending" {
-		return inter.ErrInvitationAccepted
-	}
-
-	_, err = r.db.NewUpdate().
-		Model((*bunrepo.TenantInvitationRow)(nil)).
-		Set("status = ?", "rejected").
-		Set("updated_at = ?", time.Now().UTC()).
-		Where("id = ?", invitationID).
-		Exec(context.Background())
-
-	return err
+	return "inv_" + hex.EncodeToString(b[:]), nil
 }
 
 func invitationFromRow(row bunrepo.TenantInvitationRow) inter.TenantInvitation {
