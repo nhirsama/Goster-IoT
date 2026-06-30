@@ -38,18 +38,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type TenantStatus = "active" | "suspended" | "archived";
-type Tenant = {
-  id: string;
-  name: string;
-  status: TenantStatus;
-  created_at: string;
-  updated_at?: string | null;
-};
-type TenantListData = {
-  items: Tenant[];
-  total: number;
-};
+type TenantStatus = components["schemas"]["TenantStatus"];
+type Tenant = components["schemas"]["Tenant"];
+type TenantListData = components["schemas"]["TenantListResponse"]["data"];
 
 type NavEntry = {
   href: string;
@@ -105,18 +96,28 @@ export default function DashboardShell({
   const { data: tenantData } = useQuery({
     queryKey: queryKeys.tenants,
     queryFn: () => api.get<TenantListData>("/api/v1/tenants"),
-    enabled: permission >= 3,
+    enabled: permission > 0,
     retry: false,
   });
 
-  const roleTenantItems = Object.keys(tenantRoles).map((id) => ({
+  const roleTenantItems: Tenant[] = Object.entries(tenantRoles).map(([id, role]) => ({
     id,
     name: id === "tenant_legacy" ? "legacy" : id,
     status: "active" as TenantStatus,
+    role,
+    created_at: "",
   }));
-  const tenantItems = permission >= 3 ? tenantData?.items || roleTenantItems : roleTenantItems;
-  const activeTenantId = getActiveTenantId() || user?.active_tenant || tenantItems[0]?.id || "tenant_legacy";
-  const activeTenant = tenantItems.find((tenant) => tenant.id === activeTenantId) || tenantItems[0];
+  const tenantItems = tenantData?.items?.length ? tenantData.items : roleTenantItems;
+  const storedTenantId = getActiveTenantId();
+  const preferredTenantId = storedTenantId || user?.active_tenant || tenantItems[0]?.id || "tenant_legacy";
+  const activeTenant = tenantItems.find((tenant) => tenant.id === preferredTenantId) || tenantItems[0];
+  const activeTenantId = activeTenant?.id || preferredTenantId;
+
+  useEffect(() => {
+    if (activeTenantId && storedTenantId !== activeTenantId) {
+      setActiveTenantId(activeTenantId);
+    }
+  }, [activeTenantId, storedTenantId]);
 
   const handleTenantSwitch = (tenantId: string) => {
     setActiveTenantId(tenantId);
@@ -161,7 +162,7 @@ export default function DashboardShell({
   const mobileAdminActive = pathname === "/admin" || availableManagementEntries.some((entry) => pathname === entry.href);
 
   return (
-    <div className="relative flex min-h-screen overflow-hidden bg-transparent text-slate-900">
+    <div className="relative min-h-screen bg-transparent text-slate-900">
       <header className="fixed left-0 right-0 top-0 z-40 border-b border-slate-200/70 bg-white/85 backdrop-blur lg:hidden">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
@@ -182,7 +183,7 @@ export default function DashboardShell({
         </div>
       </header>
 
-      <aside className="hidden lg:flex lg:w-64 xl:w-72 shrink-0 border-r border-slate-200/70 bg-white/70 backdrop-blur-xl lg:flex-col">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden h-screen shrink-0 border-r border-slate-200/70 bg-white/70 backdrop-blur-xl lg:flex lg:w-64 lg:flex-col xl:w-72">
         <div className="border-b border-slate-200/70 px-4 py-4 shrink-0">
           <Link href="/" className="flex items-center gap-2.5">
             <div className="rounded-xl bg-primary p-2 text-primary-foreground shadow-sm">
@@ -310,8 +311,8 @@ export default function DashboardShell({
         </div>
       </aside>
 
-      <main className="relative flex-1 overflow-y-auto pb-20 pt-16 lg:pb-0 lg:pt-0">
-        <div className="mx-auto h-full w-full max-w-7xl p-4 lg:p-8">{children}</div>
+      <main className="relative min-h-screen pb-20 pt-16 lg:pb-0 lg:pl-64 lg:pt-0 xl:pl-72">
+        <div className="mx-auto w-full max-w-7xl p-4 lg:p-8">{children}</div>
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200/70 bg-white/90 backdrop-blur lg:hidden">

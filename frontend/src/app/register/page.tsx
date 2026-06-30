@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,10 +9,11 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Turnstile } from "@marsidev/react-turnstile";
 
+import { AuthAlert, AuthField, AuthShell } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api-client";
-import { UserPlus, User, Mail, Lock, Check } from "lucide-react";
+import { Check, Lock, Mail, User, UserPlus } from "lucide-react";
 import { components } from "@/lib/api-types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -60,7 +62,6 @@ export default function RegisterPage() {
       })
       .catch(() => {
         if (!alive) return;
-        // Keep register flow available and surface a non-blocking warning.
         setCaptchaConfigError("验证码配置加载失败，提交时将由服务端进行最终校验。");
       });
 
@@ -108,109 +109,86 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#0f172a] font-sans">
-      <div className="flex-1 flex items-center justify-center p-6 relative">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/20 blur-[120px] rounded-full pointer-events-none"></div>
+    <AuthShell
+      icon={UserPlus}
+      title="创建账户"
+      description="申请接入 Goster IoT 设备网络"
+      footer={
+        <>
+          已有系统账户？{" "}
+          <Link href="/login" className="font-semibold text-primary transition hover:text-primary/80">
+            直接登录
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {globalError ? <AuthAlert>{globalError}</AuthAlert> : null}
 
-        <div className="w-full max-w-md bg-[#1e293b]/80 backdrop-blur-xl border border-slate-700/50 p-8 rounded-3xl shadow-2xl relative z-10">
-          <div className="mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-600 shadow-lg shadow-blue-900/50 mb-4">
-              <UserPlus className="h-8 w-8 text-white" />
-            </div>
-            <h1 className="text-3xl font-black text-white tracking-tight">创建账户</h1>
-            <p className="text-slate-400 mt-2 font-medium">接入 Goster IoT 设备网络</p>
-          </div>
+        <AuthField label="用户名" icon={User} error={errors.username?.message}>
+          <Input
+            className={`h-12 bg-white pl-10 text-slate-900 placeholder:text-slate-400 ${
+              errors.username ? "border-rose-300 focus-visible:ring-rose-100" : ""
+            }`}
+            placeholder="请输入您的用户名"
+            {...register("username")}
+          />
+        </AuthField>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            {globalError && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-3 rounded-xl text-sm flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0"></span>
-                {globalError}
-              </div>
-            )}
-            
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">用户名</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
-                <Input
-                  className={`pl-10 h-12 bg-[#0f172a] border-slate-700 text-white placeholder:text-slate-600 rounded-xl focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:border-blue-500 ${errors.username ? 'border-rose-500/50 focus-visible:ring-rose-500' : ''}`}
-                  placeholder="请输入您的用户名"
-                  {...register("username")}
-                />
-              </div>
-              {errors.username && <p className="text-xs text-rose-400 mt-1 ml-1">{errors.username.message}</p>}
-            </div>
+        <AuthField label="电子邮箱（可选）" icon={Mail} error={errors.email?.message}>
+          <Input
+            className={`h-12 bg-white pl-10 text-slate-900 placeholder:text-slate-400 ${
+              errors.email ? "border-rose-300 focus-visible:ring-rose-100" : ""
+            }`}
+            type="email"
+            placeholder="john@example.com"
+            {...register("email")}
+          />
+        </AuthField>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">电子邮箱 (可选)</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
-                <Input
-                  className={`pl-10 h-12 bg-[#0f172a] border-slate-700 text-white placeholder:text-slate-600 rounded-xl focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:border-blue-500 ${errors.email ? 'border-rose-500/50 focus-visible:ring-rose-500' : ''}`}
-                  type="email"
-                  placeholder="john@example.com"
-                  {...register("email")}
-                />
-              </div>
-              {errors.email && <p className="text-xs text-rose-400 mt-1 ml-1">{errors.email.message}</p>}
-            </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <AuthField label="密码" icon={Lock} error={errors.password?.message}>
+            <Input
+              type="password"
+              className={`h-12 bg-white pl-10 text-slate-900 placeholder:text-slate-400 ${
+                errors.password ? "border-rose-300 focus-visible:ring-rose-100" : ""
+              }`}
+              placeholder="至少 8 位密码"
+              {...register("password")}
+            />
+          </AuthField>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">密码</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
-                <Input
-                  type="password"
-                  className={`pl-10 h-12 bg-[#0f172a] border-slate-700 text-white placeholder:text-slate-600 rounded-xl focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:border-blue-500 ${errors.password ? 'border-rose-500/50 focus-visible:ring-rose-500' : ''}`}
-                  placeholder="至少 8 位密码"
-                  {...register("password")}
-                />
-              </div>
-              {errors.password && <p className="text-xs text-rose-400 mt-1 ml-1">{errors.password.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">确认密码</label>
-              <div className="relative">
-                <Check className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
-                <Input
-                  type="password"
-                  className={`pl-10 h-12 bg-[#0f172a] border-slate-700 text-white placeholder:text-slate-600 rounded-xl focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:border-blue-500 ${errors.confirm_password ? 'border-rose-500/50 focus-visible:ring-rose-500' : ''}`}
-                  placeholder="请再次输入密码"
-                  {...register("confirm_password")}
-                />
-              </div>
-              {errors.confirm_password && <p className="text-xs text-rose-400 mt-1 ml-1">{errors.confirm_password.message}</p>}
-            </div>
-            
-            {captchaConfig?.enabled && captchaConfig.provider === "turnstile" && captchaConfig.site_key && (
-              <div className="flex justify-center mt-4">
-                <Turnstile 
-                  siteKey={captchaConfig.site_key} 
-                  onSuccess={(token) => {
-                    setCaptchaToken(token);
-                    if (globalError === "请先完成人机验证") setGlobalError(null);
-                  }}
-                  options={{ theme: "dark" }}
-                />
-              </div>
-            )}
-
-            {captchaConfigError ? (
-              <p className="text-xs text-amber-300 text-center">{captchaConfigError}</p>
-            ) : null}
-
-            <Button className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-lg shadow-blue-900/20 transition-all mt-6" type="submit" disabled={loading}>
-              {loading ? "正在创建账户..." : "立即注册"}
-            </Button>
-
-            <p className="text-sm text-center text-slate-400 pt-4">
-              已有系统账户？ <a href="/login" className="text-blue-400 font-bold hover:text-blue-300 transition-colors">直接登录</a>
-            </p>
-          </form>
+          <AuthField label="确认密码" icon={Check} error={errors.confirm_password?.message}>
+            <Input
+              type="password"
+              className={`h-12 bg-white pl-10 text-slate-900 placeholder:text-slate-400 ${
+                errors.confirm_password ? "border-rose-300 focus-visible:ring-rose-100" : ""
+              }`}
+              placeholder="再次输入"
+              {...register("confirm_password")}
+            />
+          </AuthField>
         </div>
-      </div>
-    </div>
+
+        {captchaConfig?.enabled && captchaConfig.provider === "turnstile" && captchaConfig.site_key ? (
+          <div className="flex justify-center rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+            <Turnstile
+              siteKey={captchaConfig.site_key}
+              onSuccess={(token) => {
+                setCaptchaToken(token);
+                if (globalError === "请先完成人机验证") setGlobalError(null);
+              }}
+              options={{ theme: "light" }}
+            />
+          </div>
+        ) : null}
+
+        {captchaConfigError ? <AuthAlert tone="warning">{captchaConfigError}</AuthAlert> : null}
+
+        <Button className="h-12 w-full text-base" type="submit" disabled={loading}>
+          {loading ? "正在创建账户..." : "立即注册"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

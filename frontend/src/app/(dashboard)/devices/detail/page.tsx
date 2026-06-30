@@ -20,7 +20,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { 
   Server, 
@@ -41,6 +43,7 @@ import {
   Eraser,
   Wand2,
   AlertCircle,
+  ChevronLeft,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -258,10 +261,24 @@ function DeviceMetricsPageContent() {
 
   const permission = user?.permission || 0;
 
+  const deviceOnline = device.runtime?.status === 1;
+  const deviceDelayed = device.runtime?.status === 2;
+
   return (
-    <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2 max-w-6xl mx-auto">
-      {/* Header Card - 1:1复刻原版顶部操作区 */}
-      <Card className="border-none shadow-lg shadow-slate-200/50 rounded-2xl overflow-hidden bg-white">
+    <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2">
+      <PageHeader
+        icon={Server}
+        title={device.meta.name}
+        description="查看设备主档、访问令牌、下行指令和指标数据。"
+        action={
+          <Button variant="outline" onClick={() => router.push("/devices")}>
+            <ChevronLeft className="h-4 w-4" />
+            返回设备列表
+          </Button>
+        }
+      />
+
+      <Card className="overflow-hidden rounded-2xl border-slate-200/70 bg-white/85 shadow-lg shadow-slate-200/50">
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
           <div className="flex items-center gap-4">
             <div className="bg-slate-100 p-4 rounded-full text-blue-600 shadow-inner">
@@ -270,7 +287,23 @@ function DeviceMetricsPageContent() {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">{device.meta.name}</h2>
-                <span className={`h-2.5 w-2.5 rounded-full ${device.runtime?.status === 1 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : device.runtime?.status === 2 ? 'bg-amber-500' : 'bg-slate-300'}`}></span>
+                <Badge
+                  variant="outline"
+                  className={
+                    deviceOnline
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : deviceDelayed
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-slate-200 bg-slate-100 text-slate-600"
+                  }
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      deviceOnline ? "bg-emerald-500" : deviceDelayed ? "bg-amber-500" : "bg-slate-400"
+                    }`}
+                  />
+                  {deviceOnline ? "在线" : deviceDelayed ? "延迟" : "离线"}
+                </Badge>
               </div>
               <div className="flex items-center gap-1.5 text-slate-500 mt-1">
                 <Fingerprint className="h-4 w-4" />

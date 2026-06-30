@@ -10,7 +10,6 @@ import {
   Layers3,
   Plus,
   RefreshCw,
-  Search,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -27,7 +26,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -40,7 +39,7 @@ import { Input } from "@/components/ui/input";
 
 type TenantStatus = components["schemas"]["TenantStatus"];
 type TenantRole = components["schemas"]["TenantRole"];
-type TenantTab = "members" | "overview" | "settings";
+type TenantTab = "overview" | "members" | "settings";
 type Tenant = Omit<components["schemas"]["Tenant"], "updated_at"> & {
   updated_at?: string | null;
 };
@@ -92,8 +91,8 @@ const emptyTenants: Tenant[] = [];
 const emptyMembers: TenantUser[] = [];
 
 const tenantTabs: Array<{ value: TenantTab; label: string; icon: typeof Users }> = [
-  { value: "members", label: "成员", icon: Users },
   { value: "overview", label: "概览", icon: Building2 },
+  { value: "members", label: "成员", icon: Users },
   { value: "settings", label: "策略", icon: ShieldCheck },
 ];
 
@@ -204,15 +203,14 @@ function StatItem({
 
 export default function TenantsPage() {
   const queryClient = useQueryClient();
-  const { user, isAuthenticated, isLoading: authLoading, refetch: refetchAuth } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast, confirm } = useUx();
-  const [keyword, setKeyword] = useState("");
-  const [selectedTenantId, setSelectedTenantId] = useState(getActiveTenantId() || user?.active_tenant || "tenant_legacy");
+  const [tenantNameDraft, setTenantNameDraft] = useState<{ tenantId: string; value: string } | null>(null);
   const [newTenantName, setNewTenantName] = useState("");
   const [newTenantStatus, setNewTenantStatus] = useState<TenantStatus>("active");
   const [memberUsername, setMemberUsername] = useState("");
   const [memberRole, setMemberRole] = useState<TenantRole>("tenant_ro");
-  const [activeTab, setActiveTab] = useState<TenantTab>("members");
+  const [activeTab, setActiveTab] = useState<TenantTab>("overview");
 
   const tenantsQuery = useQuery({
     queryKey: queryKeys.tenants,
@@ -224,10 +222,16 @@ export default function TenantsPage() {
     () => (tenantsQuery.data?.items || emptyTenants).map((tenant) => normalizeTenant(tenant)),
     [tenantsQuery.data?.items]
   );
-  const selectedTenant = tenants.find((tenant) => tenant.id === selectedTenantId) || tenants[0];
-  const effectiveSelectedTenantId = selectedTenant?.id || selectedTenantId;
+  const activeTenantId = getActiveTenantId() || user?.active_tenant || tenants[0]?.id || "tenant_legacy";
+  const selectedTenant = tenants.find((tenant) => tenant.id === activeTenantId) || tenants[0];
+  const effectiveSelectedTenantId = selectedTenant?.id || activeTenantId;
   const canManageSelectedTenant = selectedTenant?.role === "tenant_admin";
-  const activeTenantId = getActiveTenantId() || user?.active_tenant;
+  const selectedStatusMeta = getStatusMeta(selectedTenant?.status);
+  const selectedRoleMeta = getRoleMeta(selectedTenant?.role);
+  const tenantNameValue =
+    tenantNameDraft?.tenantId === effectiveSelectedTenantId ? tenantNameDraft.value : selectedTenant?.name || "";
+  const hasTenantNameChanged = tenantNameValue.trim() !== (selectedTenant?.name || "");
+
   const roleCounts = useMemo(
     () =>
       tenants.reduce(
@@ -264,8 +268,9 @@ export default function TenantsPage() {
       toast.success("租户已创建");
       setNewTenantName("");
       setNewTenantStatus("active");
-      setSelectedTenantId(tenant.id);
       setActiveTenantId(tenant.id);
+      setTenantNameDraft({ tenantId: tenant.id, value: tenant.name });
+      setActiveTab("overview");
       queryClient.invalidateQueries({ queryKey: queryKeys.tenants });
       queryClient.invalidateQueries({ queryKey: queryKeys.authMe });
     },
@@ -275,11 +280,16 @@ export default function TenantsPage() {
   });
 
   const updateTenantMutation = useMutation({
-    mutationFn: ({ tenantId, status }: { tenantId: string; status: TenantStatus }) =>
-      api.patch<Tenant>(`/api/v1/tenants/${encodeURIComponent(tenantId)}`, { status }),
-    onSuccess: () => {
-      toast.success("租户状态已更新");
+    mutationFn: ({ tenantId, name, status }: { tenantId: string; name?: string; status?: TenantStatus }) =>
+      api.patch<Tenant>(`/api/v1/tenants/${encodeURIComponent(tenantId)}`, {
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(status !== undefined ? { status } : {}),
+      }),
+    onSuccess: (tenant) => {
+      toast.success("租户信息已更新");
+      setTenantNameDraft({ tenantId: tenant.id, value: tenant.name });
       queryClient.invalidateQueries({ queryKey: queryKeys.tenants });
+      queryClient.invalidateQueries({ queryKey: queryKeys.authMe });
     },
     onError: (error: unknown) => {
       toast.error(getApiErrorMessage(error, "更新租户失败"));
@@ -316,26 +326,22 @@ export default function TenantsPage() {
     },
   });
 
-  const filteredTenants = useMemo(() => {
-    const normalized = keyword.trim().toLowerCase();
-    if (!normalized) return tenants;
-    return tenants.filter((tenant) =>
-      [tenant.id, tenant.name, tenant.status, tenant.role || ""].some((value) => asText(value).toLowerCase().includes(normalized))
-    );
-  }, [keyword, tenants]);
-
   const members = useMemo(
     () => (tenantUsersQuery.data?.items || emptyMembers).map((member) => normalizeTenantUser(member)),
     [tenantUsersQuery.data?.items]
   );
   const knownUsers = usersQuery.data?.items || [];
 
-  const switchTenant = async (tenantId: string) => {
-    setActiveTenantId(tenantId);
-    setSelectedTenantId(tenantId);
-    await refetchAuth();
-    queryClient.invalidateQueries();
-    toast.success("当前租户已切换");
+  const saveTenantName = () => {
+    const name = tenantNameValue.trim();
+    if (!name) {
+      toast.error("租户名称不能为空");
+      return;
+    }
+    if (!effectiveSelectedTenantId || !hasTenantNameChanged) {
+      return;
+    }
+    updateTenantMutation.mutate({ tenantId: effectiveSelectedTenantId, name });
   };
 
   if (authLoading) {
@@ -351,7 +357,7 @@ export default function TenantsPage() {
       <PageHeader
         icon={Building2}
         title="租户管理"
-        description="按租户范围管理成员、角色和当前操作上下文。"
+        description="管理当前租户的基础信息、成员和权限策略。切换租户请使用顶部租户选择器。"
         action={
           <Dialog>
             <DialogTrigger render={<Button />}>
@@ -391,132 +397,44 @@ export default function TenantsPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatItem icon={Layers3} label="可访问租户" value={tenants.length} />
-        <StatItem icon={Crown} label="可管理租户" value={roleCounts.admin} />
-        <StatItem icon={Users} label="当前成员数" value={canManageSelectedTenant ? members.length : "-"} />
-      </div>
+      {tenantsQuery.isLoading ? (
+        <EmptyState icon={RefreshCw} title="加载中" description="正在加载当前租户信息..." className="py-24" />
+      ) : !selectedTenant ? (
+        <EmptyState icon={Building2} title="暂无租户" description="创建租户后会在这里管理基础信息和成员。" className="py-24" />
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatItem icon={Layers3} label="可访问租户" value={tenants.length} />
+            <StatItem icon={Crown} label="可管理租户" value={roleCounts.admin} />
+            <StatItem icon={Users} label="当前成员数" value={canManageSelectedTenant ? members.length : "-"} />
+          </div>
 
-      <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <Card className="lg:sticky lg:top-6 lg:self-start">
-          <CardHeader className="border-b border-slate-200/70 pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold text-slate-900">租户列表</CardTitle>
-              <Badge variant="outline" className="rounded-full bg-slate-50 text-slate-600">
-                {filteredTenants.length}
-              </Badge>
-            </div>
-            <div className="relative pt-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
-                placeholder="搜索租户名称或 ID"
-                className="h-9 pl-9 text-sm"
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="p-3">
-            {tenantsQuery.isLoading ? (
-              <EmptyState icon={RefreshCw} title="加载中" description="请稍候..." className="py-16" />
-            ) : filteredTenants.length === 0 ? (
-              <EmptyState icon={Building2} title="暂无租户" description="创建租户后会显示在这里" className="py-16" />
-            ) : (
-              <div className="max-h-[520px] space-y-1.5 overflow-y-auto pr-1">
-                {filteredTenants.map((tenant) => {
-                  const tenantStatusMeta = getStatusMeta(tenant.status);
-                  const tenantRoleMeta = getRoleMeta(tenant.role);
-                  const RoleIcon = tenantRoleMeta?.icon || ShieldAlert;
-                  const selected = tenant.id === effectiveSelectedTenantId;
-                  const active = tenant.id === activeTenantId;
-
-                  return (
-                    <button
-                      key={tenant.id}
-                      type="button"
-                      onClick={() => setSelectedTenantId(tenant.id)}
-                      className={cn(
-                        "group w-full rounded-lg border bg-white p-3 text-left transition",
-                        selected
-                          ? "border-primary/50 bg-primary/5 shadow-sm ring-1 ring-primary/10"
-                          : "border-slate-200 hover:border-primary/30 hover:bg-slate-50"
-                      )}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className={cn(
-                          "grid h-10 w-10 shrink-0 place-items-center rounded-lg transition",
-                          selected ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-600 group-hover:bg-slate-200"
-                        )}>
-                          <Building2 className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold text-slate-900">{tenant.name}</span>
-                            {active && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-                          </div>
-                          <p className="mt-0.5 truncate font-mono text-xs text-slate-500">{tenant.id}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            <Badge variant="outline" className={cn("h-5 gap-1 text-xs", tenantStatusMeta.className)}>
-                              <span className={cn("h-1.5 w-1.5 rounded-full", tenantStatusMeta.dotClassName)} />
-                              {tenantStatusMeta.label}
-                            </Badge>
-                            {tenantRoleMeta && (
-                              <Badge variant="outline" className={cn("h-5 gap-1 text-xs", tenantRoleMeta.className)}>
-                                <RoleIcon className="h-3 w-3" />
-                                {tenantRoleMeta.label}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          {(() => {
-            const selectedStatusMeta = getStatusMeta(selectedTenant?.status);
-            const selectedRoleMeta = getRoleMeta(selectedTenant?.role);
-
-            return (
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 bg-slate-50/50 px-6 py-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <h2 className="text-xl font-semibold text-slate-900">
-                      {selectedTenant?.name || effectiveSelectedTenantId}
-                    </h2>
-                    {selectedTenant && (
-                      <Badge variant="outline" className={cn("h-6", selectedStatusMeta.className)}>
-                        <span className={cn("mr-1 h-1.5 w-1.5 rounded-full", selectedStatusMeta.dotClassName)} />
-                        {selectedStatusMeta.label}
-                      </Badge>
-                    )}
+                    <h2 className="truncate text-xl font-semibold text-slate-900">{selectedTenant.name}</h2>
+                    <Badge variant="outline" className={cn("h-6", selectedStatusMeta.className)}>
+                      <span className={cn("mr-1 h-1.5 w-1.5 rounded-full", selectedStatusMeta.dotClassName)} />
+                      {selectedStatusMeta.label}
+                    </Badge>
                     {selectedRoleMeta && (
                       <Badge variant="outline" className={cn("h-6", selectedRoleMeta.className)}>
                         {selectedRoleMeta.label}
                       </Badge>
                     )}
+                    <Badge variant="outline" className="h-6 border-primary/20 bg-primary/5 text-primary">
+                      <Check className="h-3 w-3" />
+                      当前租户
+                    </Badge>
                   </div>
                   <p className="mt-1.5 font-mono text-xs text-slate-500">{effectiveSelectedTenantId}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={activeTenantId === effectiveSelectedTenantId ? "secondary" : "default"}
-                    onClick={() => switchTenant(effectiveSelectedTenantId)}
-                    disabled={!effectiveSelectedTenantId || activeTenantId === effectiveSelectedTenantId}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    {activeTenantId === effectiveSelectedTenantId ? "当前租户" : "切换到此"}
-                  </Button>
+                  <span className="text-xs font-semibold text-slate-500">状态</span>
                   <SelectField
-                    value={selectedTenant?.status || "active"}
+                    value={selectedTenant.status || "active"}
                     onChange={(value) =>
                       updateTenantMutation.mutate({
                         tenantId: effectiveSelectedTenantId,
@@ -561,227 +479,257 @@ export default function TenantsPage() {
                 </div>
               </div>
 
-              {activeTab === "members" && (
-              <div className="space-y-6 p-6">
-                {canManageSelectedTenant ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="mb-3 text-sm font-semibold text-slate-900">邀请成员</p>
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_auto]">
+              {activeTab === "overview" && (
+                <div className="space-y-5 p-6">
+                  <Card>
+                    <CardContent className="space-y-4 p-5">
                       <div>
-                        <Input
-                          list="tenant-users"
-                          value={memberUsername}
-                          onChange={(event) => setMemberUsername(event.target.value)}
-                          placeholder="输入用户名"
-                          className="h-9 bg-white"
-                        />
-                        <datalist id="tenant-users">
-                          {knownUsers.map((knownUser) => (
-                            <option key={knownUser.username} value={knownUser.username} />
-                          ))}
-                        </datalist>
+                        <h3 className="text-base font-semibold text-slate-900">租户基础信息</h3>
+                        <p className="mt-1 text-sm text-slate-600">租户名称会显示在顶部租户切换器和相关管理界面中。</p>
                       </div>
-                      <SelectField value={memberRole} onChange={(value) => setMemberRole(value as TenantRole)} className="w-full h-9">
-                        {roleOptions.map((role) => (
-                          <option key={role} value={role}>
-                            {roleMeta[role].label}
-                          </option>
-                        ))}
-                      </SelectField>
-                      <Button
-                        size="sm"
-                        className="h-9"
-                        disabled={!effectiveSelectedTenantId || !memberUsername.trim() || addTenantUserMutation.isPending}
-                        onClick={() => addTenantUserMutation.mutate()}
-                      >
-                        <UserPlus className="h-4 w-4" />
-                        发送邀请
-                      </Button>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                        <label className="space-y-1">
+                          <span className="text-xs font-semibold text-slate-500">租户名称</span>
+                          <Input
+                            value={tenantNameValue}
+                            onChange={(event) =>
+                              setTenantNameDraft({ tenantId: effectiveSelectedTenantId, value: event.target.value })
+                            }
+                            disabled={!canManageSelectedTenant || updateTenantMutation.isPending}
+                            placeholder="请输入租户名称"
+                          />
+                        </label>
+                        <div className="flex items-end">
+                          <Button
+                            className="w-full lg:w-auto"
+                            disabled={
+                              !canManageSelectedTenant ||
+                              !tenantNameValue.trim() ||
+                              !hasTenantNameChanged ||
+                              updateTenantMutation.isPending
+                            }
+                            onClick={saveTenantName}
+                          >
+                            保存名称
+                          </Button>
+                        </div>
+                      </div>
+                      {!canManageSelectedTenant && (
+                        <p className="text-sm text-slate-500">只有当前租户的管理员可以修改租户名称和状态。</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid gap-5 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-5">
+                      <div className="mb-4 flex items-center gap-2.5 text-sm font-semibold text-slate-900">
+                        <div className="rounded-lg bg-slate-100 p-2 text-slate-600">
+                          <Clock3 className="h-4 w-4" />
+                        </div>
+                        生命周期
+                      </div>
+                      <dl className="space-y-3 text-sm">
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-slate-600">创建时间</dt>
+                          <dd className="font-medium text-slate-900">{formatDate(selectedTenant.created_at)}</dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-slate-600">更新时间</dt>
+                          <dd className="font-medium text-slate-900">{formatDate(selectedTenant.updated_at)}</dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-slate-600">租户 ID</dt>
+                          <dd className="truncate font-mono text-xs font-medium text-slate-900">{effectiveSelectedTenantId}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-5">
+                      <div className="mb-4 flex items-center gap-2.5 text-sm font-semibold text-slate-900">
+                        <div className="rounded-lg bg-slate-100 p-2 text-slate-600">
+                          <ShieldCheck className="h-4 w-4" />
+                        </div>
+                        当前账号权限
+                      </div>
+                      <dl className="space-y-3 text-sm">
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-slate-600">租户角色</dt>
+                          <dd>
+                            {selectedRoleMeta ? (
+                              <Badge variant="outline" className={selectedRoleMeta.className}>
+                                {selectedRoleMeta.label}
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-500">未加入</span>
+                            )}
+                          </dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-slate-600">成员管理</dt>
+                          <dd className="font-medium text-slate-900">{canManageSelectedTenant ? "允许" : "不允许"}</dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-slate-600">状态维护</dt>
+                          <dd className="font-medium text-slate-900">{canManageSelectedTenant ? "允许" : "不允许"}</dd>
+                        </div>
+                      </dl>
                     </div>
                   </div>
-                ) : (
-                  <EmptyState icon={ShieldAlert} title="权限不足" description="只有租户管理员可以管理成员" className="py-12" />
-                )}
+                </div>
+              )}
 
-                {canManageSelectedTenant && (
-                  tenantUsersQuery.isLoading ? (
-                    <EmptyState icon={RefreshCw} title="加载中" description="请稍候..." className="py-16" />
-                  ) : members.length === 0 ? (
-                    <EmptyState icon={Users} title="暂无成员" description="添加成员后会显示在这里" className="py-16" />
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-slate-200">
-                      <div className="overflow-x-auto">
-                        <div className="min-w-[640px]">
-                          <div className="grid grid-cols-[minmax(200px,1fr)_180px_180px_60px] gap-4 bg-slate-50 px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                            <span>用户</span>
-                            <span>角色</span>
-                            <span>加入时间</span>
-                            <span className="text-right">操作</span>
-                          </div>
-                          <div className="divide-y divide-slate-200 bg-white">
-                            {members.map((member) => (
-                              <div
-                                key={`${member.tenant_id}:${member.username}`}
-                                className="grid min-h-16 grid-cols-[minmax(200px,1fr)_180px_180px_60px] items-center gap-4 px-6 py-3"
-                              >
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900">{member.username}</p>
-                                  <p className="truncate font-mono text-xs text-slate-500">{member.tenant_id}</p>
-                                </div>
-                                <div>
-                                  <Badge variant="outline" className={cn("h-6", roleMeta[member.role]?.className)}>
-                                    {roleMeta[member.role]?.label || member.role}
-                                  </Badge>
-                                </div>
-                                <p className="truncate text-sm text-slate-600">{formatDate(member.created_at)}</p>
-                                <div className="text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                                    disabled={removeTenantUserMutation.isPending || member.username === user?.username}
-                                    onClick={async () => {
-                                      if (member.username === user?.username) {
-                                        toast.error("不能移除自己");
-                                        return;
-                                      }
-                                      const ok = await confirm({
-                                        title: "移除租户成员",
-                                        description: `确定要从 ${effectiveSelectedTenantId} 移除 ${member.username} 吗？`,
-                                        confirmText: "移除",
-                                        cancelText: "取消",
-                                        tone: "danger",
-                                      });
-                                      if (ok) {
-                                        removeTenantUserMutation.mutate({
-                                          tenantId: effectiveSelectedTenantId,
-                                          username: member.username,
-                                        });
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
+              {activeTab === "members" && (
+                <div className="space-y-6 p-6">
+                  {canManageSelectedTenant ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="mb-3 text-sm font-semibold text-slate-900">邀请成员</p>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_auto]">
+                        <div>
+                          <Input
+                            list="tenant-users"
+                            value={memberUsername}
+                            onChange={(event) => setMemberUsername(event.target.value)}
+                            placeholder="输入用户名"
+                            className="h-9 bg-white"
+                          />
+                          <datalist id="tenant-users">
+                            {knownUsers.map((knownUser) => (
+                              <option key={knownUser.username} value={knownUser.username} />
                             ))}
+                          </datalist>
+                        </div>
+                        <SelectField value={memberRole} onChange={(value) => setMemberRole(value as TenantRole)} className="h-9 w-full">
+                          {roleOptions.map((role) => (
+                            <option key={role} value={role}>
+                              {roleMeta[role].label}
+                            </option>
+                          ))}
+                        </SelectField>
+                        <Button
+                          size="sm"
+                          className="h-9"
+                          disabled={!effectiveSelectedTenantId || !memberUsername.trim() || addTenantUserMutation.isPending}
+                          onClick={() => addTenantUserMutation.mutate()}
+                        >
+                          <UserPlus className="h-4 w-4" />
+                          发送邀请
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <EmptyState icon={ShieldAlert} title="权限不足" description="只有租户管理员可以管理成员" className="py-12" />
+                  )}
+
+                  {canManageSelectedTenant &&
+                    (tenantUsersQuery.isLoading ? (
+                      <EmptyState icon={RefreshCw} title="加载中" description="请稍候..." className="py-16" />
+                    ) : members.length === 0 ? (
+                      <EmptyState icon={Users} title="暂无成员" description="邀请成员并由对方接受后会显示在这里" className="py-16" />
+                    ) : (
+                      <div className="overflow-hidden rounded-xl border border-slate-200">
+                        <div className="overflow-x-auto">
+                          <div className="min-w-[640px]">
+                            <div className="grid grid-cols-[minmax(200px,1fr)_180px_180px_60px] gap-4 bg-slate-50 px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                              <span>用户</span>
+                              <span>角色</span>
+                              <span>加入时间</span>
+                              <span className="text-right">操作</span>
+                            </div>
+                            <div className="divide-y divide-slate-200 bg-white">
+                              {members.map((member) => (
+                                <div
+                                  key={`${member.tenant_id}:${member.username}`}
+                                  className="grid min-h-16 grid-cols-[minmax(200px,1fr)_180px_180px_60px] items-center gap-4 px-6 py-3"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-slate-900">{member.username}</p>
+                                    <p className="truncate font-mono text-xs text-slate-500">{member.tenant_id}</p>
+                                  </div>
+                                  <div>
+                                    <Badge variant="outline" className={cn("h-6", roleMeta[member.role]?.className)}>
+                                      {roleMeta[member.role]?.label || member.role}
+                                    </Badge>
+                                  </div>
+                                  <p className="truncate text-sm text-slate-600">{formatDate(member.created_at)}</p>
+                                  <div className="text-right">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                                      disabled={removeTenantUserMutation.isPending || member.username === user?.username}
+                                      onClick={async () => {
+                                        if (member.username === user?.username) {
+                                          toast.error("不能移除自己");
+                                          return;
+                                        }
+                                        const ok = await confirm({
+                                          title: "移除租户成员",
+                                          description: `确定要从 ${effectiveSelectedTenantId} 移除 ${member.username} 吗？`,
+                                          confirmText: "移除",
+                                          cancelText: "取消",
+                                          tone: "danger",
+                                        });
+                                        if (ok) {
+                                          removeTenantUserMutation.mutate({
+                                            tenantId: effectiveSelectedTenantId,
+                                            username: member.username,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                )}
-              </div>
-              )}
-
-              {activeTab === "overview" && (
-              <div className="p-6">
-                <div className="grid gap-5 lg:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200 bg-white p-5">
-                    <div className="mb-4 flex items-center gap-2.5 text-sm font-semibold text-slate-900">
-                      <div className="rounded-lg bg-slate-100 p-2 text-slate-600">
-                        <Clock3 className="h-4 w-4" />
-                      </div>
-                      生命周期
-                    </div>
-                    <dl className="space-y-3 text-sm">
-                      <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-600">创建时间</dt>
-                        <dd className="font-medium text-slate-900">{formatDate(selectedTenant?.created_at)}</dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-600">更新时间</dt>
-                        <dd className="font-medium text-slate-900">{formatDate(selectedTenant?.updated_at)}</dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-600">当前上下文</dt>
-                        <dd className="font-semibold text-slate-900">
-                          {activeTenantId === effectiveSelectedTenantId ? (
-                            <span className="text-primary">已选中</span>
-                          ) : (
-                            <span className="text-slate-500">未选中</span>
-                          )}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-5">
-                    <div className="mb-4 flex items-center gap-2.5 text-sm font-semibold text-slate-900">
-                      <div className="rounded-lg bg-slate-100 p-2 text-slate-600">
-                        <ShieldCheck className="h-4 w-4" />
-                      </div>
-                      当前账号权限
-                    </div>
-                    <dl className="space-y-3 text-sm">
-                      <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-600">租户角色</dt>
-                        <dd>
-                          {selectedRoleMeta ? (
-                            <Badge variant="outline" className={selectedRoleMeta.className}>
-                              {selectedRoleMeta.label}
-                            </Badge>
-                          ) : (
-                            <span className="text-slate-500">未加入</span>
-                          )}
-                        </dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-600">成员管理</dt>
-                        <dd className="font-medium text-slate-900">{canManageSelectedTenant ? "允许" : "不允许"}</dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-600">状态维护</dt>
-                        <dd className="font-medium text-slate-900">{canManageSelectedTenant ? "允许" : "不允许"}</dd>
-                      </div>
-                    </dl>
-                  </div>
+                    ))}
                 </div>
-              </div>
               )}
 
               {activeTab === "settings" && (
-              <div className="p-6">
-                <div className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="mb-5 flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-900">角色权限说明</h3>
-                      <p className="mt-1 text-sm text-slate-600">所有权限均在当前租户范围内生效</p>
+                <div className="p-6">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <div className="mb-5 flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-base font-semibold text-slate-900">角色权限说明</h3>
+                        <p className="mt-1 text-sm text-slate-600">所有权限均在当前租户范围内生效</p>
+                      </div>
+                      <Badge variant="outline" className="border-slate-300 bg-slate-100 font-mono text-xs text-slate-700">
+                        X-Tenant-Id
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className="border-slate-300 bg-slate-100 font-mono text-xs text-slate-700">
-                      X-Tenant-Id
-                    </Badge>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    {roleOptions.map((role) => {
-                      const RoleIcon = roleMeta[role].icon;
-                      return (
-                        <div key={role} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                          <div className="mb-3 flex items-center gap-2.5">
-                            <div className="rounded-lg bg-white p-2 text-slate-600">
-                              <RoleIcon className="h-4 w-4" />
+                    <div className="grid gap-4 md:grid-cols-3">
+                      {roleOptions.map((role) => {
+                        const RoleIcon = roleMeta[role].icon;
+                        return (
+                          <div key={role} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                            <div className="mb-3 flex items-center gap-2.5">
+                              <div className="rounded-lg bg-white p-2 text-slate-600">
+                                <RoleIcon className="h-4 w-4" />
+                              </div>
+                              <span className="text-sm font-semibold text-slate-900">{roleMeta[role].label}</span>
                             </div>
-                            <span className="text-sm font-semibold text-slate-900">{roleMeta[role].label}</span>
+                            <p className="text-sm leading-relaxed text-slate-600">
+                              {role === "tenant_admin"
+                                ? "完整的租户管理权限，包括成员管理、状态维护和资源配置。"
+                                : role === "tenant_rw"
+                                  ? "可读写租户内设备和数据，但不能管理成员和租户配置。"
+                                  : "只能查看租户内资源，无法进行任何写入或管理操作。"}
+                            </p>
                           </div>
-                          <p className="text-sm leading-relaxed text-slate-600">
-                            {role === "tenant_admin"
-                              ? "完整的租户管理权限，包括成员管理、状态维护和资源配置。"
-                              : role === "tenant_rw"
-                                ? "可读写租户内设备和数据，但不能管理成员和租户配置。"
-                                : "只能查看租户内资源，无法进行任何写入或管理操作。"}
-                          </p>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
             </div>
           </section>
-            );
-          })()}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

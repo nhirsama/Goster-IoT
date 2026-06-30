@@ -9,12 +9,13 @@ import { queryKeys } from "@/lib/query-keys";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DashboardPanel } from "@/components/dashboard/dashboard-panel";
 import { Badge } from "@/components/ui/badge";
 import {
   Activity,
   BellRing,
   Blocks,
+  ChevronRight,
   RefreshCw,
   ShieldCheck,
   ShieldAlert,
@@ -65,6 +66,36 @@ export default function DashboardHome() {
   const onlineCount = activeData?.items?.length || 0;
   const pendingCount = pendingData?.items?.length || 0;
   const blacklistCount = (revokedData?.items?.length || 0) + (refusedData?.items?.length || 0);
+  const quickLinks = [
+    {
+      href: "/devices",
+      title: "设备列表",
+      description: "查看在线设备与实时状态",
+      icon: Wifi,
+      visible: true,
+    },
+    {
+      href: "/pending",
+      title: "审批队列",
+      description: "快速处理新设备接入申请",
+      icon: BellRing,
+      visible: permission >= 2,
+    },
+    {
+      href: "/blacklist",
+      title: "黑名单管理",
+      description: "恢复误拦设备并追踪风险来源",
+      icon: Ban,
+      visible: permission >= 1,
+    },
+    {
+      href: "/tenants",
+      title: "租户管理",
+      description: "维护当前租户资料与成员",
+      icon: ShieldCheck,
+      visible: permission >= 3,
+    },
+  ].filter((item) => item.visible);
 
   return (
     <div className="space-y-6">
@@ -87,32 +118,26 @@ export default function DashboardHome() {
         <StatCard title="当前权限" value={permission === 3 ? "管理员" : permission === 2 ? "读写" : "只读"} hint={user?.username || "当前用户"} icon={ShieldCheck} tone="primary" />
       </div>
 
-      <div className="grid gap-4">
-        <Card>
-          <CardHeader className="border-b border-slate-200/70">
-            <CardTitle className="text-lg font-semibold">快捷入口</CardTitle>
-            <CardDescription>按场景组织常用功能，减少跳转层级。</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 pt-4 sm:grid-cols-2">
-            <Link href="/devices" className="rounded-2xl border border-slate-200 bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
-              <p className="text-sm font-semibold text-slate-900">设备列表</p>
-              <p className="mt-1 text-xs text-slate-500">查看在线设备与实时状态</p>
+      <DashboardPanel title="快捷入口" description="按场景组织常用功能，减少跳转层级。" contentClassName="p-4 sm:p-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {quickLinks.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="group rounded-2xl border border-slate-200 bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                  <item.icon className="h-4 w-4" />
+                </div>
+                <ChevronRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+              </div>
+              <p className="mt-4 text-sm font-semibold text-slate-900">{item.title}</p>
+              <p className="mt-1 text-xs text-slate-500">{item.description}</p>
             </Link>
-            {permission >= 2 ? (
-              <Link href="/pending" className="rounded-2xl border border-slate-200 bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
-                <p className="text-sm font-semibold text-slate-900">审批队列</p>
-                <p className="mt-1 text-xs text-slate-500">快速处理新设备接入申请</p>
-              </Link>
-            ) : null}
-            {permission >= 1 ? (
-              <Link href="/blacklist" className="rounded-2xl border border-slate-200 bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
-                <p className="text-sm font-semibold text-slate-900">黑名单管理</p>
-                <p className="mt-1 text-xs text-slate-500">恢复误拦设备并追踪风险来源</p>
-              </Link>
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
+          ))}
+        </div>
+      </DashboardPanel>
     </div>
   );
 }

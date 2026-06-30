@@ -8,10 +8,12 @@ import { useAuth } from "@/hooks/use-auth";
 import { useUx } from "@/components/providers/ux-provider";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { DashboardPanel } from "@/components/dashboard/dashboard-panel";
+import { StatCard } from "@/components/dashboard/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Bell, Building2, Check, Clock, RefreshCw, Shield, X } from "lucide-react";
+import { Bell, Building2, Check, Clock, MailCheck, RefreshCw, Shield, TimerOff, X } from "lucide-react";
+
 
 type TenantRole = components["schemas"]["TenantRole"];
 type InvitationListData = components["schemas"]["TenantInvitationListData"];
@@ -51,7 +53,7 @@ export default function InvitationsPage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast, confirm } = useUx();
 
-  const { data: invitationData, isLoading } = useQuery({
+  const { data: invitationData, isLoading, isFetching } = useQuery({
     queryKey: queryKeys.invitations,
     queryFn: () => api.get<InvitationListData>("/api/v1/invitations"),
     enabled: isAuthenticated,
@@ -92,54 +94,89 @@ export default function InvitationsPage() {
   }
 
   const invitations = invitationData?.items || [];
+  const activeInvitations = invitations.filter((invitation) => new Date(invitation.expires_at) >= new Date());
+  const expiredInvitations = invitations.length - activeInvitations.length;
 
   return (
     <div className="space-y-6">
       <PageHeader
         icon={Bell}
         title="租户邀请"
-        description="查看并处理您收到的租户邀请"
+        description="查看并处理您收到的租户邀请。"
+        action={
+          <Button
+            variant="outline"
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.invitations })}
+            disabled={isFetching}
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            刷新邀请
+          </Button>
+        }
       />
 
-      {isLoading ? (
-        <EmptyState icon={RefreshCw} title="加载中" description="请稍候..." className="py-16" />
-      ) : invitations.length === 0 ? (
-        <EmptyState
-          icon={Bell}
-          title="暂无邀请"
-          description="您目前没有待处理的租户邀请"
-          className="py-16"
-        />
-      ) : (
-        <div className="grid gap-4">
-          {invitations.map((invitation) => {
-            const isExpired = new Date(invitation.expires_at) < new Date();
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard title="待处理邀请" value={activeInvitations.length} hint="仍在有效期内" icon={MailCheck} tone="primary" />
+        <StatCard title="已过期" value={expiredInvitations} hint="过期邀请仅展示状态" icon={TimerOff} tone="neutral" />
+        <StatCard title="同步状态" value={isFetching ? "同步中" : "已就绪"} hint="处理后会刷新租户上下文" icon={RefreshCw} tone="success" />
+      </div>
 
-            return (
-              <Card key={invitation.id} className={isExpired ? "opacity-60" : ""}>
-                <CardContent className="p-6">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex items-start gap-4">
+      <DashboardPanel
+        title="邀请列表"
+        description="接受邀请后会加入对应租户，并刷新顶部租户切换器。"
+        action={
+          <Badge variant="outline" className="rounded-full bg-white/70 text-slate-600">
+            {invitations.length} 条邀请
+          </Badge>
+        }
+        contentClassName="p-4 sm:p-5"
+      >
+        {isLoading ? (
+          <EmptyState icon={RefreshCw} title="加载中" description="请稍候..." className="py-16" />
+        ) : invitations.length === 0 ? (
+          <EmptyState
+            icon={Bell}
+            title="暂无邀请"
+            description="您目前没有待处理的租户邀请。"
+            className="py-16"
+          />
+        ) : (
+          <div className="grid gap-3">
+            {invitations.map((invitation) => {
+              const isExpired = new Date(invitation.expires_at) < new Date();
+
+              return (
+                <div
+                  key={invitation.id}
+                  className={`rounded-xl border border-slate-200 bg-white p-4 transition hover:border-primary/25 hover:shadow-sm ${
+                    isExpired ? "opacity-65" : ""
+                  }`}
+                >
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 items-start gap-4">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                         <Building2 className="h-6 w-6" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-semibold text-slate-900">
-                            {invitation.tenant_id}
-                          </h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate text-base font-semibold text-slate-900">{invitation.tenant_id}</h3>
                           <Badge variant="outline" className="border-cyan-200 bg-cyan-50 text-cyan-700">
                             {roleLabels[invitation.role]}
                           </Badge>
+                          {isExpired ? (
+                            <Badge variant="outline" className="border-slate-300 bg-slate-100 text-slate-600">
+                              已过期
+                            </Badge>
+                          ) : null}
                         </div>
-                        <div className="mt-2 space-y-1 text-sm text-slate-600">
-                          <div className="flex items-center gap-2">
-                            <Shield className="h-4 w-4 text-slate-400" />
-                            <span>邀请人：{invitation.invited_by}</span>
+                        <div className="mt-2 grid gap-2 text-sm text-slate-600 md:grid-cols-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Shield className="h-4 w-4 shrink-0 text-slate-400" />
+                            <span className="truncate">邀请人：{invitation.invited_by}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4 text-slate-400" />
-                            <span>{formatDate(invitation.created_at)}</span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Clock className="h-4 w-4 shrink-0 text-slate-400" />
+                            <span className="truncate">{formatDate(invitation.created_at)}</span>
                             <span className="text-slate-400">·</span>
                             <span className={isExpired ? "text-rose-600" : "text-slate-600"}>
                               {formatRelativeTime(invitation.expires_at)}
@@ -149,8 +186,8 @@ export default function InvitationsPage() {
                       </div>
                     </div>
 
-                    {!isExpired && (
-                      <div className="flex gap-2">
+                    {!isExpired ? (
+                      <div className="flex shrink-0 gap-2">
                         <Button
                           variant="outline"
                           size="sm"
@@ -190,20 +227,14 @@ export default function InvitationsPage() {
                           接受邀请
                         </Button>
                       </div>
-                    )}
-
-                    {isExpired && (
-                      <Badge variant="outline" className="border-slate-300 bg-slate-100 text-slate-600">
-                        已过期
-                      </Badge>
-                    )}
+                    ) : null}
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DashboardPanel>
     </div>
   );
 }
