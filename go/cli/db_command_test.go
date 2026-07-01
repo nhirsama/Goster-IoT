@@ -54,11 +54,6 @@ func TestRunWithArgsServeSupportsRuntimeStore(t *testing.T) {
 		t.Skipf("tcp listener is unavailable in current environment: %v", err)
 	}
 	_ = probeWeb.Close()
-	probeAPI, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skipf("tcp listener is unavailable in current environment: %v", err)
-	}
-	_ = probeAPI.Close()
 
 	dbPath := filepath.Join(t.TempDir(), "bun_runtime.db")
 	t.Setenv("DB_DRIVER", "sqlite")
@@ -66,7 +61,6 @@ func TestRunWithArgsServeSupportsRuntimeStore(t *testing.T) {
 	t.Setenv("DB_DSN", "")
 	t.Setenv("DB_SCHEMA_MODE", "managed")
 	t.Setenv("WEB_HTTP_ADDR", "127.0.0.1:0")
-	t.Setenv("API_TCP_ADDR", "127.0.0.1:0")
 
 	if err := RunWithArgs(context.Background(), []string{"db", "init"}); err != nil {
 		t.Fatalf("RunWithArgs(db init) failed: %v", err)

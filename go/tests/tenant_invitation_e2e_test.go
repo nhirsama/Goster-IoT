@@ -100,7 +100,6 @@ func TestTenantInvitationE2E(t *testing.T) {
 
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "invitation_test.db"))
 	t.Setenv("WEB_HTTP_ADDR", webAddr)
-	t.Setenv("API_TCP_ADDR", "")
 	t.Setenv("AUTHBOSS_ROOT_URL", "http://"+webAddr)
 
 	// 初始化数据库
@@ -326,7 +325,6 @@ func TestTenantInvitationReject(t *testing.T) {
 
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "invitation_reject_test.db"))
 	t.Setenv("WEB_HTTP_ADDR", webAddr)
-	t.Setenv("API_TCP_ADDR", "")
 	t.Setenv("AUTHBOSS_ROOT_URL", "http://"+webAddr)
 
 	if err := cli.RunWithArgs(context.Background(), []string{"db", "init"}); err != nil {
@@ -440,7 +438,6 @@ func TestCannotAcceptInvitationTwice(t *testing.T) {
 
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "invitation_twice_test.db"))
 	t.Setenv("WEB_HTTP_ADDR", webAddr)
-	t.Setenv("API_TCP_ADDR", "")
 	t.Setenv("AUTHBOSS_ROOT_URL", "http://"+webAddr)
 
 	if err := cli.RunWithArgs(context.Background(), []string{"db", "init"}); err != nil {

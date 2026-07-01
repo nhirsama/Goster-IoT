@@ -8,7 +8,6 @@ require (
 	github.com/gorilla/sessions v1.4.0
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/nhirsama/Goster-IoT/proto v0.0.0
-	github.com/sigurn/crc16 v0.0.0-20240131213347-83fcde1e29d1
 	github.com/spf13/viper v1.19.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18

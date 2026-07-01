@@ -12,7 +12,6 @@ import (
 	"github.com/nhirsama/Goster-IoT/src/core"
 	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
 	"github.com/nhirsama/Goster-IoT/src/inter"
-	"github.com/nhirsama/Goster-IoT/src/iot_gateway"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 	"github.com/nhirsama/Goster-IoT/src/web"
@@ -113,16 +112,7 @@ func serve(ctx context.Context) error {
 
 	services := core.NewServicesWithConfig(runtimeStore, appCfg.DeviceManager)
 
-	gatewayLogger := rootLogger.With(inter.String("module", "iot_gateway"))
 	webLogger := rootLogger.With(inter.String("module", "web"))
-	gateway := iot_gateway.NewGatewayFromCoreWithConfig(
-		services.DeviceRegistry,
-		services.DevicePresence,
-		services.TelemetryIngest,
-		services.DownlinkCommands,
-		gatewayLogger,
-		appCfg.API,
-	)
 
 	webServer, err := web.NewWebServer(web.WebServerDeps{
 		DataStore:        runtimeStore,
@@ -141,12 +131,9 @@ func serve(ctx context.Context) error {
 		return err
 	}
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 1)
 	go func() {
 		errCh <- webServer.Start(ctx)
-	}()
-	go func() {
-		errCh <- gateway.Start(ctx)
 	}()
 
 	select {

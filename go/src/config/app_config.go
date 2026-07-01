@@ -16,7 +16,6 @@ const (
 	defaultSQLiteSchemaMode                 = "bootstrap"
 	defaultPostgresSchemaMode               = "managed"
 	defaultWebHTTPAddr                      = ":8080"
-	defaultAPITCPAddr                       = ":8081"
 	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
 	defaultAuthRootURL                      = "http://localhost:8080"
 	defaultMaxAPIBodyBytes            int64 = 1 << 20
@@ -30,7 +29,6 @@ const (
 type AppConfig struct {
 	DB            DBConfig
 	Web           WebConfig
-	API           APIConfig
 	Auth          AuthConfig
 	Captcha       CaptchaConfig
 	DeviceManager DeviceManagerConfig
@@ -51,12 +49,6 @@ type WebConfig struct {
 	DeviceListPage      PaginationConfig
 	Metrics             MetricsConfig
 	LoginProtection     LoginProtectionConfig
-}
-
-type APIConfig struct {
-	TCPAddr               string
-	ReadTimeout           time.Duration
-	RegisterAckGraceDelay time.Duration
 }
 
 type AuthConfig struct {
@@ -132,14 +124,6 @@ func DefaultWebConfig() WebConfig {
 	}
 }
 
-func DefaultAPIConfig() APIConfig {
-	return APIConfig{
-		TCPAddr:               defaultAPITCPAddr,
-		ReadTimeout:           60 * time.Second,
-		RegisterAckGraceDelay: 100 * time.Millisecond,
-	}
-}
-
 func DefaultAuthConfig() AuthConfig {
 	return AuthConfig{
 		RootURL:                     defaultAuthRootURL,
@@ -187,7 +171,6 @@ func DefaultAppConfig() AppConfig {
 	return AppConfig{
 		DB:            DefaultDBConfig(),
 		Web:           DefaultWebConfig(),
-		API:           DefaultAPIConfig(),
 		Auth:          DefaultAuthConfig(),
 		Captcha:       DefaultCaptchaConfig(),
 		DeviceManager: DefaultDeviceManagerConfig(),
@@ -217,19 +200,6 @@ func NormalizeWebConfig(cfg WebConfig) WebConfig {
 	}
 	if out.LoginProtection.Lockout <= 0 {
 		out.LoginProtection.Lockout = base.LoginProtection.Lockout
-	}
-	return out
-}
-
-func NormalizeAPIConfig(cfg APIConfig) APIConfig {
-	base := DefaultAPIConfig()
-	out := cfg
-	out.TCPAddr = normalizeOrDefault(out.TCPAddr, base.TCPAddr)
-	if out.ReadTimeout <= 0 {
-		out.ReadTimeout = base.ReadTimeout
-	}
-	if out.RegisterAckGraceDelay <= 0 {
-		out.RegisterAckGraceDelay = base.RegisterAckGraceDelay
 	}
 	return out
 }
@@ -342,10 +312,6 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("web.login_protection.window", defaultLoginFailureWindow.String())
 	v.SetDefault("web.login_protection.lockout", defaultLoginLockout.String())
 
-	v.SetDefault("api.tcp_addr", defaultAPITCPAddr)
-	v.SetDefault("api.read_timeout", "60s")
-	v.SetDefault("api.register_ack_grace_delay", "100ms")
-
 	v.SetDefault("auth.root_url", defaultAuthRootURL)
 	v.SetDefault("auth.session_cookie_max_age_seconds", 0)
 	v.SetDefault("auth.remember_cookie_max_age_seconds", 86400*30)
@@ -379,9 +345,6 @@ func prepareViper(v *viper.Viper) error {
 		"web.login_protection.max_failures":                 "WEB_LOGIN_MAX_FAILURES",
 		"web.login_protection.window":                       "WEB_LOGIN_WINDOW",
 		"web.login_protection.lockout":                      "WEB_LOGIN_LOCKOUT",
-		"api.tcp_addr":                                      "API_TCP_ADDR",
-		"api.read_timeout":                                  "API_READ_TIMEOUT",
-		"api.register_ack_grace_delay":                      "API_REGISTER_ACK_GRACE_DELAY",
 		"auth.root_url":                                     "AUTHBOSS_ROOT_URL",
 		"auth.cookie_secure":                                "AUTH_COOKIE_SECURE",
 		"auth.github_client_id":                             "GITHUB_CLIENT_ID",
@@ -428,8 +391,6 @@ func loadFromViper(v *viper.Viper) AppConfig {
 	appEnv := strings.TrimSpace(v.GetString("app.env"))
 	cookieSecureRaw := strings.TrimSpace(v.GetString("auth.cookie_secure"))
 
-	readTimeout := parseDurationOrDefault(v.GetString("api.read_timeout"), base.API.ReadTimeout)
-	registerAckGrace := parseDurationOrDefault(v.GetString("api.register_ack_grace_delay"), base.API.RegisterAckGraceDelay)
 	captchaVerifyTimeout := parseDurationOrDefault(v.GetString("captcha.verify_timeout"), base.Captcha.VerifyTimeout)
 	heartbeatDeadline := parseDurationOrDefault(v.GetString("device_manager.heartbeat_deadline"), base.DeviceManager.HeartbeatDeadline)
 	loginWindow := parseDurationOrDefault(v.GetString("web.login_protection.window"), base.Web.LoginProtection.Window)
@@ -459,11 +420,6 @@ func loadFromViper(v *viper.Viper) AppConfig {
 				Window:      loginWindow,
 				Lockout:     loginLockout,
 			},
-		},
-		API: APIConfig{
-			TCPAddr:               strings.TrimSpace(v.GetString("api.tcp_addr")),
-			ReadTimeout:           readTimeout,
-			RegisterAckGraceDelay: registerAckGrace,
 		},
 		Auth: AuthConfig{
 			RootURL:                     rootURL,
@@ -501,7 +457,6 @@ func loadFromViper(v *viper.Viper) AppConfig {
 	}
 	out.DB = NormalizeDBConfig(out.DB)
 	out.Web = NormalizeWebConfig(out.Web)
-	out.API = NormalizeAPIConfig(out.API)
 	out.Auth = NormalizeAuthConfig(out.Auth)
 	out.Captcha = NormalizeCaptchaConfig(out.Captcha)
 	out.DeviceManager = NormalizeDeviceManagerConfig(out.DeviceManager)

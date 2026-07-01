@@ -134,6 +134,23 @@ type TelemetryIngestService interface {
 	IngestDeviceError(uuid string, payload []byte) error
 }
 
+// LogLevel 日志级别枚举。
+type LogLevel uint8
+
+const (
+	LogLevelDebug LogLevel = iota
+	LogLevelInfo
+	LogLevelWarn
+	LogLevelError
+)
+
+// LogUploadData 是归一化后的设备日志上报数据。
+type LogUploadData struct {
+	Timestamp int64
+	Level     LogLevel
+	Message   string
+}
+
 // DevicePresenceStore 抽象设备在线状态的运行时存储。
 // 当前默认实现仍在内存中，后续可替换为 Redis 等共享存储。
 type DevicePresenceStore interface {
