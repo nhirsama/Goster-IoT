@@ -12,7 +12,7 @@ const (
 	// FooterSize 固定尾部大小；明文模式为 CRC32 + padding，加密模式承载 GCM Tag。
 	FooterSize uint32 = 16
 	// MaxPayloadSize 限制单帧载荷，避免异常设备撑爆内存。
-	MaxPayloadSize uint32 = 1 * 1024 * 1024
+	MaxPayloadSize uint32 = 64 * 1024
 )
 
 type CmdID uint16

@@ -28,6 +28,7 @@ type fakeCore struct {
 	authToken    string
 	authResp     *ingressv1.AuthenticateDeviceResponse
 	authErr      error
+	blockPull    chan struct{}
 	registerResp *ingressv1.RegisterDeviceResponse
 	heartbeats   []*ingressv1.ReportHeartbeatRequest
 	ingested     []*ingressv1.IngestEventsRequest
@@ -75,6 +76,13 @@ func (f *fakeCore) IngestEvents(ctx context.Context, req *ingressv1.IngestEvents
 }
 
 func (f *fakeCore) PullCommands(ctx context.Context, req *ingressv1.PullCommandsRequest) (*ingressv1.PullCommandsResponse, error) {
+	if f.blockPull != nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-f.blockPull:
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.pullQueue) == 0 {
@@ -100,10 +108,10 @@ func (f *fakeCore) snapshot() (ingested []*ingressv1.IngestEventsRequest, update
 }
 
 func newTestAdapter(core *fakeCore) *Adapter {
-	return New(config.CustomTCPConfig{Enabled: true, ReadTimeout: time.Second, RegisterAckGraceDelay: time.Millisecond, DownlinkMaxBatch: 4}, slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreClient(core), WithNormalizer(normalizer.New("ingress-test")))
+	return New(config.CustomTCPConfig{Enabled: true, ReadTimeout: time.Second, IdleTimeout: 5 * time.Minute, RPCTimeout: time.Second, RegisterAckGraceDelay: time.Millisecond, DownlinkMaxBatch: 4}, slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreClient(core), WithNormalizer(normalizer.New("ingress-test")))
 }
 
-func startPipeSession(t *testing.T, a *Adapter) (net.Conn, gosterwy.ProtocolCodec, []byte) {
+func startPipeSession(t *testing.T, a *Adapter) (net.Conn, gosterwy.ProtocolCodec, []byte, []byte, []byte, int64) {
 	t.Helper()
 	serverConn, clientConn := net.Pipe()
 	go a.handleConnection(context.Background(), serverConn)
@@ -112,7 +120,8 @@ func startPipeSession(t *testing.T, a *Adapter) (net.Conn, gosterwy.ProtocolCode
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
-	hello, err := codec.Pack(priv.PublicKey().Bytes(), gosterwy.CmdHandshakeInit, 0, nil, 1, false)
+	clientPubKey := append([]byte(nil), priv.PublicKey().Bytes()...)
+	hello, err := codec.Pack(clientPubKey, gosterwy.CmdHandshakeInit, 0, nil, 1, false)
 	if err != nil {
 		t.Fatalf("pack handshake: %v", err)
 	}
@@ -126,7 +135,12 @@ func startPipeSession(t *testing.T, a *Adapter) (net.Conn, gosterwy.ProtocolCode
 	if resp.CmdID != gosterwy.CmdHandshakeResp || !resp.IsAck {
 		t.Fatalf("unexpected handshake resp: %+v", resp)
 	}
-	serverPub, err := ecdh.X25519().NewPublicKey(resp.Payload)
+	if len(resp.Payload) != 40 {
+		t.Fatalf("unexpected handshake resp payload len: %d", len(resp.Payload))
+	}
+	serverPubKey := append([]byte(nil), resp.Payload[:32]...)
+	serverTS := int64(binary.LittleEndian.Uint64(resp.Payload[32:40]))
+	serverPub, err := ecdh.X25519().NewPublicKey(serverPubKey)
 	if err != nil {
 		t.Fatalf("parse server pub: %v", err)
 	}
@@ -134,7 +148,12 @@ func startPipeSession(t *testing.T, a *Adapter) (net.Conn, gosterwy.ProtocolCode
 	if err != nil {
 		t.Fatalf("derive key: %v", err)
 	}
-	return clientConn, codec, key
+	return clientConn, codec, key, clientPubKey, serverPubKey, serverTS
+}
+
+func writeAuthPacket(t *testing.T, conn net.Conn, codec gosterwy.ProtocolCodec, token string, key []byte, clientPubKey []byte, serverPubKey []byte, serverTS int64, seq uint64) {
+	t.Helper()
+	writePacket(t, conn, codec, authVerifyPayload(key, clientPubKey, serverPubKey, serverTS, []byte(token)), gosterwy.CmdAuthVerify, key, seq)
 }
 
 func writePacket(t *testing.T, conn net.Conn, codec gosterwy.ProtocolCodec, payload []byte, cmd gosterwy.CmdID, key []byte, seq uint64) {
@@ -208,7 +227,7 @@ func logPayload(ts int64, level byte, msg string) []byte {
 func TestHandleConnectionRejectsUnauthenticatedPackets(t *testing.T) {
 	core := newFakeCore()
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, _, _, _ := startPipeSession(t, a)
 	defer conn.Close()
 	writePacket(t, conn, codec, nil, gosterwy.CmdHeartbeat, key, 2)
 	expectClosed(t, conn, codec, key)
@@ -217,10 +236,10 @@ func TestHandleConnectionRejectsUnauthenticatedPackets(t *testing.T) {
 func TestHandleConnectionAuthenticatesAndIngestsTelemetryLogEventHeartbeat(t *testing.T) {
 	core := newFakeCore()
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, clientPubKey, serverPubKey, serverTS := startPipeSession(t, a)
 	defer conn.Close()
 
-	writePacket(t, conn, codec, []byte("token-1"), gosterwy.CmdAuthVerify, key, 2)
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
 	authAck := readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
 	if len(authAck.Payload) != 1 || authAck.Payload[0] != 0x00 {
 		t.Fatalf("unexpected auth ack: %v", authAck.Payload)
@@ -260,7 +279,7 @@ func TestHandleConnectionAuthenticatesAndIngestsTelemetryLogEventHeartbeat(t *te
 func TestHandleConnectionRegistrationLifecycle(t *testing.T) {
 	core := newFakeCore()
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, _, _, _ := startPipeSession(t, a)
 	defer conn.Close()
 
 	payload := strings.Join([]string{"New Device", "SN1", "AA:BB", "hw", "sw", "cfg"}, "\x1e")
@@ -274,7 +293,7 @@ func TestHandleConnectionRegistrationLifecycle(t *testing.T) {
 func TestHandleConnectionRejectsMalformedRegistration(t *testing.T) {
 	core := newFakeCore()
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, _, _, _ := startPipeSession(t, a)
 	defer conn.Close()
 
 	writePacket(t, conn, codec, []byte("bad"), gosterwy.CmdDeviceRegister, key, 2)
@@ -294,9 +313,9 @@ func TestHandleConnectionDownlinkSentAckedAndRequeuedOnDisconnect(t *testing.T) 
 		Payload:   &ingressv1.RawPayload{ContentType: "application/json", Body: []byte(`{"sampling":"5s"}`)},
 	}}
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, clientPubKey, serverPubKey, serverTS := startPipeSession(t, a)
 
-	writePacket(t, conn, codec, []byte("token-1"), gosterwy.CmdAuthVerify, key, 2)
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
 	readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
 
 	downlink, err := codec.Unpack(conn, key)
@@ -337,8 +356,8 @@ func TestHandleConnectionDownlinkSentAckedAndRequeuedOnDisconnect(t *testing.T) 
 	core = newFakeCore()
 	core.pullQueue = []*ingressv1.CanonicalCommand{{CommandId: 43, Uuid: "dev-1", Operation: "action_exec", Payload: &ingressv1.RawPayload{Body: []byte("on")}}}
 	a = newTestAdapter(core)
-	conn, codec, key = startPipeSession(t, a)
-	writePacket(t, conn, codec, []byte("token-1"), gosterwy.CmdAuthVerify, key, 2)
+	conn, codec, key, clientPubKey, serverPubKey, serverTS = startPipeSession(t, a)
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
 	readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
 	if _, err := codec.Unpack(conn, key); err != nil {
 		t.Fatalf("read second downlink: %v", err)
@@ -356,12 +375,80 @@ func TestHandleConnectionDownlinkSentAckedAndRequeuedOnDisconnect(t *testing.T) 
 	t.Fatalf("expected requeued update after disconnect, got %+v", updates)
 }
 
+func TestHandleConnectionRejectsStaleDownlinkAckSequence(t *testing.T) {
+	core := newFakeCore()
+	core.pullQueue = []*ingressv1.CanonicalCommand{{
+		CommandId: 42,
+		Uuid:      "dev-1",
+		Operation: "config_push",
+		Payload:   &ingressv1.RawPayload{Body: []byte(`{"sampling":"5s"}`)},
+	}}
+	a := newTestAdapter(core)
+	conn, codec, key, clientPubKey, serverPubKey, serverTS := startPipeSession(t, a)
+	defer conn.Close()
+
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
+	readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
+	downlink, err := codec.Unpack(conn, key)
+	if err != nil {
+		t.Fatalf("read downlink: %v", err)
+	}
+
+	writeAckPacket(t, conn, codec, nil, gosterwy.CmdConfigPush, key, downlink.Sequence-1)
+	time.Sleep(50 * time.Millisecond)
+	_, updates, _ := core.snapshot()
+	for _, update := range updates {
+		if update.GetStatus() == ingressv1.CommandStatus_COMMAND_STATUS_ACKED {
+			t.Fatalf("stale ack must not mark command acked: %+v", updates)
+		}
+	}
+
+	writeAckPacket(t, conn, codec, nil, gosterwy.CmdConfigPush, key, downlink.Sequence)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		_, updates, _ = core.snapshot()
+		for _, update := range updates {
+			if update.GetStatus() == ingressv1.CommandStatus_COMMAND_STATUS_ACKED {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected matching ack to update command, got %+v", updates)
+}
+
+func TestHandleConnectionRejectsAuthWithoutHandshakeHMAC(t *testing.T) {
+	core := newFakeCore()
+	a := newTestAdapter(core)
+	conn, codec, key, _, _, _ := startPipeSession(t, a)
+	defer conn.Close()
+
+	writePacket(t, conn, codec, []byte("token-1"), gosterwy.CmdAuthVerify, key, 2)
+	authAck := readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
+	if len(authAck.Payload) != 1 || authAck.Payload[0] != 0x01 {
+		t.Fatalf("unexpected auth ack for unsigned payload: %v", authAck.Payload)
+	}
+	expectClosed(t, conn, codec, key)
+}
+
+func TestHandleConnectionIdleTimeoutClosesBlockedConnection(t *testing.T) {
+	core := newFakeCore()
+	core.blockPull = make(chan struct{})
+	a := New(config.CustomTCPConfig{Enabled: true, ReadTimeout: time.Second, IdleTimeout: 50 * time.Millisecond, RPCTimeout: 500 * time.Millisecond, RegisterAckGraceDelay: time.Millisecond, DownlinkMaxBatch: 1}, slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreClient(core), WithNormalizer(normalizer.New("ingress-test")))
+	conn, codec, key, clientPubKey, serverPubKey, serverTS := startPipeSession(t, a)
+	defer conn.Close()
+
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
+	readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
+	expectClosed(t, conn, codec, key)
+}
+
 func TestHandleConnectionReportsDeviceErrorAndCloses(t *testing.T) {
 	core := newFakeCore()
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, clientPubKey, serverPubKey, serverTS := startPipeSession(t, a)
 	defer conn.Close()
-	writePacket(t, conn, codec, []byte("token-1"), gosterwy.CmdAuthVerify, key, 2)
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
 	readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
 	writePacket(t, conn, codec, []byte("sensor exploded"), gosterwy.CmdErrorReport, key, 3)
 	expectClosed(t, conn, codec, key)
@@ -374,9 +461,9 @@ func TestHandleConnectionReportsDeviceErrorAndCloses(t *testing.T) {
 func TestHandleConnectionSupportsSessionKeyRotation(t *testing.T) {
 	core := newFakeCore()
 	a := newTestAdapter(core)
-	conn, codec, key := startPipeSession(t, a)
+	conn, codec, key, clientPubKey, serverPubKey, serverTS := startPipeSession(t, a)
 	defer conn.Close()
-	writePacket(t, conn, codec, []byte("token-1"), gosterwy.CmdAuthVerify, key, 2)
+	writeAuthPacket(t, conn, codec, "token-1", key, clientPubKey, serverPubKey, serverTS, 2)
 	readAck(t, conn, codec, key, gosterwy.CmdAuthAck)
 
 	rekeyPriv, err := ecdh.X25519().GenerateKey(rand.Reader)

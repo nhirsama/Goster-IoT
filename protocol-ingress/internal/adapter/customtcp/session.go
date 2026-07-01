@@ -2,11 +2,15 @@ package customtcp
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nhirsama/Goster-IoT/proto/gen/goster/ingress/v1"
@@ -23,7 +27,12 @@ type session struct {
 	tenantID      string
 	identity      adapter.Identity
 	authenticated bool
+	mu            sync.Mutex
 	inflight      *adapter.AdapterCommand
+	inflightSeq   uint64
+	clientPubKey  []byte
+	serverPubKey  []byte
+	handshakeTS   int64
 }
 
 func newSession(a *Adapter, logger *slog.Logger, conn net.Conn) *session {
@@ -33,15 +42,21 @@ func newSession(a *Adapter, logger *slog.Logger, conn net.Conn) *session {
 func (s *session) IsAuthenticated() bool { return s.authenticated }
 func (s *session) UUID() string          { return s.uuid }
 
-func (s *session) Authenticate(ctx context.Context, token string, packet *gosterwy.Packet) (byte, []byte, error) {
+func (s *session) Authenticate(ctx context.Context, payload []byte, packet *gosterwy.Packet, sessionKey []byte) (byte, []byte, error) {
 	if s.adapter.core == nil {
 		return 0x01, nil, errors.New("coreclient 未配置")
+	}
+	token, err := s.authTokenFromPayload(payload, sessionKey)
+	if err != nil {
+		return 0x01, nil, err
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return 0x01, nil, errors.New("token 不能为空")
 	}
-	resp, err := s.adapter.core.AuthenticateDevice(ctx, &ingressv1.AuthenticateDeviceRequest{
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	resp, err := s.adapter.core.AuthenticateDevice(rpcCtx, &ingressv1.AuthenticateDeviceRequest{
 		Context: s.adapter.ingressContext(s.conn, packet, s),
 		Credentials: []*ingressv1.Credential{{
 			Type:  "token",
@@ -76,7 +91,9 @@ func (s *session) Register(ctx context.Context, payload string, packet *gosterwy
 			Text:        payload,
 		},
 	}
-	resp, err := s.adapter.core.RegisterDevice(ctx, req)
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	resp, err := s.adapter.core.RegisterDevice(rpcCtx, req)
 	if err != nil && resp == nil {
 		return registrationStatusByte(ingressv1.RegistrationStatus_REGISTRATION_STATUS_REJECTED), nil, err
 	}
@@ -101,7 +118,9 @@ func (s *session) HandleHeartbeat(ctx context.Context, packet *gosterwy.Packet) 
 	if s.adapter.core == nil {
 		return errors.New("coreclient 未配置")
 	}
-	_, err := s.adapter.core.ReportHeartbeat(ctx, &ingressv1.ReportHeartbeatRequest{
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	_, err := s.adapter.core.ReportHeartbeat(rpcCtx, &ingressv1.ReportHeartbeatRequest{
 		Context:         s.adapter.ingressContext(s.conn, packet, s),
 		PrimaryIdentity: &ingressv1.DeviceIdentity{Type: s.identity.Type, Value: s.identity.Value, Issuer: s.identity.Issuer},
 		Uuid:            s.uuid,
@@ -185,19 +204,34 @@ func (s *session) HandleDownlinkAck(ctx context.Context, cmd gosterwy.CmdID, pac
 	if !s.authenticated {
 		return
 	}
+	s.mu.Lock()
 	if s.inflight == nil {
+		s.mu.Unlock()
 		s.logger.Warn("收到无法匹配的下行确认", "uuid", s.uuid, "cmd_id", cmd)
 		return
 	}
-	inflightCmd, _ := resolveDownlinkCmd(*s.inflight)
+	inflight := *s.inflight
+	inflightSeq := s.inflightSeq
+	inflightCmd, _ := resolveDownlinkCmd(inflight)
 	if inflightCmd != cmd {
-		s.logger.Warn("收到与当前待确认命令不匹配的下行确认", "uuid", s.uuid, "cmd_id", cmd, "inflight_cmd_id", inflightCmd, "command_id", s.inflight.CommandID)
+		s.mu.Unlock()
+		s.logger.Warn("收到与当前待确认命令不匹配的下行确认", "uuid", s.uuid, "cmd_id", cmd, "inflight_cmd_id", inflightCmd, "command_id", inflight.CommandID)
 		return
 	}
-	commandID := s.inflight.CommandID
-	commandUUID := s.inflight.CommandUUID
+	if inflightSeq != packet.Sequence {
+		s.mu.Unlock()
+		s.logger.Warn("收到与当前待确认命令序列号不匹配的下行确认", "uuid", s.uuid, "cmd_id", cmd, "ack_seq", packet.Sequence, "inflight_seq", inflightSeq, "command_id", inflight.CommandID)
+		return
+	}
+	commandID := inflight.CommandID
+	commandUUID := inflight.CommandUUID
 	s.inflight = nil
-	_, err := s.adapter.core.UpdateCommandStatus(ctx, &ingressv1.UpdateCommandStatusRequest{
+	s.inflightSeq = 0
+	s.mu.Unlock()
+
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	_, err := s.adapter.core.UpdateCommandStatus(rpcCtx, &ingressv1.UpdateCommandStatusRequest{
 		Context:             s.adapter.ingressContext(s.conn, packet, s),
 		CommandId:           commandID,
 		CommandUuid:         commandUUID,
@@ -213,10 +247,12 @@ func (s *session) HandleDownlinkAck(ctx context.Context, cmd gosterwy.CmdID, pac
 }
 
 func (s *session) PopCommand(ctx context.Context) (adapter.AdapterCommand, bool) {
-	if !s.authenticated || s.inflight != nil || s.adapter.core == nil || s.adapter.normalizer == nil {
+	if !s.authenticated || s.adapter.core == nil || s.adapter.normalizer == nil || s.hasInflight() {
 		return adapter.AdapterCommand{}, false
 	}
-	resp, err := s.adapter.core.PullCommands(ctx, &ingressv1.PullCommandsRequest{
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	resp, err := s.adapter.core.PullCommands(rpcCtx, &ingressv1.PullCommandsRequest{
 		Context:         s.adapter.ingressContext(s.conn, nil, s),
 		Uuid:            s.uuid,
 		PrimaryIdentity: &ingressv1.DeviceIdentity{Type: s.identity.Type, Value: s.identity.Value, Issuer: s.identity.Issuer},
@@ -229,7 +265,7 @@ func (s *session) PopCommand(ctx context.Context) (adapter.AdapterCommand, bool)
 	if len(resp.GetCommands()) == 0 {
 		return adapter.AdapterCommand{}, false
 	}
-	cmd, err := s.adapter.normalizer.NormalizeCommand(ctx, resp.GetCommands()[0])
+	cmd, err := s.adapter.normalizer.NormalizeCommand(rpcCtx, resp.GetCommands()[0])
 	if err != nil {
 		s.logger.Warn("归一化下行命令失败", "uuid", s.uuid, "error", err)
 		return adapter.AdapterCommand{}, false
@@ -237,13 +273,19 @@ func (s *session) PopCommand(ctx context.Context) (adapter.AdapterCommand, bool)
 	return cmd, true
 }
 
-func (s *session) MarkDownlinkSent(ctx context.Context, msg adapter.AdapterCommand, cmd gosterwy.CmdID) {
+func (s *session) MarkDownlinkSent(ctx context.Context, msg adapter.AdapterCommand, cmd gosterwy.CmdID, seq uint64) {
 	if !s.authenticated || msg.CommandID <= 0 {
 		return
 	}
 	msgCopy := msg
+	s.mu.Lock()
 	s.inflight = &msgCopy
-	_, err := s.adapter.core.UpdateCommandStatus(ctx, &ingressv1.UpdateCommandStatusRequest{
+	s.inflightSeq = seq
+	s.mu.Unlock()
+
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	_, err := s.adapter.core.UpdateCommandStatus(rpcCtx, &ingressv1.UpdateCommandStatusRequest{
 		Context:             s.adapter.ingressContext(s.conn, nil, s),
 		CommandId:           msg.CommandID,
 		CommandUuid:         msg.CommandUUID,
@@ -264,14 +306,14 @@ func (s *session) FailDownlink(ctx context.Context, msg adapter.AdapterCommand, 
 	if !s.authenticated || msg.CommandID <= 0 {
 		return
 	}
-	if s.inflight != nil && s.inflight.CommandID == msg.CommandID {
-		s.inflight = nil
-	}
+	s.clearInflightByCommandID(msg.CommandID)
 	errorText := ""
 	if err != nil {
 		errorText = err.Error()
 	}
-	_, updateErr := s.adapter.core.UpdateCommandStatus(ctx, &ingressv1.UpdateCommandStatusRequest{
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	_, updateErr := s.adapter.core.UpdateCommandStatus(rpcCtx, &ingressv1.UpdateCommandStatusRequest{
 		Context:        s.adapter.ingressContext(s.conn, nil, s),
 		CommandId:      msg.CommandID,
 		CommandUuid:    msg.CommandUUID,
@@ -292,15 +334,15 @@ func (s *session) RequeueDownlink(ctx context.Context, msg adapter.AdapterComman
 	if !s.authenticated || msg.CommandID <= 0 {
 		return
 	}
-	if s.inflight != nil && s.inflight.CommandID == msg.CommandID {
-		s.inflight = nil
-	}
+	s.clearInflightByCommandID(msg.CommandID)
 	errorText := ""
 	if err != nil {
 		errorText = err.Error()
 	}
 	cmdID, _ := resolveDownlinkCmd(msg)
-	_, updateErr := s.adapter.core.UpdateCommandStatus(ctx, &ingressv1.UpdateCommandStatusRequest{
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
+	_, updateErr := s.adapter.core.UpdateCommandStatus(rpcCtx, &ingressv1.UpdateCommandStatusRequest{
 		Context:        s.adapter.ingressContext(s.conn, nil, s),
 		CommandId:      msg.CommandID,
 		CommandUuid:    msg.CommandUUID,
@@ -318,16 +360,82 @@ func (s *session) RequeueDownlink(ctx context.Context, msg adapter.AdapterComman
 }
 
 func (s *session) RequeueInflight(ctx context.Context) {
-	if s.inflight == nil {
+	msg, ok := s.takeInflight()
+	if !ok {
 		return
 	}
-	s.RequeueDownlink(ctx, *s.inflight, nil)
+	s.RequeueDownlink(ctx, msg, nil)
+}
+
+func (s *session) RecordHandshake(clientPubKey, serverPubKey []byte, timestamp int64) {
+	s.clientPubKey = append(s.clientPubKey[:0], clientPubKey...)
+	s.serverPubKey = append(s.serverPubKey[:0], serverPubKey...)
+	s.handshakeTS = timestamp
+}
+
+func (s *session) authTokenFromPayload(payload []byte, sessionKey []byte) (string, error) {
+	if len(sessionKey) == 0 {
+		return "", errors.New("AuthVerify 缺少会话密钥")
+	}
+	if len(s.serverPubKey) == 0 || s.handshakeTS == 0 {
+		return "", errors.New("AuthVerify 缺少握手上下文")
+	}
+	if len(payload) <= sha256.Size {
+		return "", errors.New("AuthVerify payload 缺少 HMAC")
+	}
+	token := payload[:len(payload)-sha256.Size]
+	gotMAC := payload[len(payload)-sha256.Size:]
+	wantMAC := authVerifyMAC(sessionKey, s.clientPubKey, s.serverPubKey, s.handshakeTS, token)
+	if !hmac.Equal(gotMAC, wantMAC) {
+		return "", errors.New("AuthVerify HMAC 校验失败")
+	}
+	return string(token), nil
+}
+
+func (s *session) rpcContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timeout := s.adapter.cfg.RPCTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (s *session) hasInflight() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inflight != nil
+}
+
+func (s *session) clearInflightByCommandID(commandID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inflight != nil && s.inflight.CommandID == commandID {
+		s.inflight = nil
+		s.inflightSeq = 0
+	}
+}
+
+func (s *session) takeInflight() (adapter.AdapterCommand, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inflight == nil {
+		return adapter.AdapterCommand{}, false
+	}
+	msg := *s.inflight
+	s.inflight = nil
+	s.inflightSeq = 0
+	return msg, true
 }
 
 func (s *session) ingestEvent(ctx context.Context, packet *gosterwy.Packet, event adapter.AdapterEvent) error {
 	if s.adapter.core == nil || s.adapter.normalizer == nil {
 		return errors.New("coreclient 或 normalizer 未配置")
 	}
+	rpcCtx, cancel := s.rpcContext(ctx)
+	defer cancel()
 	now := time.Now().UTC()
 	event.AdapterName = s.adapter.Name()
 	event.ProtocolName = "goster-wy"
@@ -345,16 +453,41 @@ func (s *session) ingestEvent(ctx context.Context, packet *gosterwy.Packet, even
 		event.Labels = map[string]string{}
 	}
 	event.Labels["adapter_protocol"] = "goster-wy"
-	canonical, err := s.adapter.normalizer.NormalizeEvent(ctx, event)
+	canonical, err := s.adapter.normalizer.NormalizeEvent(rpcCtx, event)
 	if err != nil {
 		return err
 	}
-	_, err = s.adapter.core.IngestEvents(ctx, &ingressv1.IngestEventsRequest{
+	_, err = s.adapter.core.IngestEvents(rpcCtx, &ingressv1.IngestEventsRequest{
 		Context:             canonical.Context,
 		Events:              []*ingressv1.CanonicalDeviceEvent{canonical},
 		AllowPartialSuccess: true,
 	})
 	return err
+}
+
+func handshakeResponsePayload(serverPubKey []byte, timestamp int64) []byte {
+	payload := make([]byte, 32+8)
+	copy(payload, serverPubKey)
+	binary.LittleEndian.PutUint64(payload[32:], uint64(timestamp))
+	return payload
+}
+
+func authVerifyMAC(sessionKey, clientPubKey, serverPubKey []byte, timestamp int64, token []byte) []byte {
+	mac := hmac.New(sha256.New, sessionKey)
+	_, _ = mac.Write(clientPubKey)
+	_, _ = mac.Write(serverPubKey)
+	var tsBuf [8]byte
+	binary.LittleEndian.PutUint64(tsBuf[:], uint64(timestamp))
+	_, _ = mac.Write(tsBuf[:])
+	_, _ = mac.Write(token)
+	return mac.Sum(nil)
+}
+
+func authVerifyPayload(sessionKey, clientPubKey, serverPubKey []byte, timestamp int64, token []byte) []byte {
+	payload := make([]byte, 0, len(token)+sha256.Size)
+	payload = append(payload, token...)
+	payload = append(payload, authVerifyMAC(sessionKey, clientPubKey, serverPubKey, timestamp, token)...)
+	return payload
 }
 
 func (s *session) bindDevice(uuid string, tenantID string, identity adapter.Identity) {

@@ -53,6 +53,28 @@ func TestPackUnpackEncryptedAck(t *testing.T) {
 	}
 }
 
+func TestEncryptedNonceUsesDirectionAndSequence(t *testing.T) {
+	codec := NewCodec()
+	key := testKey(t)
+	up, err := codec.Pack([]byte("up"), CmdMetricsReport, 7, key, 55, false)
+	if err != nil {
+		t.Fatalf("Pack uplink failed: %v", err)
+	}
+	down, err := codec.Pack([]byte("down"), CmdMetricsReport, 7, key, 55, true)
+	if err != nil {
+		t.Fatalf("Pack downlink ack failed: %v", err)
+	}
+	if up[16] != 0x01 || down[16] != 0x02 {
+		t.Fatalf("unexpected nonce direction bytes: up=%#x down=%#x", up[16], down[16])
+	}
+	if !bytes.Equal(up[20:28], down[20:28]) {
+		t.Fatalf("same sequence should be encoded identically")
+	}
+	if bytes.Equal(up[16:28], down[16:28]) {
+		t.Fatal("opposite directions with same sequence must not reuse nonce")
+	}
+}
+
 func TestUnpackRejectsCorruption(t *testing.T) {
 	codec := NewCodec()
 	buf, err := codec.Pack([]byte("important"), CmdLogReport, 0, nil, 1, false)
@@ -85,6 +107,13 @@ func TestUnpackRejectsTooLargePayload(t *testing.T) {
 	}
 }
 
+func TestPackRejectsTooLargePayload(t *testing.T) {
+	payload := make([]byte, MaxPayloadSize+1)
+	if _, err := NewCodec().Pack(payload, CmdLogReport, 0, nil, 1, false); err == nil {
+		t.Fatal("expected too large payload error")
+	}
+}
+
 func TestCodecIsStatelessForConcurrentPack(t *testing.T) {
 	codec := NewCodec()
 	var wg sync.WaitGroup
@@ -98,4 +127,23 @@ func TestCodecIsStatelessForConcurrentPack(t *testing.T) {
 		}(uint64(i))
 	}
 	wg.Wait()
+}
+
+func FuzzUnpackDoesNotPanic(f *testing.F) {
+	codec := NewCodec()
+	key := bytes.Repeat([]byte{0x42}, 32)
+	plain, err := codec.Pack([]byte("seed"), CmdEventReport, 0, nil, 1, false)
+	if err != nil {
+		f.Fatalf("Pack plain seed failed: %v", err)
+	}
+	encrypted, err := codec.Pack([]byte("secret"), CmdMetricsReport, 1, key, 2, false)
+	if err != nil {
+		f.Fatalf("Pack encrypted seed failed: %v", err)
+	}
+	f.Add([]byte{})
+	f.Add(plain)
+	f.Add(encrypted)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = codec.Unpack(bytes.NewReader(data), key)
+	})
 }

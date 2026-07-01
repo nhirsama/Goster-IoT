@@ -3,7 +3,6 @@ package gosterwy
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,9 +39,7 @@ func (c *Codec) Pack(payload []byte, cmd CmdID, keyID uint32, sessionKey []byte,
 	binary.LittleEndian.PutUint16(buf[6:], uint16(cmd))
 	binary.LittleEndian.PutUint32(buf[8:], keyID)
 	binary.LittleEndian.PutUint32(buf[12:], uint32(payloadLen))
-	if _, err := io.ReadFull(rand.Reader, buf[16:20]); err != nil {
-		return nil, fmt.Errorf("生成随机 salt 失败: %w", err)
-	}
+	buf[16] = nonceDirection(cmd, isAck)
 	binary.LittleEndian.PutUint64(buf[20:], seqNonce)
 
 	hCRC := crc16Modbus(buf[:28])
@@ -71,6 +68,30 @@ func (c *Codec) Pack(payload []byte, cmd CmdID, keyID uint32, sessionKey []byte,
 	buf = append(buf, make([]byte, FooterSize)...)
 	binary.LittleEndian.PutUint32(buf[currentLen:], chk.Sum32())
 	return buf, nil
+}
+
+func nonceDirection(cmd CmdID, isAck bool) byte {
+	switch cmd {
+	case CmdHandshakeInit, CmdAuthVerify, CmdDeviceRegister, CmdKeyExchangeUplink:
+		return 0x01
+	case CmdHandshakeResp, CmdAuthAck, CmdKeyExchangeDownlink:
+		return 0x02
+	case CmdMetricsReport, CmdLogReport, CmdEventReport, CmdHeartbeat, CmdErrorReport:
+		if isAck {
+			return 0x02
+		}
+		return 0x01
+	case CmdConfigPush, CmdOtaData, CmdActionExec, CmdScreenWy:
+		if isAck {
+			return 0x01
+		}
+		return 0x02
+	default:
+		if isAck {
+			return 0x02
+		}
+		return 0x01
+	}
 }
 
 func (c *Codec) Unpack(r io.Reader, key []byte) (*Packet, error) {

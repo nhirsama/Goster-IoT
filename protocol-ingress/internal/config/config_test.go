@@ -19,6 +19,8 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 		"PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED":                  "true",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_ADDR":                     "127.0.0.1:19091",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_READ_TIMEOUT":             "30s",
+		"PROTOCOL_INGRESS_CUSTOM_TCP_IDLE_TIMEOUT":             "90s",
+		"PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT":              "750ms",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_REGISTER_ACK_GRACE_DELAY": "5ms",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH":       "2",
 	}))
@@ -34,7 +36,7 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 	if cfg.Core.Endpoint != "http://core.test" || cfg.Core.Timeout != 2*time.Second || cfg.Core.Token != "secret-token" {
 		t.Fatalf("unexpected core config: %+v", cfg.Core)
 	}
-	if !cfg.Adapters.CustomTCP.Enabled || cfg.Adapters.CustomTCP.ListenAddr != "127.0.0.1:19091" || cfg.Adapters.CustomTCP.ReadTimeout != 30*time.Second || cfg.Adapters.CustomTCP.RegisterAckGraceDelay != 5*time.Millisecond || cfg.Adapters.CustomTCP.DownlinkMaxBatch != 2 {
+	if !cfg.Adapters.CustomTCP.Enabled || cfg.Adapters.CustomTCP.ListenAddr != "127.0.0.1:19091" || cfg.Adapters.CustomTCP.ReadTimeout != 30*time.Second || cfg.Adapters.CustomTCP.IdleTimeout != 90*time.Second || cfg.Adapters.CustomTCP.RPCTimeout != 750*time.Millisecond || cfg.Adapters.CustomTCP.RegisterAckGraceDelay != 5*time.Millisecond || cfg.Adapters.CustomTCP.DownlinkMaxBatch != 2 {
 		t.Fatalf("unexpected custom tcp config: %+v", cfg.Adapters.CustomTCP)
 	}
 }
@@ -60,6 +62,8 @@ func TestLoadFromEnvRejectsInvalidValues(t *testing.T) {
 		want string
 	}{
 		{name: "duration", env: map[string]string{"PROTOCOL_INGRESS_CORE_TIMEOUT": "nope"}, want: "PROTOCOL_INGRESS_CORE_TIMEOUT"},
+		{name: "idle timeout", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_IDLE_TIMEOUT": "nope"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_IDLE_TIMEOUT"},
+		{name: "rpc timeout", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT": "0s"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT"},
 		{name: "bool", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED": "maybe"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED"},
 		{name: "int", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH": "0"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH"},
 	}

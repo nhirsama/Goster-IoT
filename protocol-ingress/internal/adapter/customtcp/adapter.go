@@ -45,6 +45,12 @@ func New(cfg config.CustomTCPConfig, logger *slog.Logger, deps ...Option) *Adapt
 	if cfg.ReadTimeout <= 0 {
 		cfg.ReadTimeout = 60 * time.Second
 	}
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = 5 * time.Minute
+	}
+	if cfg.RPCTimeout <= 0 {
+		cfg.RPCTimeout = 5 * time.Second
+	}
 	if cfg.RegisterAckGraceDelay <= 0 {
 		cfg.RegisterAckGraceDelay = 300 * time.Millisecond
 	}
@@ -177,6 +183,11 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 	logger := a.logger.With("remote_addr", conn.RemoteAddr().String(), "conn_id", connID)
 	session := newSession(a, logger, conn)
 	defer session.RequeueInflight(ctx)
+	connCtx, cancelConn := context.WithCancel(ctx)
+	defer cancelConn()
+	var lastActivity atomic.Int64
+	lastActivity.Store(time.Now().UnixNano())
+	go a.watchIdle(connCtx, cancelConn, conn, &lastActivity, logger)
 
 	var sessionKey []byte
 	var writeSeq uint64
@@ -193,6 +204,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			}
 			return
 		}
+		lastActivity.Store(time.Now().UnixNano())
 
 		allowed := packet.CmdID == gosterwy.CmdHandshakeInit || packet.CmdID == gosterwy.CmdAuthVerify || packet.CmdID == gosterwy.CmdDeviceRegister
 		if !session.IsAuthenticated() && !allowed {
@@ -206,14 +218,16 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 				logger.Warn("握手失败：公钥长度无效", "payload_len", len(packet.Payload))
 				return
 			}
-			secret, err := a.negotiateSecret(packet.Payload)
+			secret, serverPubKey, err := a.negotiateEphemeralSecret(packet.Payload)
 			if err != nil {
 				logger.Warn("握手失败：共享密钥协商失败", "error", err)
 				return
 			}
 			sessionKey = secret
+			handshakeTS := time.Now().UTC().Unix()
+			session.RecordHandshake(packet.Payload, serverPubKey, handshakeTS)
 			writeSeq++
-			respBuf, err := a.codec.Pack(a.privateKey.PublicKey().Bytes(), gosterwy.CmdHandshakeResp, 0, nil, writeSeq, true)
+			respBuf, err := a.codec.Pack(handshakeResponsePayload(serverPubKey, handshakeTS), gosterwy.CmdHandshakeResp, 0, nil, writeSeq, true)
 			if err != nil || writeAll(conn, respBuf) != nil {
 				logger.Warn("写入握手响应失败", "error", err)
 				return
@@ -221,7 +235,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			logger.Info("握手完成：已交换密钥")
 
 		case gosterwy.CmdAuthVerify:
-			status, respPayload, err := session.Authenticate(ctx, string(packet.Payload), packet)
+			status, respPayload, err := session.Authenticate(connCtx, packet.Payload, packet, sessionKey)
 			if err != nil {
 				logger.Warn("鉴权失败", "error", err, "token_len", len(packet.Payload))
 			}
@@ -238,7 +252,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			logger.Info("鉴权成功")
 
 		case gosterwy.CmdDeviceRegister:
-			status, respPayload, err := session.Register(ctx, string(packet.Payload), packet)
+			status, respPayload, err := session.Register(connCtx, string(packet.Payload), packet)
 			if err != nil {
 				logger.Warn("设备注册处理失败", "status", status, "error", err)
 			}
@@ -261,7 +275,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			logger.Info("设备注册成功")
 
 		case gosterwy.CmdMetricsReport:
-			if err := session.HandleMetrics(ctx, packet); err != nil {
+			if err := session.HandleMetrics(connCtx, packet); err != nil {
 				logger.Warn("指标上报处理失败", "error", err)
 			}
 			writeSeq++
@@ -270,7 +284,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			}
 
 		case gosterwy.CmdLogReport:
-			if err := session.HandleLog(ctx, packet); err != nil {
+			if err := session.HandleLog(connCtx, packet); err != nil {
 				logger.Warn("日志上报处理失败", "error", err)
 			}
 			writeSeq++
@@ -279,7 +293,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			}
 
 		case gosterwy.CmdEventReport:
-			if err := session.HandleEvent(ctx, packet); err != nil {
+			if err := session.HandleEvent(connCtx, packet); err != nil {
 				logger.Warn("事件上报处理失败", "error", err)
 			}
 			writeSeq++
@@ -288,7 +302,7 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			}
 
 		case gosterwy.CmdHeartbeat:
-			if err := session.HandleHeartbeat(ctx, packet); err != nil {
+			if err := session.HandleHeartbeat(connCtx, packet); err != nil {
 				logger.Warn("心跳处理失败", "error", err)
 			}
 			writeSeq++
@@ -297,13 +311,13 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 			}
 
 		case gosterwy.CmdKeyExchangeUplink:
-			secret, err := a.negotiateSecret(packet.Payload)
+			secret, serverPubKey, err := a.negotiateEphemeralSecret(packet.Payload)
 			if err != nil {
 				logger.Warn("密钥重协商失败", "error", err)
 				return
 			}
 			writeSeq++
-			respBuf, err := a.codec.Pack(a.privateKey.PublicKey().Bytes(), gosterwy.CmdKeyExchangeDownlink, 1, sessionKey, writeSeq, true)
+			respBuf, err := a.codec.Pack(serverPubKey, gosterwy.CmdKeyExchangeDownlink, 1, sessionKey, writeSeq, true)
 			if err != nil || writeAll(conn, respBuf) != nil {
 				logger.Warn("写入密钥重协商响应失败", "error", err)
 				return
@@ -312,11 +326,11 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 
 		case gosterwy.CmdConfigPush, gosterwy.CmdOtaData, gosterwy.CmdActionExec, gosterwy.CmdScreenWy:
 			if packet.IsAck {
-				session.HandleDownlinkAck(ctx, packet.CmdID, packet)
+				session.HandleDownlinkAck(connCtx, packet.CmdID, packet)
 			}
 
 		case gosterwy.CmdErrorReport:
-			session.HandleError(ctx, packet)
+			session.HandleError(connCtx, packet)
 			return
 
 		default:
@@ -325,19 +339,19 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 
 		if session.IsAuthenticated() {
 			for i := 0; i < a.cfg.DownlinkMaxBatch; i++ {
-				msg, ok := session.PopCommand(ctx)
+				msg, ok := session.PopCommand(connCtx)
 				if !ok {
 					break
 				}
 				cmdID, ok := resolveDownlinkCmd(msg)
 				if !ok {
-					session.FailDownlink(ctx, msg, fmt.Errorf("无法映射下行操作: %s", msg.Operation))
+					session.FailDownlink(connCtx, msg, fmt.Errorf("无法映射下行操作: %s", msg.Operation))
 					continue
 				}
 				writeSeq++
 				downlinkBuf, err := a.codec.Pack(msg.Payload, cmdID, 1, sessionKey, writeSeq, false)
 				if err != nil {
-					session.FailDownlink(ctx, msg, err)
+					session.FailDownlink(connCtx, msg, err)
 					logger.Warn("下行指令打包失败", "cmd_id", cmdID, "command_id", msg.CommandID, "error", err)
 					continue
 				}
@@ -346,8 +360,38 @@ func (a *Adapter) handleConnection(ctx context.Context, conn net.Conn) {
 					logger.Warn("下行指令发送失败", "cmd_id", cmdID, "command_id", msg.CommandID, "error", err)
 					return
 				}
-				session.MarkDownlinkSent(ctx, msg, cmdID)
+				session.MarkDownlinkSent(connCtx, msg, cmdID, writeSeq)
 				logger.Info("下行指令已发送", "cmd_id", cmdID, "command_id", msg.CommandID)
+			}
+		}
+	}
+}
+
+func (a *Adapter) watchIdle(ctx context.Context, cancel context.CancelFunc, conn net.Conn, lastActivity *atomic.Int64, logger *slog.Logger) {
+	timeout := a.cfg.IdleTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	interval := timeout / 2
+	if interval > 30*time.Second {
+		interval = 30 * time.Second
+	}
+	if interval < 100*time.Millisecond {
+		interval = 100 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			last := time.Unix(0, lastActivity.Load())
+			if time.Since(last) > timeout {
+				logger.Warn("custom_tcp 连接空闲超时，主动断开", "idle_timeout", timeout)
+				cancel()
+				_ = conn.Close()
+				return
 			}
 		}
 	}
@@ -367,6 +411,22 @@ func (a *Adapter) negotiateSecret(peerPubKeyBytes []byte) ([]byte, error) {
 		return nil, fmt.Errorf("无效的对端公钥: %w", err)
 	}
 	return a.privateKey.ECDH(peerPubKey)
+}
+
+func (a *Adapter) negotiateEphemeralSecret(peerPubKeyBytes []byte) ([]byte, []byte, error) {
+	peerPubKey, err := ecdh.X25519().NewPublicKey(peerPubKeyBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("无效的对端公钥: %w", err)
+	}
+	privKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("生成临时 X25519 密钥失败: %w", err)
+	}
+	secret, err := privKey.ECDH(peerPubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return secret, privKey.PublicKey().Bytes(), nil
 }
 
 func (a *Adapter) trackConnection(conn net.Conn) {

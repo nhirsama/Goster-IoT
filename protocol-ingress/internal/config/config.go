@@ -41,6 +41,8 @@ type CustomTCPConfig struct {
 	Enabled               bool
 	ListenAddr            string
 	ReadTimeout           time.Duration
+	IdleTimeout           time.Duration
+	RPCTimeout            time.Duration
 	RegisterAckGraceDelay time.Duration
 	DownlinkMaxBatch      int
 }
@@ -66,6 +68,8 @@ func Default() Config {
 				Enabled:               false,
 				ListenAddr:            "127.0.0.1:8081",
 				ReadTimeout:           60 * time.Second,
+				IdleTimeout:           5 * time.Minute,
+				RPCTimeout:            5 * time.Second,
 				RegisterAckGraceDelay: 300 * time.Millisecond,
 				DownlinkMaxBatch:      1,
 			},
@@ -142,6 +146,20 @@ func LoadFromEnv(lookup func(string) (string, bool)) (Config, error) {
 		}
 		cfg.Adapters.CustomTCP.ReadTimeout = d
 	}
+	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_CUSTOM_TCP_IDLE_TIMEOUT"); ok {
+		d, err := parseDuration("PROTOCOL_INGRESS_CUSTOM_TCP_IDLE_TIMEOUT", v)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Adapters.CustomTCP.IdleTimeout = d
+	}
+	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT"); ok {
+		d, err := parseDuration("PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT", v)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Adapters.CustomTCP.RPCTimeout = d
+	}
 	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_CUSTOM_TCP_REGISTER_ACK_GRACE_DELAY"); ok {
 		d, err := parseDuration("PROTOCOL_INGRESS_CUSTOM_TCP_REGISTER_ACK_GRACE_DELAY", v)
 		if err != nil {
@@ -189,6 +207,12 @@ func (c *Config) Normalize() {
 	if c.Adapters.CustomTCP.ReadTimeout <= 0 {
 		c.Adapters.CustomTCP.ReadTimeout = 60 * time.Second
 	}
+	if c.Adapters.CustomTCP.IdleTimeout <= 0 {
+		c.Adapters.CustomTCP.IdleTimeout = 5 * time.Minute
+	}
+	if c.Adapters.CustomTCP.RPCTimeout <= 0 {
+		c.Adapters.CustomTCP.RPCTimeout = 5 * time.Second
+	}
 	if c.Adapters.CustomTCP.RegisterAckGraceDelay <= 0 {
 		c.Adapters.CustomTCP.RegisterAckGraceDelay = 300 * time.Millisecond
 	}
@@ -221,6 +245,12 @@ func (c Config) Validate() error {
 	}
 	if c.Adapters.CustomTCP.ReadTimeout <= 0 {
 		return errors.New("PROTOCOL_INGRESS_CUSTOM_TCP_READ_TIMEOUT 必须大于 0")
+	}
+	if c.Adapters.CustomTCP.IdleTimeout <= 0 {
+		return errors.New("PROTOCOL_INGRESS_CUSTOM_TCP_IDLE_TIMEOUT 必须大于 0")
+	}
+	if c.Adapters.CustomTCP.RPCTimeout <= 0 {
+		return errors.New("PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT 必须大于 0")
 	}
 	if c.Adapters.CustomTCP.RegisterAckGraceDelay <= 0 {
 		return errors.New("PROTOCOL_INGRESS_CUSTOM_TCP_REGISTER_ACK_GRACE_DELAY 必须大于 0")
