@@ -241,8 +241,11 @@ func flatMetrics(payload map[string]any, observedAt time.Time) []adapter.MetricP
 		{[]string{"battery"}, "battery", "%", 0},
 		{[]string{"linkquality", "link_quality", "lqi"}, "linkquality", "lqi", 0},
 		{[]string{"voltage"}, "voltage", "V", 0},
+		{[]string{"current"}, "current", "A", 0},
 		{[]string{"power"}, "power", "W", 0},
 		{[]string{"energy"}, "energy", "kWh", 0},
+		{[]string{"pressure"}, "pressure", "hPa", 0},
+		{[]string{"device_temperature"}, "device_temperature", "°C", 0},
 	}
 	out := make([]adapter.MetricPoint, 0, len(specs))
 	for _, spec := range specs {
@@ -303,7 +306,7 @@ func flatStates(payload map[string]any, observedAt time.Time) []adapter.StatePoi
 	if len(payload) == 0 {
 		return nil
 	}
-	keys := []string{"state", "occupancy", "contact", "action", "tamper", "water_leak", "smoke", "presence", "switch", "brightness", "color_temp"}
+	keys := []string{"state", "occupancy", "contact", "action", "tamper", "water_leak", "smoke", "presence", "switch", "brightness", "color_temp", "battery_low", "child_lock"}
 	out := make([]adapter.StatePoint, 0, len(keys))
 	for _, key := range keys {
 		v, ok := payload[key]

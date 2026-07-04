@@ -20,6 +20,7 @@ import (
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/config"
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/normalizer"
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/protocol/gosterwy"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -96,8 +97,7 @@ func (f *fakeCore) PullCommands(ctx context.Context, req *ingressv1.PullCommands
 func (f *fakeCore) UpdateCommandStatus(ctx context.Context, req *ingressv1.UpdateCommandStatusRequest) (*ingressv1.UpdateCommandStatusResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	copyReq := *req
-	f.updates = append(f.updates, &copyReq)
+	f.updates = append(f.updates, proto.Clone(req).(*ingressv1.UpdateCommandStatusRequest))
 	return &ingressv1.UpdateCommandStatusResponse{Success: true, Status: req.GetStatus()}, nil
 }
 
