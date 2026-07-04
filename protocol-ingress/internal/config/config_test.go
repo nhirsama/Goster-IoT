@@ -23,6 +23,26 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 		"PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT":              "750ms",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_REGISTER_ACK_GRACE_DELAY": "5ms",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH":       "2",
+		"PROTOCOL_INGRESS_MQTT_ENABLED":                        "true",
+		"PROTOCOL_INGRESS_MQTT_BROKER_URL":                     "ssl://mqtt.test:8883",
+		"PROTOCOL_INGRESS_MQTT_CLIENT_ID":                      "ingress-mqtt-test",
+		"PROTOCOL_INGRESS_MQTT_USERNAME":                       "mqtt-user",
+		"PROTOCOL_INGRESS_MQTT_PASSWORD":                       "mqtt-pass",
+		"PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS":               "goster/v1/+/+/telemetry, goster/v1/+/+/ack",
+		"PROTOCOL_INGRESS_MQTT_QOS":                            "2",
+		"PROTOCOL_INGRESS_MQTT_CONNECT_TIMEOUT":                "4s",
+		"PROTOCOL_INGRESS_MQTT_KEEP_ALIVE":                     "45s",
+		"PROTOCOL_INGRESS_MQTT_MESSAGE_BUFFER":                 "32",
+		"PROTOCOL_INGRESS_MQTT_RPC_TIMEOUT":                    "900ms",
+		"PROTOCOL_INGRESS_MQTT_BASE_TOPIC":                     "goster/v2",
+		"PROTOCOL_INGRESS_MQTT_ZIGBEE2MQTT_BASE_TOPIC":         "z2m",
+		"PROTOCOL_INGRESS_MQTT_SOURCE":                         "mqtt-test",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_ENABLED":               "true",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC":                 "goster/v2/{tenant}/{uuid}/cmd",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL":         "3s",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_DEVICE_TTL":            "30s",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_MAX_BATCH":             "4",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_RETAINED":              "true",
 	}))
 	if err != nil {
 		t.Fatalf("LoadFromEnv failed: %v", err)
@@ -38,6 +58,18 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if !cfg.Adapters.CustomTCP.Enabled || cfg.Adapters.CustomTCP.ListenAddr != "127.0.0.1:19091" || cfg.Adapters.CustomTCP.ReadTimeout != 30*time.Second || cfg.Adapters.CustomTCP.IdleTimeout != 90*time.Second || cfg.Adapters.CustomTCP.RPCTimeout != 750*time.Millisecond || cfg.Adapters.CustomTCP.RegisterAckGraceDelay != 5*time.Millisecond || cfg.Adapters.CustomTCP.DownlinkMaxBatch != 2 {
 		t.Fatalf("unexpected custom tcp config: %+v", cfg.Adapters.CustomTCP)
+	}
+	if !cfg.Adapters.MQTT.Enabled || cfg.Adapters.MQTT.BrokerURL != "ssl://mqtt.test:8883" || cfg.Adapters.MQTT.ClientID != "ingress-mqtt-test" || cfg.Adapters.MQTT.Username != "mqtt-user" || cfg.Adapters.MQTT.Password != "mqtt-pass" {
+		t.Fatalf("unexpected mqtt identity config: %+v", cfg.Adapters.MQTT)
+	}
+	if len(cfg.Adapters.MQTT.SubscribeTopics) != 2 || cfg.Adapters.MQTT.SubscribeTopics[0] != "goster/v1/+/+/telemetry" || cfg.Adapters.MQTT.SubscribeTopics[1] != "goster/v1/+/+/ack" {
+		t.Fatalf("unexpected mqtt topics: %+v", cfg.Adapters.MQTT.SubscribeTopics)
+	}
+	if cfg.Adapters.MQTT.QoS != 2 || cfg.Adapters.MQTT.ConnectTimeout != 4*time.Second || cfg.Adapters.MQTT.KeepAlive != 45*time.Second || cfg.Adapters.MQTT.MessageBuffer != 32 || cfg.Adapters.MQTT.RPCTimeout != 900*time.Millisecond || cfg.Adapters.MQTT.BaseTopic != "goster/v2" || cfg.Adapters.MQTT.Zigbee2MQTTBaseTopic != "z2m" || cfg.Adapters.MQTT.Source != "mqtt-test" {
+		t.Fatalf("unexpected mqtt config: %+v", cfg.Adapters.MQTT)
+	}
+	if !cfg.Adapters.MQTT.DownlinkEnabled || cfg.Adapters.MQTT.DownlinkTopic != "goster/v2/{tenant}/{uuid}/cmd" || cfg.Adapters.MQTT.DownlinkPollInterval != 3*time.Second || cfg.Adapters.MQTT.DownlinkDeviceTTL != 30*time.Second || cfg.Adapters.MQTT.DownlinkMaxBatch != 4 || !cfg.Adapters.MQTT.DownlinkRetained {
+		t.Fatalf("unexpected mqtt downlink config: %+v", cfg.Adapters.MQTT)
 	}
 }
 
@@ -66,6 +98,10 @@ func TestLoadFromEnvRejectsInvalidValues(t *testing.T) {
 		{name: "rpc timeout", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT": "0s"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT"},
 		{name: "bool", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED": "maybe"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED"},
 		{name: "int", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH": "0"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH"},
+		{name: "mqtt qos", env: map[string]string{"PROTOCOL_INGRESS_MQTT_QOS": "3"}, want: "PROTOCOL_INGRESS_MQTT_QOS"},
+		{name: "mqtt buffer", env: map[string]string{"PROTOCOL_INGRESS_MQTT_MESSAGE_BUFFER": "0"}, want: "PROTOCOL_INGRESS_MQTT_MESSAGE_BUFFER"},
+		{name: "mqtt downlink poll", env: map[string]string{"PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL": "0s"}, want: "PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL"},
+		{name: "mqtt downlink batch", env: map[string]string{"PROTOCOL_INGRESS_MQTT_DOWNLINK_MAX_BATCH": "0"}, want: "PROTOCOL_INGRESS_MQTT_DOWNLINK_MAX_BATCH"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

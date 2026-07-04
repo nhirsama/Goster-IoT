@@ -60,6 +60,15 @@ type MetricPoint struct {
 	Tags             map[string]string
 }
 
+type StatePoint struct {
+	Name       string
+	Value      Value
+	Unit       string
+	ObservedAt time.Time
+	EntityID   string
+	Tags       map[string]string
+}
+
 type LogRecord struct {
 	Level      string
 	Message    string
@@ -116,6 +125,7 @@ type AdapterEvent struct {
 	OccurredAt   time.Time
 	ReceivedAt   time.Time
 	Metrics      []MetricPoint
+	States       []StatePoint
 	Log          *LogRecord
 	Availability string
 	Receipt      *CommandReceipt

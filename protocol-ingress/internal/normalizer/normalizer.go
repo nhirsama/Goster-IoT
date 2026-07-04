@@ -88,6 +88,7 @@ func (n *Canonical) NormalizeEvent(_ context.Context, event adapter.AdapterEvent
 		IdempotencyKey:  event.EventID,
 		CorrelationId:   event.CorrelationID,
 		Metrics:         metrics(event.Metrics),
+		States:          states(event.States),
 		Logs:            logs(event.Log),
 		Availability:    mapAvailability(event.Availability),
 		CommandReceipt:  receipt(event.Receipt),
@@ -329,6 +330,25 @@ func metrics(items []adapter.MetricPoint) []*ingressv1.MetricPoint {
 			ObservedAt:       timestamppb.New(observedAt),
 			LegacyMetricType: item.LegacyMetricType,
 			Tags:             cloneStringMap(item.Tags),
+		})
+	}
+	return out
+}
+
+func states(items []adapter.StatePoint) []*ingressv1.StatePoint {
+	out := make([]*ingressv1.StatePoint, 0, len(items))
+	for _, item := range items {
+		observedAt := item.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = time.Now().UTC()
+		}
+		out = append(out, &ingressv1.StatePoint{
+			Name:       item.Name,
+			Value:      value(item.Value),
+			Unit:       item.Unit,
+			ObservedAt: timestamppb.New(observedAt),
+			EntityId:   item.EntityID,
+			Tags:       cloneStringMap(item.Tags),
 		})
 	}
 	return out

@@ -35,6 +35,12 @@ func TestNormalizeEventBuildsCanonicalModel(t *testing.T) {
 			ObservedAt:       observed,
 			LegacyMetricType: 1,
 		}},
+		States: []adapter.StatePoint{{
+			Name:       "occupancy",
+			Value:      adapter.Value{Bool: ptrBool(true)},
+			ObservedAt: observed,
+			EntityID:   "livingroom.occupancy",
+		}},
 		Raw:            []byte{1, 2, 3},
 		RawContentType: "application/octet-stream",
 		Attributes:     map[string]any{"key": "value"},
@@ -61,6 +67,9 @@ func TestNormalizeEventBuildsCanonicalModel(t *testing.T) {
 	if out.EventType != ingressv1.EventType_EVENT_TYPE_TELEMETRY || len(out.Metrics) != 1 {
 		t.Fatalf("unexpected event type/metrics: %+v", out)
 	}
+	if len(out.States) != 1 || out.States[0].GetEntityId() != "livingroom.occupancy" || !out.States[0].GetValue().GetBoolValue() {
+		t.Fatalf("unexpected states: %+v", out.States)
+	}
 	if got := out.Metrics[0].GetValue().GetNumberValue(); got != value {
 		t.Fatalf("unexpected metric value: %v", got)
 	}
@@ -68,6 +77,8 @@ func TestNormalizeEventBuildsCanonicalModel(t *testing.T) {
 		t.Fatalf("raw/extensions missing: raw=%+v ext=%+v", out.Raw, out.Extensions)
 	}
 }
+
+func ptrBool(v bool) *bool { return &v }
 
 func TestNormalizeEventIDDeterministic(t *testing.T) {
 	n := New("ingress-test")

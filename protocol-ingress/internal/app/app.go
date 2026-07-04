@@ -8,6 +8,7 @@ import (
 
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/adapter"
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/adapter/customtcp"
+	mqttadapter "github.com/nhirsama/Goster-IoT/protocol-ingress/internal/adapter/mqtt"
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/config"
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/coreclient"
 	"github.com/nhirsama/Goster-IoT/protocol-ingress/internal/normalizer"
@@ -73,6 +74,7 @@ func New(cfg config.Config, logger *slog.Logger, opts ...Option) *App {
 func buildAdapters(cfg config.Config, logger *slog.Logger, core coreclient.Client, n normalizer.Normalizer) []adapter.Adapter {
 	return []adapter.Adapter{
 		customtcp.New(cfg.Adapters.CustomTCP, logger, customtcp.WithSourceInstance(cfg.Service.InstanceID), customtcp.WithCoreClient(core), customtcp.WithNormalizer(n)),
+		mqttadapter.New(cfg.Adapters.MQTT, logger, mqttadapter.WithSourceInstance(cfg.Service.InstanceID), mqttadapter.WithCoreClient(core), mqttadapter.WithNormalizer(n)),
 	}
 }
 
