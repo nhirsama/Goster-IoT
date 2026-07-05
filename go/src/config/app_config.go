@@ -16,7 +16,6 @@ const (
 	defaultSQLiteSchemaMode                 = "bootstrap"
 	defaultPostgresSchemaMode               = "managed"
 	defaultWebHTTPAddr                      = ":8080"
-	defaultAPITCPAddr                       = ":8081"
 	defaultAPICORSAllowOrigins              = "http://localhost:3000,http://127.0.0.1:3000"
 	defaultAuthRootURL                      = "http://localhost:8080"
 	defaultMaxAPIBodyBytes            int64 = 1 << 20
@@ -30,8 +29,8 @@ const (
 type AppConfig struct {
 	DB            DBConfig
 	Web           WebConfig
-	API           APIConfig
 	Auth          AuthConfig
+	Ingress       IngressConfig
 	Captcha       CaptchaConfig
 	DeviceManager DeviceManagerConfig
 	Logger        logger.Config
@@ -53,12 +52,6 @@ type WebConfig struct {
 	LoginProtection     LoginProtectionConfig
 }
 
-type APIConfig struct {
-	TCPAddr               string
-	ReadTimeout           time.Duration
-	RegisterAckGraceDelay time.Duration
-}
-
 type AuthConfig struct {
 	RootURL                     string
 	CookieSecure                bool
@@ -66,6 +59,12 @@ type AuthConfig struct {
 	GitHubClientSecret          string
 	SessionCookieMaxAgeSeconds  int
 	RememberCookieMaxAgeSeconds int
+}
+
+type IngressConfig struct {
+	// Token 是 core-api 校验 protocol-ingress 服务间调用的共享密钥。
+	// 通过 PROTOCOL_INGRESS_TOKEN 环境变量注入；为空时兼容本地开发，不启用校验。
+	Token string
 }
 
 type CaptchaConfig struct {
@@ -132,14 +131,6 @@ func DefaultWebConfig() WebConfig {
 	}
 }
 
-func DefaultAPIConfig() APIConfig {
-	return APIConfig{
-		TCPAddr:               defaultAPITCPAddr,
-		ReadTimeout:           60 * time.Second,
-		RegisterAckGraceDelay: 100 * time.Millisecond,
-	}
-}
-
 func DefaultAuthConfig() AuthConfig {
 	return AuthConfig{
 		RootURL:                     defaultAuthRootURL,
@@ -147,6 +138,10 @@ func DefaultAuthConfig() AuthConfig {
 		SessionCookieMaxAgeSeconds:  0,
 		RememberCookieMaxAgeSeconds: 86400 * 30,
 	}
+}
+
+func DefaultIngressConfig() IngressConfig {
+	return IngressConfig{}
 }
 
 func DefaultCaptchaConfig() CaptchaConfig {
@@ -187,8 +182,8 @@ func DefaultAppConfig() AppConfig {
 	return AppConfig{
 		DB:            DefaultDBConfig(),
 		Web:           DefaultWebConfig(),
-		API:           DefaultAPIConfig(),
 		Auth:          DefaultAuthConfig(),
+		Ingress:       DefaultIngressConfig(),
 		Captcha:       DefaultCaptchaConfig(),
 		DeviceManager: DefaultDeviceManagerConfig(),
 		Logger:        DefaultLoggerConfig(),
@@ -217,19 +212,6 @@ func NormalizeWebConfig(cfg WebConfig) WebConfig {
 	}
 	if out.LoginProtection.Lockout <= 0 {
 		out.LoginProtection.Lockout = base.LoginProtection.Lockout
-	}
-	return out
-}
-
-func NormalizeAPIConfig(cfg APIConfig) APIConfig {
-	base := DefaultAPIConfig()
-	out := cfg
-	out.TCPAddr = normalizeOrDefault(out.TCPAddr, base.TCPAddr)
-	if out.ReadTimeout <= 0 {
-		out.ReadTimeout = base.ReadTimeout
-	}
-	if out.RegisterAckGraceDelay <= 0 {
-		out.RegisterAckGraceDelay = base.RegisterAckGraceDelay
 	}
 	return out
 }
@@ -342,13 +324,11 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("web.login_protection.window", defaultLoginFailureWindow.String())
 	v.SetDefault("web.login_protection.lockout", defaultLoginLockout.String())
 
-	v.SetDefault("api.tcp_addr", defaultAPITCPAddr)
-	v.SetDefault("api.read_timeout", "60s")
-	v.SetDefault("api.register_ack_grace_delay", "100ms")
-
 	v.SetDefault("auth.root_url", defaultAuthRootURL)
 	v.SetDefault("auth.session_cookie_max_age_seconds", 0)
 	v.SetDefault("auth.remember_cookie_max_age_seconds", 86400*30)
+
+	v.SetDefault("ingress.token", "")
 
 	v.SetDefault("captcha.verify_timeout", "5s")
 
@@ -379,15 +359,13 @@ func prepareViper(v *viper.Viper) error {
 		"web.login_protection.max_failures":                 "WEB_LOGIN_MAX_FAILURES",
 		"web.login_protection.window":                       "WEB_LOGIN_WINDOW",
 		"web.login_protection.lockout":                      "WEB_LOGIN_LOCKOUT",
-		"api.tcp_addr":                                      "API_TCP_ADDR",
-		"api.read_timeout":                                  "API_READ_TIMEOUT",
-		"api.register_ack_grace_delay":                      "API_REGISTER_ACK_GRACE_DELAY",
 		"auth.root_url":                                     "AUTHBOSS_ROOT_URL",
 		"auth.cookie_secure":                                "AUTH_COOKIE_SECURE",
 		"auth.github_client_id":                             "GITHUB_CLIENT_ID",
 		"auth.github_client_secret":                         "GITHUB_CLIENT_SECRET",
 		"auth.session_cookie_max_age_seconds":               "AUTH_SESSION_COOKIE_MAX_AGE_SECONDS",
 		"auth.remember_cookie_max_age_seconds":              "AUTH_REMEMBER_COOKIE_MAX_AGE_SECONDS",
+		"ingress.token":                                     "PROTOCOL_INGRESS_TOKEN",
 		"captcha.provider":                                  "CAPTCHA_PROVIDER",
 		"captcha.site_key":                                  "CF_SITE_KEY",
 		"captcha.secret_key":                                "CF_SECRET_KEY",
@@ -428,8 +406,6 @@ func loadFromViper(v *viper.Viper) AppConfig {
 	appEnv := strings.TrimSpace(v.GetString("app.env"))
 	cookieSecureRaw := strings.TrimSpace(v.GetString("auth.cookie_secure"))
 
-	readTimeout := parseDurationOrDefault(v.GetString("api.read_timeout"), base.API.ReadTimeout)
-	registerAckGrace := parseDurationOrDefault(v.GetString("api.register_ack_grace_delay"), base.API.RegisterAckGraceDelay)
 	captchaVerifyTimeout := parseDurationOrDefault(v.GetString("captcha.verify_timeout"), base.Captcha.VerifyTimeout)
 	heartbeatDeadline := parseDurationOrDefault(v.GetString("device_manager.heartbeat_deadline"), base.DeviceManager.HeartbeatDeadline)
 	loginWindow := parseDurationOrDefault(v.GetString("web.login_protection.window"), base.Web.LoginProtection.Window)
@@ -460,11 +436,6 @@ func loadFromViper(v *viper.Viper) AppConfig {
 				Lockout:     loginLockout,
 			},
 		},
-		API: APIConfig{
-			TCPAddr:               strings.TrimSpace(v.GetString("api.tcp_addr")),
-			ReadTimeout:           readTimeout,
-			RegisterAckGraceDelay: registerAckGrace,
-		},
 		Auth: AuthConfig{
 			RootURL:                     rootURL,
 			CookieSecure:                ResolveCookieSecure(cookieSecureRaw, appEnv, rootURL),
@@ -472,6 +443,9 @@ func loadFromViper(v *viper.Viper) AppConfig {
 			GitHubClientSecret:          strings.TrimSpace(v.GetString("auth.github_client_secret")),
 			SessionCookieMaxAgeSeconds:  normalizeZeroOrPositiveInt(v.GetInt("auth.session_cookie_max_age_seconds"), base.Auth.SessionCookieMaxAgeSeconds),
 			RememberCookieMaxAgeSeconds: normalizePositiveInt(v.GetInt("auth.remember_cookie_max_age_seconds"), base.Auth.RememberCookieMaxAgeSeconds),
+		},
+		Ingress: IngressConfig{
+			Token: strings.TrimSpace(v.GetString("ingress.token")),
 		},
 		Captcha: CaptchaConfig{
 			Provider:      strings.TrimSpace(v.GetString("captcha.provider")),
@@ -501,7 +475,6 @@ func loadFromViper(v *viper.Viper) AppConfig {
 	}
 	out.DB = NormalizeDBConfig(out.DB)
 	out.Web = NormalizeWebConfig(out.Web)
-	out.API = NormalizeAPIConfig(out.API)
 	out.Auth = NormalizeAuthConfig(out.Auth)
 	out.Captcha = NormalizeCaptchaConfig(out.Captcha)
 	out.DeviceManager = NormalizeDeviceManagerConfig(out.DeviceManager)

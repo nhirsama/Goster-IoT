@@ -8,6 +8,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { useUx } from "@/components/providers/ux-provider";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { DashboardPanel } from "@/components/dashboard/dashboard-panel";
+import { StatCard } from "@/components/dashboard/stat-card";
 import {
   Table,
   TableBody,
@@ -18,8 +20,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Ban, RefreshCw, ShieldAlert } from "lucide-react";
+import { Ban, RefreshCw, RotateCcw, ShieldAlert, XCircle } from "lucide-react";
+
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
 
@@ -78,6 +80,8 @@ export default function BlacklistPage() {
 
   const isLoading = revokedLoading || refusedLoading;
   const isFetching = revokedFetching || refusedFetching;
+  const revokedCount = revokedData?.items?.length || 0;
+  const refusedCount = refusedData?.items?.length || 0;
   const merged = [...(revokedData?.items || []), ...(refusedData?.items || [])];
   const deviceMap = new Map<string, DeviceRecord>();
   merged.forEach((device: DeviceRecord) => {
@@ -106,79 +110,93 @@ export default function BlacklistPage() {
         }
       />
 
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader className="bg-slate-50/50">
-              <TableRow className="border-slate-200/70 hover:bg-transparent">
-                <TableHead className="h-12 pl-6 text-slate-500">设备标识</TableHead>
-                <TableHead className="h-12 text-slate-500">设备名称</TableHead>
-                <TableHead className="h-12 text-slate-500">状态</TableHead>
-                <TableHead className="h-12 pr-6 text-right text-slate-500">操作</TableHead>
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard title="黑名单设备" value={devices.length} hint="已去重汇总" icon={Ban} tone="neutral" />
+        <StatCard title="拒绝接入" value={refusedCount} hint="审批阶段拒绝" icon={XCircle} tone="warning" />
+        <StatCard title="已吊销" value={revokedCount} hint="已认证后撤销" icon={ShieldAlert} tone="primary" />
+      </div>
+
+      <DashboardPanel
+        title="黑名单明细"
+        description="读写权限用户可将设备移回待认证队列。"
+        action={
+          <Badge variant="outline" className="rounded-full bg-white/70 text-slate-600">
+            {devices.length} 台设备
+          </Badge>
+        }
+      >
+        <Table>
+          <TableHeader className="bg-slate-50/70">
+            <TableRow className="border-slate-200/70 hover:bg-transparent">
+              <TableHead className="h-12 pl-6 text-slate-500">设备标识</TableHead>
+              <TableHead className="h-12 text-slate-500">设备名称</TableHead>
+              <TableHead className="h-12 text-slate-500">状态</TableHead>
+              <TableHead className="h-12 pr-6 text-right text-slate-500">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={4}>
+                  <EmptyState icon={RefreshCw} title="正在获取黑名单设备" description="请稍候..." className="py-16" />
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <EmptyState icon={RefreshCw} title="正在获取黑名单设备" description="请稍候..." className="py-16" />
+            ) : devices.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4}>
+                  <EmptyState icon={ShieldAlert} title="黑名单为空" description="当前没有被屏蔽或吊销的设备。" className="py-16" />
+                </TableCell>
+              </TableRow>
+            ) : (
+              devices.map((device: DeviceRecord) => (
+                <TableRow key={device.uuid} className="border-slate-100/70">
+                  <TableCell className="py-4 pl-6">
+                    <div className="font-mono text-xs text-slate-600">{device.uuid}</div>
+                    <div className="mt-1 font-mono text-xs text-slate-400">{device.meta.mac}</div>
                   </TableCell>
-                </TableRow>
-              ) : devices.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <EmptyState icon={ShieldAlert} title="黑名单为空" description="当前没有被屏蔽或吊销的设备。" className="py-16" />
+                  <TableCell className="font-medium text-slate-900">{device.meta.name}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={
+                        device.meta.authenticate_status === 1
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : "border-slate-200 bg-slate-100 text-slate-600"
+                      }
+                    >
+                      {device.meta.authenticate_status === 1 ? "已拒绝" : "已撤销"}
+                    </Badge>
                   </TableCell>
-                </TableRow>
-              ) : (
-                devices.map((device: DeviceRecord) => (
-                  <TableRow key={device.uuid} className="border-slate-100/70">
-                    <TableCell className="pl-6 py-4">
-                      <div className="font-mono text-xs text-slate-600">{device.uuid}</div>
-                      <div className="mt-1 font-mono text-xs text-slate-400">{device.meta.mac}</div>
-                    </TableCell>
-                    <TableCell className="font-medium text-slate-900">{device.meta.name}</TableCell>
-                    <TableCell>
-                      <Badge
+                  <TableCell className="pr-6 text-right">
+                    {(user?.permission || 0) >= 2 ? (
+                      <Button
+                        size="sm"
                         variant="outline"
-                        className={
-                          device.meta.authenticate_status === 1
-                            ? "border-rose-200 bg-rose-50 text-rose-700"
-                            : "border-slate-200 bg-slate-100 text-slate-600"
-                        }
+                        className="border-primary/20 text-primary hover:bg-primary/10"
+                        onClick={async () => {
+                          const ok = await askConfirm({
+                            title: "移出黑名单",
+                            description: "设备移出黑名单后将进入待认证状态。",
+                            confirmText: "确认移出",
+                            cancelText: "取消",
+                          });
+                          if (ok) unblockMutation.mutate(device.uuid);
+                        }}
+                        disabled={unblockMutation.isPending}
                       >
-                        {device.meta.authenticate_status === 1 ? "已拒绝" : "已撤销"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="pr-6 text-right">
-                      {(user?.permission || 0) >= 2 ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-primary/20 text-primary hover:bg-primary/10"
-                          onClick={async () => {
-                            const ok = await askConfirm({
-                              title: "移出黑名单",
-                              description: "设备移出黑名单后将进入待认证状态。",
-                              confirmText: "确认移出",
-                              cancelText: "取消",
-                            });
-                            if (ok) unblockMutation.mutate(device.uuid);
-                          }}
-                          disabled={unblockMutation.isPending}
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                          解除屏蔽
-                        </Button>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                        <RotateCcw className="h-4 w-4" />
+                        解除屏蔽
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-400">只读</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </DashboardPanel>
     </div>
   );
 }

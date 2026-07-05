@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nhirsama/Goster-IoT/proto/gen/goster/ingress/v1/ingressv1connect"
 	appcfg "github.com/nhirsama/Goster-IoT/src/config"
 	"github.com/nhirsama/Goster-IoT/src/core"
 	identitycore "github.com/nhirsama/Goster-IoT/src/identity"
+	"github.com/nhirsama/Goster-IoT/src/inter"
 	"github.com/nhirsama/Goster-IoT/src/logger"
 	"github.com/nhirsama/Goster-IoT/src/persistence"
 )
@@ -36,6 +38,76 @@ func TestRegisterRoutesExposesV1Endpoints(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code == http.StatusNotFound {
 		t.Fatal("expected captcha config route to be registered")
+	}
+}
+
+func TestIngressRoutesRequireBearerTokenWhenConfigured(t *testing.T) {
+	deps := newTestWebDeps(t)
+	store := deps.DataStore.(inter.CoreStore)
+	deps.IngressStore = store
+	deps.TelemetryIngest = core.NewServices(store).TelemetryIngest
+	deps.IngressToken = "shared-secret"
+
+	ws, err := newWebServer(deps)
+	if err != nil {
+		t.Fatalf("newWebServer failed: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	ws.registerRoutes(mux)
+	path := ingressv1connect.ProtocolIngressCoreServiceAuthenticateDeviceProcedure
+
+	for _, tc := range []struct {
+		name   string
+		header string
+	}{
+		{name: "missing"},
+		{name: "wrong", header: "Bearer wrong-secret"},
+		{name: "bad_scheme", header: "Basic shared-secret"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected unauthorized, got %d body=%s", rec.Code, rec.Body.String())
+			}
+			if rec.Header().Get("WWW-Authenticate") == "" {
+				t.Fatal("expected WWW-Authenticate header")
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Set("Authorization", "Bearer shared-secret")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("valid token should pass auth middleware, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestIngressRoutesAllowRequestsWhenTokenUnset(t *testing.T) {
+	deps := newTestWebDeps(t)
+	store := deps.DataStore.(inter.CoreStore)
+	deps.IngressStore = store
+	deps.TelemetryIngest = core.NewServices(store).TelemetryIngest
+
+	ws, err := newWebServer(deps)
+	if err != nil {
+		t.Fatalf("newWebServer failed: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	ws.registerRoutes(mux)
+	req := httptest.NewRequest(http.MethodPost, ingressv1connect.ProtocolIngressCoreServiceAuthenticateDeviceProcedure, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("empty ingress token should not enable middleware, got %d", rec.Code)
 	}
 }
 

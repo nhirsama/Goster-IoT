@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 
+	"github.com/nhirsama/Goster-IoT/proto/gen/goster/ingress/v1/ingressv1connect"
 	apiv1 "github.com/nhirsama/Goster-IoT/src/web/v1"
 )
 
@@ -50,5 +51,10 @@ func newAPIV1Module(deps WebServerDeps) apiModule {
 func (ws *webServer) registerAPIRoutes(mux *http.ServeMux) {
 	for _, module := range ws.apiModules {
 		module.RegisterRoutes(mux)
+	}
+	if ws.ingressHandler != nil {
+		path, handler := ingressv1connect.NewProtocolIngressCoreServiceHandler(ws.ingressHandler)
+		handler = withIngressBearerAuth(handler, ws.ingressToken)
+		mux.Handle(path, handler)
 	}
 }

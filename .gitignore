@@ -17,6 +17,12 @@ frontend/*.tsbuildinfo
 /.pnpm-store/
 
 *.md
+!readme.md
+!frontend/README.md
+!docs/API_SPECIFICATION.md
+!docs/CONFIGURATION.md
+!docs/EMBEDDED_DESIGN.md
+!docs/PROJECT_STRUCTURE.md
 *.pdf
 
 
