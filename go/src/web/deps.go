@@ -28,6 +28,7 @@ type WebServerDeps struct {
 	Captcha          CaptchaVerifier
 	Logger           inter.Logger
 	Config           appcfg.WebConfig
+	IngressToken     string
 }
 
 func (d *WebServerDeps) normalize() error {

@@ -87,6 +87,31 @@ func TestLoadFromEnvSupportsCloudPortFallback(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvSupportsSharedIngressTokenFallback(t *testing.T) {
+	cfg, err := LoadFromEnv(mapLookup(map[string]string{
+		"PROTOCOL_INGRESS_CORE_ENDPOINT": "http://core-api:8080",
+		"PROTOCOL_INGRESS_TOKEN":         "shared-secret",
+	}))
+	if err != nil {
+		t.Fatalf("LoadFromEnv failed: %v", err)
+	}
+	if cfg.Core.Token != "shared-secret" {
+		t.Fatalf("expected shared PROTOCOL_INGRESS_TOKEN fallback, got %q", cfg.Core.Token)
+	}
+
+	cfg, err = LoadFromEnv(mapLookup(map[string]string{
+		"PROTOCOL_INGRESS_CORE_ENDPOINT": "http://core-api:8080",
+		"PROTOCOL_INGRESS_TOKEN":         "shared-secret",
+		"PROTOCOL_INGRESS_CORE_TOKEN":    "core-specific-secret",
+	}))
+	if err != nil {
+		t.Fatalf("LoadFromEnv failed: %v", err)
+	}
+	if cfg.Core.Token != "core-specific-secret" {
+		t.Fatalf("expected PROTOCOL_INGRESS_CORE_TOKEN to override fallback, got %q", cfg.Core.Token)
+	}
+}
+
 func TestLoadFromEnvRejectsInvalidValues(t *testing.T) {
 	cases := []struct {
 		name string

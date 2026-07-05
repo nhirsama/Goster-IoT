@@ -171,6 +171,8 @@ func LoadFromEnv(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_CORE_TOKEN"); ok {
 		cfg.Core.Token = v
+	} else if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_TOKEN"); ok {
+		cfg.Core.Token = v
 	}
 
 	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED"); ok {

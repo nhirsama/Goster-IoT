@@ -125,6 +125,7 @@ func serve(ctx context.Context) error {
 		Captcha:          web.NewTurnstileServiceWithConfig(appCfg.Captcha),
 		Logger:           webLogger,
 		Config:           appCfg.Web,
+		IngressToken:     appCfg.Ingress.Token,
 	})
 	if err != nil {
 		rootLogger.Error("Web 服务初始化失败", inter.Err(err))

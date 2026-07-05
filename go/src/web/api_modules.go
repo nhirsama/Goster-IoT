@@ -54,6 +54,7 @@ func (ws *webServer) registerAPIRoutes(mux *http.ServeMux) {
 	}
 	if ws.ingressHandler != nil {
 		path, handler := ingressv1connect.NewProtocolIngressCoreServiceHandler(ws.ingressHandler)
+		handler = withIngressBearerAuth(handler, ws.ingressToken)
 		mux.Handle(path, handler)
 	}
 }

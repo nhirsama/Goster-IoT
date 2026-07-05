@@ -24,6 +24,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("AUTH_COOKIE_SECURE", "")
 	t.Setenv("AUTH_SESSION_COOKIE_MAX_AGE_SECONDS", "")
 	t.Setenv("AUTH_REMEMBER_COOKIE_MAX_AGE_SECONDS", "")
+	t.Setenv("PROTOCOL_INGRESS_TOKEN", "")
 	t.Setenv("CAPTCHA_VERIFY_TIMEOUT", "")
 	t.Setenv("DM_QUEUE_CAPACITY", "")
 	t.Setenv("DM_HEARTBEAT_DEADLINE", "")
@@ -70,6 +71,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Auth.SessionCookieMaxAgeSeconds != 0 || cfg.Auth.RememberCookieMaxAgeSeconds != 86400*30 {
 		t.Fatalf("unexpected auth cookie ages: %+v", cfg.Auth)
 	}
+	if cfg.Ingress.Token != "" {
+		t.Fatalf("unexpected ingress token default: %q", cfg.Ingress.Token)
+	}
 	if cfg.Captcha.VerifyTimeout != 5*time.Second {
 		t.Fatalf("unexpected captcha verify timeout: %v", cfg.Captcha.VerifyTimeout)
 	}
@@ -106,6 +110,7 @@ func TestLoadEnvOverrides(t *testing.T) {
 	t.Setenv("AUTH_COOKIE_SECURE", "false")
 	t.Setenv("AUTH_SESSION_COOKIE_MAX_AGE_SECONDS", "120")
 	t.Setenv("AUTH_REMEMBER_COOKIE_MAX_AGE_SECONDS", "86400")
+	t.Setenv("PROTOCOL_INGRESS_TOKEN", "shared-ingress-secret")
 	t.Setenv("GITHUB_CLIENT_ID", "gh_id")
 	t.Setenv("GITHUB_CLIENT_SECRET", "gh_secret")
 	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
@@ -158,6 +163,9 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Auth.GitHubClientID != "gh_id" || cfg.Auth.GitHubClientSecret != "gh_secret" {
 		t.Fatalf("unexpected github auth config: %+v", cfg.Auth)
+	}
+	if cfg.Ingress.Token != "shared-ingress-secret" {
+		t.Fatalf("unexpected ingress token: %q", cfg.Ingress.Token)
 	}
 	if cfg.Captcha.Provider != "turnstile" || cfg.Captcha.SiteKey != "site_key" || cfg.Captcha.SecretKey != "secret_key" || cfg.Captcha.VerifyTimeout != 3*time.Second {
 		t.Fatalf("unexpected captcha config: %+v", cfg.Captcha)

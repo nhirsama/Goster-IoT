@@ -30,6 +30,7 @@ type AppConfig struct {
 	DB            DBConfig
 	Web           WebConfig
 	Auth          AuthConfig
+	Ingress       IngressConfig
 	Captcha       CaptchaConfig
 	DeviceManager DeviceManagerConfig
 	Logger        logger.Config
@@ -58,6 +59,12 @@ type AuthConfig struct {
 	GitHubClientSecret          string
 	SessionCookieMaxAgeSeconds  int
 	RememberCookieMaxAgeSeconds int
+}
+
+type IngressConfig struct {
+	// Token 是 core-api 校验 protocol-ingress 服务间调用的共享密钥。
+	// 通过 PROTOCOL_INGRESS_TOKEN 环境变量注入；为空时兼容本地开发，不启用校验。
+	Token string
 }
 
 type CaptchaConfig struct {
@@ -133,6 +140,10 @@ func DefaultAuthConfig() AuthConfig {
 	}
 }
 
+func DefaultIngressConfig() IngressConfig {
+	return IngressConfig{}
+}
+
 func DefaultCaptchaConfig() CaptchaConfig {
 	return CaptchaConfig{
 		Provider:      "",
@@ -172,6 +183,7 @@ func DefaultAppConfig() AppConfig {
 		DB:            DefaultDBConfig(),
 		Web:           DefaultWebConfig(),
 		Auth:          DefaultAuthConfig(),
+		Ingress:       DefaultIngressConfig(),
 		Captcha:       DefaultCaptchaConfig(),
 		DeviceManager: DefaultDeviceManagerConfig(),
 		Logger:        DefaultLoggerConfig(),
@@ -316,6 +328,8 @@ func prepareViper(v *viper.Viper) error {
 	v.SetDefault("auth.session_cookie_max_age_seconds", 0)
 	v.SetDefault("auth.remember_cookie_max_age_seconds", 86400*30)
 
+	v.SetDefault("ingress.token", "")
+
 	v.SetDefault("captcha.verify_timeout", "5s")
 
 	v.SetDefault("device_manager.queue_capacity", 100)
@@ -351,6 +365,7 @@ func prepareViper(v *viper.Viper) error {
 		"auth.github_client_secret":                         "GITHUB_CLIENT_SECRET",
 		"auth.session_cookie_max_age_seconds":               "AUTH_SESSION_COOKIE_MAX_AGE_SECONDS",
 		"auth.remember_cookie_max_age_seconds":              "AUTH_REMEMBER_COOKIE_MAX_AGE_SECONDS",
+		"ingress.token":                                     "PROTOCOL_INGRESS_TOKEN",
 		"captcha.provider":                                  "CAPTCHA_PROVIDER",
 		"captcha.site_key":                                  "CF_SITE_KEY",
 		"captcha.secret_key":                                "CF_SECRET_KEY",
@@ -428,6 +443,9 @@ func loadFromViper(v *viper.Viper) AppConfig {
 			GitHubClientSecret:          strings.TrimSpace(v.GetString("auth.github_client_secret")),
 			SessionCookieMaxAgeSeconds:  normalizeZeroOrPositiveInt(v.GetInt("auth.session_cookie_max_age_seconds"), base.Auth.SessionCookieMaxAgeSeconds),
 			RememberCookieMaxAgeSeconds: normalizePositiveInt(v.GetInt("auth.remember_cookie_max_age_seconds"), base.Auth.RememberCookieMaxAgeSeconds),
+		},
+		Ingress: IngressConfig{
+			Token: strings.TrimSpace(v.GetString("ingress.token")),
 		},
 		Captcha: CaptchaConfig{
 			Provider:      strings.TrimSpace(v.GetString("captcha.provider")),
