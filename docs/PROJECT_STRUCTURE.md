@@ -11,10 +11,10 @@
 | `proto/` | Protobuf 契约 | Go module：`github.com/nhirsama/Goster-IoT/proto`。包含 Core ↔ protocol-ingress 契约和生成代码。 |
 | `contracts/` | 管理端 OpenAPI | `contracts/openapi.yaml` 是前后端 HTTP API 契约。 |
 | `frontend/` | Web 前端 | Next.js / React 项目，类型可由 OpenAPI 生成。 |
-| `docs/` | 精简项目文档 | 保留协议、配置、结构、嵌入式状态说明。 |
-| `src/` | STM32 Rust 固件 | 当前仍在本仓库，后续可迁出独立维护。 |
-| `cpp/` | ESP32 PlatformIO 固件 | 当前仍在本仓库，后续可迁出独立维护。 |
+| `docs/` | 精简项目文档 | 保留协议、配置、结构、嵌入式联调边界说明。 |
 | `.github/workflows/` | GitHub Actions | 当前包含 Docker 发布工作流。 |
+
+嵌入式固件已迁出至独立仓库 `Goster-Iot-Firmware`，本仓库不再包含 STM32/ESP32 固件源码和固件构建配置。
 
 ## 2. Core 后端：`go/`
 
@@ -109,16 +109,28 @@ pnpm gen-types
 | `frontend/src/hooks` | 前端 hooks。 |
 | `frontend/src/components` | 前端组件。 |
 
-## 6. 嵌入式代码边界
+## 6. 嵌入式固件边界
 
-当前仓库仍包含：
+嵌入式固件已经从本仓库迁出，迁移范围包括：
 
-- STM32 Rust：`src/`、`Cargo.toml`、`memory.x`、`.cargo/`
-- ESP32 PlatformIO：`cpp/`、`platformio.ini`
+| 原路径 | 迁移后归属 | 说明 |
+|---|---|---|
+| `src/` | 固件仓库 | STM32 Rust 固件源码。 |
+| `Cargo.toml`、`Cargo.lock` | 固件仓库 | STM32 Rust crate 与依赖锁定文件。 |
+| `memory.x`、`.cargo/` | 固件仓库 | STM32 链接脚本、目标平台和烧录 runner 配置。 |
+| `cpp/` | 固件仓库 | ESP32 PlatformIO / Arduino 固件源码、头文件、本地库和测试目录。 |
+| `platformio.ini` | 固件仓库 | ESP32 PlatformIO 构建配置。 |
 
-这些代码和服务端协议可能不同步。涉及设备通信时，以 `docs/API_SPECIFICATION.md` 和 `protocol-ingress/internal/protocol/gosterwy` 的当前实现为准。
+迁移后，本仓库只负责云端、协议接入、前端和接口契约：
 
-如果迁出嵌入式代码，建议迁出上述固件目录和构建文件，并在本仓库只保留协议契约、联调说明或仓库链接。
+- 管理端 HTTP API 契约：`contracts/openapi.yaml`
+- Core ↔ protocol-ingress RPC 契约：`proto/goster/ingress/v1/ingress.proto`
+- 设备侧 TCP / UART-Bridge 协议说明：`docs/API_SPECIFICATION.md`
+- 云端 Goster-WY 协议实现：`protocol-ingress/internal/protocol/gosterwy`
+
+涉及设备通信和协议兼容时，以本仓库的契约文档和 `protocol-ingress` 当前实现为云端侧基准；固件仓库负责 STM32 采集逻辑、ESP32 网关逻辑、板间 UART 封装、硬件适配和固件构建。
+
+后续不要在本仓库恢复 `src/`、`cpp/`、根目录 `Cargo.toml`、`memory.x` 或 `platformio.ini`。如果需要调整固件实现，应在固件仓库中完成；如果需要调整通信协议，应先更新本仓库契约，再同步固件仓库实现。
 
 ## 7. 文档维护规则
 
@@ -129,7 +141,6 @@ pnpm gen-types
 | `docs/API_SPECIFICATION.md` | 管理 API 契约位置、Core ↔ protocol-ingress RPC、Goster-WY、MQTT 映射。 |
 | `docs/CONFIGURATION.md` | Core 和 protocol-ingress 环境变量。 |
 | `docs/PROJECT_STRUCTURE.md` | 仓库结构和模块边界。 |
-| `docs/EMBEDDED_DESIGN.md` | 嵌入式代码现状和迁出边界。 |
+| `docs/EMBEDDED_DESIGN.md` | 下位机硬件设计、板间通信流程和固件仓库边界。 |
 
 不要再新增临时性的根目录 `docs.md`、长期 TODO 文档或与代码不一致的部署示例。需要记录新行为时，优先更新上述文档和对应契约文件。
-
