@@ -18,4 +18,5 @@ ESP32C3 MCU 作为网关层，负责与云端上位机进行数据传输和 NTP 
 [ ] 感知层引入压缩感知算法，压缩采样数据  
 [ ] 实现压缩感知数据重构模块，承接硬件端的高比例压缩数据  
 
- 
+## 固件
+嵌入式固件已迁移到 [Goster-Iot-Firmware](https://github.com/nhirsama/Goster-Iot-Firmware)。
