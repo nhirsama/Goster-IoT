@@ -1,4 +1,4 @@
-name: Build and Push Go Docker Image
+name: Build and Push Docker Images
 
 on:
   push:
@@ -7,7 +7,8 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: nhir/goster-iot
+  CORE_IMAGE_NAME: nhir/goster-iot
+  INGRESS_IMAGE_NAME: nhir/goster-iot-ingress
 
 jobs:
   build-and-push:
@@ -34,25 +35,48 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
+      - name: Extract core image metadata
+        id: meta-core
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.CORE_IMAGE_NAME }}
           flavor: |
             latest=false
           tags: |
             type=ref,event=tag
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
-      - name: Build and push Docker image
+      - name: Extract protocol-ingress image metadata
+        id: meta-ingress
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.INGRESS_IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push core image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./go/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=goster-iot-go
-          cache-to: type=gha,mode=max,scope=goster-iot-go
+          tags: ${{ steps.meta-core.outputs.tags }}
+          labels: ${{ steps.meta-core.outputs.labels }}
+          cache-from: type=gha,scope=goster-iot-core
+          cache-to: type=gha,mode=max,scope=goster-iot-core
+
+      - name: Build and push protocol-ingress image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./protocol-ingress/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-ingress.outputs.tags }}
+          labels: ${{ steps.meta-ingress.outputs.labels }}
+          cache-from: type=gha,scope=goster-iot-ingress
+          cache-to: type=gha,mode=max,scope=goster-iot-ingress
