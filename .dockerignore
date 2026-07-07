@@ -1,0 +1,22 @@
+.git
+.idea
+.vscode
+**/.DS_Store
+
+# Frontend build/dependency artifacts are large and not needed by Go images.
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/coverage
+frontend/.turbo
+
+# Local/runtime artifacts.
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/coverage
+**/dist
+**/tmp
+
+# Tests are not required for production image builds.
+**/*_test.go

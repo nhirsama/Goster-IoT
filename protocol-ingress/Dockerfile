@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # Build from repo root:
-#   docker build -f go/Dockerfile .
+#   docker build -f protocol-ingress/Dockerfile .
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 
@@ -12,21 +12,21 @@ WORKDIR /src
 
 # Copy only module metadata first so dependency downloads stay cached.
 COPY --link proto/go.mod proto/go.sum ./proto/
-COPY --link go/go.mod go/go.sum ./go/
+COPY --link protocol-ingress/go.mod protocol-ingress/go.sum ./protocol-ingress/
 
-WORKDIR /src/go
+WORKDIR /src/protocol-ingress
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 WORKDIR /src
 COPY proto ./proto
-COPY go ./go
+COPY protocol-ingress ./protocol-ingress
 
-WORKDIR /src/go
+WORKDIR /src/protocol-ingress
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/goster-iot .
+    go build -trimpath -ldflags="-s -w" -o /out/protocol-ingress ./cmd/protocol-ingress
 
 FROM alpine:3.22
 
@@ -34,15 +34,11 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=build /out/goster-iot /app/goster-iot
-COPY --from=build /src/go/db /app/db
+COPY --from=build /out/protocol-ingress /app/protocol-ingress
 
-RUN mkdir -p /data
+ENV PROTOCOL_INGRESS_HTTP_ADDR=:8090 \
+    PROTOCOL_INGRESS_CUSTOM_TCP_ADDR=:8081
 
-ENV DB_PATH=/data/data.db \
-    WEB_HTTP_ADDR=:8080
+EXPOSE 8090 8081
 
-VOLUME ["/data"]
-EXPOSE 8080
-
-CMD ["/app/goster-iot", "serve"]
+CMD ["/app/protocol-ingress"]
