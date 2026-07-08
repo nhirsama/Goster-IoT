@@ -152,7 +152,7 @@ func applyMigrationFile(db *sql.DB, version, path string) error {
 		}
 	}
 	if _, err := tx.Exec(
-		"INSERT INTO "+migrationsTable+"(version) VALUES ("+quoteSQLLiteral(version)+")",
+		"INSERT INTO " + migrationsTable + "(version) VALUES (" + quoteSQLLiteral(version) + ")",
 	); err != nil {
 		return fmt.Errorf("record migration %s failed: %w", version, err)
 	}
@@ -202,16 +202,44 @@ func splitSQLStatements(sqlText string) []string {
 }
 
 func migrationDir(driver string) (string, error) {
+	candidates := make([]string, 0, 6)
+
+	if v := strings.TrimSpace(os.Getenv("DB_MIGRATIONS_DIR")); v != "" {
+		candidates = append(candidates, filepath.Join(v, driver))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(wd, "db", "migrations", driver),
+			filepath.Join(wd, "go", "db", "migrations", driver),
+		)
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "db", "migrations", driver),
+			filepath.Join(exeDir, "..", "db", "migrations", driver),
+		)
+	}
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("resolve migration path failed")
+	if ok {
+		base := filepath.Dir(file)
+		candidates = append(candidates, filepath.Join(base, "..", "..", "db", "migrations", driver))
 	}
-	base := filepath.Dir(file)
-	dir := filepath.Clean(filepath.Join(base, "..", "..", "db", "migrations", driver))
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return "", fmt.Errorf("migration dir not found: %s", dir)
+
+	seen := make(map[string]struct{}, len(candidates))
+	checked := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		dir := filepath.Clean(candidate)
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		checked = append(checked, dir)
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir, nil
+		}
 	}
-	return dir, nil
+	return "", fmt.Errorf("migration dir not found for driver %s; checked: %s", driver, strings.Join(checked, ", "))
 }
 
 func normalizeDriver(driver string) string {

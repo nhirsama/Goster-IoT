@@ -2,7 +2,7 @@ name: goster-iot
 
 services:
   core:
-    image: ${GOSTER_CORE_IMAGE:-nhir/goster-iot}:${GOSTER_IMAGE_TAG:-latest}
+    image: nhir/goster-iot:latest
     restart: unless-stopped
     init: true
     env_file:
@@ -40,7 +40,7 @@ services:
       start_period: 20s
 
   protocol-ingress:
-    image: ${GOSTER_INGRESS_IMAGE:-nhir/goster-iot-ingress}:${GOSTER_IMAGE_TAG:-latest}
+    image: nhir/goster-iot-ingress:latest
     restart: unless-stopped
     init: true
     env_file:
@@ -69,7 +69,6 @@ services:
     ports:
       - "${INGRESS_TCP_BIND:-0.0.0.0}:${INGRESS_TCP_PORT:-8081}:8081"
       - "${INGRESS_MQTT_BIND:-0.0.0.0}:${INGRESS_MQTT_PORT:-1883}:1883"
-      - "${INGRESS_ADMIN_BIND:-127.0.0.1}:${INGRESS_ADMIN_PORT:-8090}:8090"
     networks:
       - goster-iot
     healthcheck:

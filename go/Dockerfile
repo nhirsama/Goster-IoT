@@ -40,6 +40,7 @@ COPY --from=build /src/go/db /app/db
 RUN mkdir -p /data
 
 ENV DB_PATH=/data/data.db \
+    DB_MIGRATIONS_DIR=/app/db/migrations \
     WEB_HTTP_ADDR=:8080
 
 VOLUME ["/data"]
