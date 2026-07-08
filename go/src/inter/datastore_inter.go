@@ -99,6 +99,9 @@ type DeviceRepository interface {
 	// InitDevice 初始化一个新的设备存储空间。
 	InitDevice(uuid string, meta DeviceMetadata) error
 
+	// InitDeviceInTenant 在指定租户内初始化一个新的设备存储空间。
+	InitDeviceInTenant(tenantID string, uuid string, meta DeviceMetadata) error
+
 	// DestroyDevice 彻底删除指定设备的所有数据。
 	DestroyDevice(uuid string) error
 

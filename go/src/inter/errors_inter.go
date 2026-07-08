@@ -5,6 +5,7 @@ import "errors"
 // 跨层共享的业务错误，供 Web/Service/Repository 使用 errors.Is 判断稳定语义。
 var (
 	ErrDeviceNotFound        = errors.New("device: not found")
+	ErrDeviceAlreadyExists   = errors.New("device: already exists")
 	ErrDeviceTokenNotFound   = errors.New("device: token not found")
 	ErrUserNotFound          = errors.New("user: not found")
 	ErrTenantNotFound        = errors.New("tenant: not found")

@@ -123,7 +123,7 @@ func (api *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/v1/auth/logout", protectedWithCSRF(api.LogoutHandler, inter.PermissionNone))
 	mux.Handle("/api/v1/auth/me", protected(api.MeHandler, inter.PermissionNone))
 
-	mux.Handle("/api/v1/devices", protected(api.DevicesHandler, inter.PermissionReadOnly))
+	mux.Handle("/api/v1/devices", protectedWithCSRF(api.DevicesHandler, inter.PermissionReadOnly))
 	mux.Handle("/api/v1/devices/", protectedWithCSRF(api.DeviceByUUIDHandler, inter.PermissionReadOnly))
 
 	mux.Handle("/api/v1/metrics/", protected(api.MetricsHandler, inter.PermissionReadOnly))

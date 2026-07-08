@@ -215,6 +215,11 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("approve expected 200, got %d", rec.Code)
 	}
+	approveEnv := mustJSONEnvelope(t, rec)
+	approveData := approveEnv.Data.(map[string]interface{})
+	if token, ok := approveData["token"].(string); !ok || strings.TrimSpace(token) == "" {
+		t.Fatalf("approve should return generated token, data=%+v", approveData)
+	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/"+uuid+"/token/refresh", nil)
 	req = withPerm(req, inter.PermissionReadWrite)
@@ -279,6 +284,103 @@ func TestAPIDeviceAndMetricsAndUsersHandlers(t *testing.T) {
 	env.api.DeviceByUUIDHandler(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete expected 204, got %d", rec.Code)
+	}
+}
+
+func TestAPICreateDeviceProvisionsMQTTCredentials(t *testing.T) {
+	env := newTestAPI(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices", bytes.NewBufferString(`{
+		"name":"MQTT Sensor",
+		"sn":"SN-MQTT-001",
+		"mac":"AA:BB:CC:DD:EE:01",
+		"hw_version":"hw1",
+		"sw_version":"1.0.0"
+	}`))
+	req = withTenantPerm(req, "tenant-a", inter.TenantRoleRW)
+	rec := httptest.NewRecorder()
+	env.api.DevicesHandler(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create device expected 201, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	envBody := mustJSONEnvelope(t, rec)
+	data := envBody.Data.(map[string]interface{})
+	uuid, _ := data["uuid"].(string)
+	token, _ := data["token"].(string)
+	if strings.TrimSpace(uuid) == "" || strings.TrimSpace(token) == "" || data["tenant_id"] != "tenant-a" {
+		t.Fatalf("unexpected create response: %+v", data)
+	}
+	mqttData := data["mqtt"].(map[string]interface{})
+	if mqttData["client_id"] != uuid || mqttData["username"] != uuid || mqttData["password"] != token {
+		t.Fatalf("mqtt credentials should mirror uuid/token: %+v", mqttData)
+	}
+	if mqttData["telemetry_topic"] != "goster/v1/tenant-a/"+uuid+"/telemetry" {
+		t.Fatalf("unexpected telemetry topic: %v", mqttData["telemetry_topic"])
+	}
+
+	authUUID, err := env.deviceRegistry.Authenticate(token)
+	if err != nil || authUUID != uuid {
+		t.Fatalf("provisioned token should authenticate: uuid=%s err=%v", authUUID, err)
+	}
+
+	tenantReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=authenticated&page=1&size=10", nil)
+	tenantReq = withTenantPerm(tenantReq, "tenant-a", inter.TenantRoleRO)
+	tenantRec := httptest.NewRecorder()
+	env.api.DevicesHandler(tenantRec, tenantReq)
+	if tenantRec.Code != http.StatusOK {
+		t.Fatalf("tenant-a list expected 200, got %d", tenantRec.Code)
+	}
+	tenantList := mustJSONEnvelope(t, tenantRec).Data.(map[string]interface{})
+	if got := len(tenantList["items"].([]interface{})); got != 1 {
+		t.Fatalf("tenant-a should see provisioned device, got=%d", got)
+	}
+
+	legacyReq := httptest.NewRequest(http.MethodGet, "/api/v1/devices?status=authenticated&page=1&size=10", nil)
+	legacyReq = withTenantPerm(legacyReq, "tenant_legacy", inter.TenantRoleRO)
+	legacyRec := httptest.NewRecorder()
+	env.api.DevicesHandler(legacyRec, legacyReq)
+	if legacyRec.Code != http.StatusOK {
+		t.Fatalf("legacy list expected 200, got %d", legacyRec.Code)
+	}
+	legacyList := mustJSONEnvelope(t, legacyRec).Data.(map[string]interface{})
+	if got := len(legacyList["items"].([]interface{})); got != 0 {
+		t.Fatalf("legacy tenant should not see tenant-a device, got=%d", got)
+	}
+}
+
+func TestAPICreateDeviceValidationAndPermission(t *testing.T) {
+	env := newTestAPI(t)
+
+	readonlyReq := httptest.NewRequest(http.MethodPost, "/api/v1/devices", bytes.NewBufferString(`{"name":"MQTT","sn":"SN-1"}`))
+	readonlyReq = withPerm(readonlyReq, inter.PermissionReadOnly)
+	readonlyRec := httptest.NewRecorder()
+	env.api.DevicesHandler(readonlyRec, readonlyReq)
+	if readonlyRec.Code != http.StatusForbidden {
+		t.Fatalf("readonly create should be forbidden, got %d", readonlyRec.Code)
+	}
+
+	cases := []struct {
+		name string
+		body string
+		code int
+	}{
+		{name: "invalid_json", body: `{`, code: 40028},
+		{name: "missing_name", body: `{"sn":"SN-1"}`, code: 40029},
+		{name: "missing_identity", body: `{"name":"MQTT"}`, code: 40030},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/devices", bytes.NewBufferString(tc.body))
+			req = withPerm(req, inter.PermissionReadWrite)
+			rec := httptest.NewRecorder()
+			env.api.DevicesHandler(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+			}
+			if got := mustJSONEnvelope(t, rec).Code; got != tc.code {
+				t.Fatalf("unexpected code: got %d want %d", got, tc.code)
+			}
+		})
 	}
 }
 

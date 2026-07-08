@@ -119,6 +119,45 @@ func TestDeviceRegistryServiceLifecycle(t *testing.T) {
 	}
 }
 
+func TestDeviceRegistryProvisionDeviceCreatesAuthenticatedDeviceInTenant(t *testing.T) {
+	store := openRuntimeStoreForDeviceRegistry(t)
+	registry := NewDeviceRegistry(store)
+
+	meta := inter.DeviceMetadata{
+		Name:         "mqtt-device",
+		SerialNumber: "sn-mqtt",
+		MACAddress:   "mac-mqtt",
+	}
+	uuid, token, err := registry.ProvisionDevice(inter.Scope{TenantID: "tenant-a"}, meta)
+	if err != nil {
+		t.Fatalf("ProvisionDevice failed: %v", err)
+	}
+	if uuid == "" || token == "" {
+		t.Fatalf("ProvisionDevice should return uuid and token: uuid=%q token=%q", uuid, token)
+	}
+
+	authUUID, err := registry.Authenticate(token)
+	if err != nil || authUUID != uuid {
+		t.Fatalf("provisioned token should authenticate: uuid=%s err=%v", authUUID, err)
+	}
+
+	loaded, err := registry.GetDeviceMetadataByScope(inter.Scope{TenantID: "tenant-a"}, uuid)
+	if err != nil {
+		t.Fatalf("tenant scoped load failed: %v", err)
+	}
+	if loaded.AuthenticateStatus != inter.Authenticated || loaded.Token != token {
+		t.Fatalf("unexpected provisioned metadata: %+v", loaded)
+	}
+
+	if _, err := registry.GetDeviceMetadataByScope(inter.Scope{TenantID: "tenant_legacy"}, uuid); err == nil {
+		t.Fatalf("provisioned device should not be visible in another tenant")
+	}
+
+	if _, _, err := registry.ProvisionDevice(inter.Scope{TenantID: "tenant-a"}, meta); err == nil {
+		t.Fatalf("duplicate provision should fail")
+	}
+}
+
 func TestDeviceRegistryDeleteClearsPresenceState(t *testing.T) {
 	store := openRuntimeStoreForDeviceRegistry(t)
 	presence := NewDevicePresenceWithStore(time.Second, NewInMemoryDevicePresenceStore())

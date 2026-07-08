@@ -37,6 +37,9 @@ type DeviceRegistry interface {
 	// RegisterDevice 注册新设备 (初始化 Pending 状态)
 	RegisterDevice(meta DeviceMetadata) (err error)
 
+	// ProvisionDevice 由管理端预创建已认证设备并分配 Token。
+	ProvisionDevice(scope Scope, meta DeviceMetadata) (uuid string, token string, err error)
+
 	// Authenticate 验证 Token 合法性，返回 UUID
 	Authenticate(token string) (uuid string, err error)
 

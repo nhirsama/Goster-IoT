@@ -2,21 +2,32 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api-client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
+import { useUx } from "@/components/providers/ux-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DashboardPanel, DashboardToolbar } from "@/components/dashboard/dashboard-panel";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { Fingerprint, RefreshCw, Search, Server, ShieldAlert, Wifi, WifiOff } from "lucide-react";
+import { Check, Copy, Fingerprint, Plus, RefreshCw, Search, Server, ShieldAlert, Wifi, WifiOff } from "lucide-react";
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
+type CreateDeviceRequest = components["schemas"]["CreateDeviceRequest"];
+type ProvisionedDeviceData = components["schemas"]["ProvisionedDeviceData"];
 
 const DEVICE_STATUS_META: Record<number, { label: string; className: string }> = {
   0: { label: "待认证", className: "bg-amber-500/10 border-amber-500/20 text-amber-600" },
@@ -25,10 +36,23 @@ const DEVICE_STATUS_META: Record<number, { label: string; className: string }> =
 };
 
 export default function DevicesPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useUx();
   const [keyword, setKeyword] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createdDevice, setCreatedDevice] = useState<ProvisionedDeviceData | null>(null);
+  const [createForm, setCreateForm] = useState<CreateDeviceRequest>({
+    name: "",
+    sn: "",
+    mac: "",
+    hw_version: "",
+    sw_version: "",
+    config_version: "",
+  });
   const groupFilter = groupId.trim();
+  const permission = user?.permission || 0;
 
   const { data: deviceData, isLoading, isFetching, refetch } = useQuery({
     queryKey: [...queryKeys.devicesByStatus("authenticated"), groupFilter || "__all__"],
@@ -39,6 +63,26 @@ export default function DevicesPage() {
       }),
     enabled: isAuthenticated,
     refetchInterval: 10000,
+  });
+
+  const createDeviceMutation = useMutation({
+    mutationFn: () =>
+      api.post<ProvisionedDeviceData>("/api/v1/devices", {
+        name: createForm.name.trim(),
+        sn: createForm.sn?.trim() || undefined,
+        mac: createForm.mac?.trim() || undefined,
+        hw_version: createForm.hw_version?.trim() || undefined,
+        sw_version: createForm.sw_version?.trim() || undefined,
+        config_version: createForm.config_version?.trim() || undefined,
+      }),
+    onSuccess: (result) => {
+      setCreatedDevice(result);
+      toast.success("设备已创建，令牌已分配");
+      queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, "设备创建失败，请稍后重试"));
+    },
   });
 
   const filteredDevices = useMemo(() => {
@@ -54,6 +98,46 @@ export default function DevicesPage() {
   }, [deviceData?.items, keyword]);
   const devices = deviceData?.items || [];
   const hasFilters = Boolean(keyword.trim() || groupFilter);
+  const canCreateDevice = permission >= 2;
+  const canSubmitCreate = Boolean(createForm.name.trim() && ((createForm.sn || "").trim() || (createForm.mac || "").trim()));
+  const mqttHost =
+    process.env.NEXT_PUBLIC_MQTT_HOST ||
+    (typeof window !== "undefined" && window.location.hostname ? window.location.hostname : "your-server-host");
+  const mqttPort = process.env.NEXT_PUBLIC_MQTT_PORT || "1883";
+  const mqttConfigText = createdDevice
+    ? [
+        `host=${mqttHost}`,
+        `port=${mqttPort}`,
+        `client_id=${createdDevice.mqtt.client_id}`,
+        `username=${createdDevice.mqtt.username}`,
+        `password=${createdDevice.mqtt.password}`,
+        `telemetry_topic=${createdDevice.mqtt.telemetry_topic}`,
+        `heartbeat_topic=${createdDevice.mqtt.heartbeat_topic}`,
+        `downlink_topic=${createdDevice.mqtt.downlink_topic}`,
+      ].join("\n")
+    : "";
+
+  const updateCreateForm = (key: keyof CreateDeviceRequest, value: string) => {
+    setCreateForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const resetCreateDialog = () => {
+    setCreatedDevice(null);
+    setCreateForm({
+      name: "",
+      sn: "",
+      mac: "",
+      hw_version: "",
+      sw_version: "",
+      config_version: "",
+    });
+  };
+
+  const copyMQTTConfig = async () => {
+    if (!mqttConfigText) return;
+    await navigator.clipboard.writeText(mqttConfigText);
+    toast.success("MQTT 配置已复制");
+  };
 
   if (authLoading) {
     return (
@@ -84,10 +168,23 @@ export default function DevicesPage() {
         title="在线设备"
         description="浏览当前在线设备并进入详情页查看实时指标。"
         action={
-          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            刷新
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {canCreateDevice && (
+              <Button
+                onClick={() => {
+                  resetCreateDialog();
+                  setCreateOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                新增 MQTT 设备
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+              刷新
+            </Button>
+          </div>
         }
       />
 
@@ -196,6 +293,130 @@ export default function DevicesPage() {
           </div>
         </div>
       </DashboardPanel>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>新增 MQTT 设备</DialogTitle>
+            <DialogDescription>
+              创建设备后会立即生成 MQTT client_id 和 password token，复制后写入设备固件或配置文件。
+            </DialogDescription>
+          </DialogHeader>
+
+          {!createdDevice ? (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (canSubmitCreate) createDeviceMutation.mutate();
+              }}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5 sm:col-span-2">
+                  <span className="text-xs font-bold text-slate-500">设备名称</span>
+                  <Input
+                    value={createForm.name}
+                    onChange={(event) => updateCreateForm("name", event.target.value)}
+                    placeholder="例如 温湿度传感器 001"
+                    className="h-10"
+                    required
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-bold text-slate-500">SN</span>
+                  <Input
+                    value={createForm.sn || ""}
+                    onChange={(event) => updateCreateForm("sn", event.target.value)}
+                    placeholder="设备序列号"
+                    className="h-10 font-mono"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-bold text-slate-500">MAC</span>
+                  <Input
+                    value={createForm.mac || ""}
+                    onChange={(event) => updateCreateForm("mac", event.target.value)}
+                    placeholder="AA:BB:CC:DD:EE:FF"
+                    className="h-10 font-mono"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-bold text-slate-500">硬件版本</span>
+                  <Input
+                    value={createForm.hw_version || ""}
+                    onChange={(event) => updateCreateForm("hw_version", event.target.value)}
+                    placeholder="v1"
+                    className="h-10"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-bold text-slate-500">软件版本</span>
+                  <Input
+                    value={createForm.sw_version || ""}
+                    onChange={(event) => updateCreateForm("sw_version", event.target.value)}
+                    placeholder="1.0.0"
+                    className="h-10"
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">SN 和 MAC 至少填一个。系统会用它们生成稳定 UUID。</p>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit" disabled={!canSubmitCreate || createDeviceMutation.isPending}>
+                  {createDeviceMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  创建并分配令牌
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                <div className="flex items-center gap-2 font-bold">
+                  <Check className="h-4 w-4" />
+                  设备已创建
+                </div>
+                <p className="mt-1">下面这组 MQTT 参数只需要写入设备端即可连接。</p>
+              </div>
+              <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <ConfigRow label="Host" value={mqttHost} />
+                <ConfigRow label="Port" value={mqttPort} />
+                <ConfigRow label="Client ID" value={createdDevice.mqtt.client_id} />
+                <ConfigRow label="Username" value={createdDevice.mqtt.username} />
+                <ConfigRow label="Password" value={createdDevice.mqtt.password} secret />
+                <ConfigRow label="Telemetry" value={createdDevice.mqtt.telemetry_topic} />
+                <ConfigRow label="Heartbeat" value={createdDevice.mqtt.heartbeat_topic} />
+                <ConfigRow label="Downlink" value={createdDevice.mqtt.downlink_topic} />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                  关闭
+                </Button>
+                <Button type="button" onClick={copyMQTTConfig}>
+                  <Copy className="h-4 w-4" />
+                  复制 MQTT 配置
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ConfigRow({ label, value, secret = false }: { label: string; value: string; secret?: boolean }) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[120px_1fr] sm:items-start">
+      <span className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</span>
+      <code className="break-all rounded bg-white px-2 py-1 font-mono text-xs font-semibold text-slate-800">
+        {secret ? value : value}
+      </code>
     </div>
   );
 }

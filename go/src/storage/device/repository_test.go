@@ -49,6 +49,21 @@ func TestRepositoryDeviceLifecycleAndScopedQueries(t *testing.T) {
 	if len(devices) != 1 || devices[0].UUID != "uuid-1" {
 		t.Fatalf("unexpected scoped device list: %+v", devices)
 	}
+
+	if err := repo.InitDeviceInTenant("tenant-a", "uuid-tenant-a", inter.DeviceMetadata{
+		Name:               "device-tenant-a",
+		Token:              "token-tenant-a",
+		AuthenticateStatus: inter.Authenticated,
+	}); err != nil {
+		t.Fatalf("InitDeviceInTenant failed: %v", err)
+	}
+	tenantDevices, err := repo.ListDevicesByTenant("tenant-a", nil, 1, 10)
+	if err != nil {
+		t.Fatalf("ListDevicesByTenant tenant-a failed: %v", err)
+	}
+	if len(tenantDevices) != 1 || tenantDevices[0].UUID != "uuid-tenant-a" {
+		t.Fatalf("unexpected tenant-a devices: %+v", tenantDevices)
+	}
 }
 
 func TestRepositoryDestroyDeviceAlsoDeletesMetricsAndLogs(t *testing.T) {

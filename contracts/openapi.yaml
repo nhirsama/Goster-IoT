@@ -158,6 +158,34 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+    post:
+      tags: [Device]
+      operationId: createDevice
+      summary: 预创建设备并分配 MQTT 连接令牌。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceRequest'
+      responses:
+        '201':
+          description: 设备已创建并返回连接凭据。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionedDeviceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /api/v1/devices/{uuid}:
     get:
       tags: [Device]
@@ -1288,6 +1316,82 @@ components:
             data:
               $ref: '#/components/schemas/DeviceRecord'
 
+    CreateDeviceRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        hw_version:
+          type: string
+          nullable: true
+        sw_version:
+          type: string
+          nullable: true
+        config_version:
+          type: string
+          nullable: true
+        sn:
+          type: string
+          nullable: true
+          description: SN 与 MAC 至少提供一个，用于生成稳定设备 UUID。
+        mac:
+          type: string
+          nullable: true
+          description: SN 与 MAC 至少提供一个，用于生成稳定设备 UUID。
+        extensions:
+          type: object
+          additionalProperties: true
+
+    ProvisionedMQTTCredentials:
+      type: object
+      required: [client_id, username, password, telemetry_topic, heartbeat_topic, downlink_topic]
+      properties:
+        client_id:
+          type: string
+          description: MQTT client_id，等于设备 UUID。
+        username:
+          type: string
+          description: MQTT username，等于设备 UUID。
+        password:
+          type: string
+          description: MQTT password，等于设备 token。
+        telemetry_topic:
+          type: string
+        heartbeat_topic:
+          type: string
+        downlink_topic:
+          type: string
+        extensions:
+          type: object
+          additionalProperties: true
+
+    ProvisionedDeviceData:
+      type: object
+      required: [uuid, tenant_id, token, mqtt]
+      properties:
+        uuid:
+          type: string
+        tenant_id:
+          type: string
+        token:
+          type: string
+        mqtt:
+          $ref: '#/components/schemas/ProvisionedMQTTCredentials'
+        extensions:
+          type: object
+          additionalProperties: true
+
+    ProvisionedDeviceResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ProvisionedDeviceData'
+
     ActionResult:
       type: object
       required: [action, target]
@@ -1301,6 +1405,10 @@ components:
         success:
           type: boolean
           default: true
+        token:
+          type: string
+          nullable: true
+          description: 审批通过时返回新生成的设备 token。
         extensions:
           type: object
           additionalProperties: true

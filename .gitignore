@@ -31,3 +31,8 @@ frontend/*.tsbuildinfo
 
 .claude
 /report
+/uv.lock
+/.python-version
+/.venv
+*.py
+/pyproject.toml

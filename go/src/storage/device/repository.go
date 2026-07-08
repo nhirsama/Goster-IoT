@@ -21,8 +21,12 @@ func NewRepository(db *bun.DB) *Repository {
 }
 
 func (r *Repository) InitDevice(uuid string, meta inter.DeviceMetadata) error {
+	return r.InitDeviceInTenant(bunrepo.DefaultTenantID, uuid, meta)
+}
+
+func (r *Repository) InitDeviceInTenant(tenantID string, uuid string, meta inter.DeviceMetadata) error {
 	_, err := r.db.NewInsert().
-		Model(bunrepo.NewDeviceModel(uuid, meta)).
+		Model(bunrepo.NewDeviceModelInTenant(tenantID, uuid, meta)).
 		Returning("NULL").
 		Exec(context.Background())
 	return err

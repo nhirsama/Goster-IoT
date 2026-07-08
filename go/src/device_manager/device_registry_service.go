@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,26 @@ func (s *DeviceRegistryService) RegisterDevice(meta inter.DeviceMetadata) error 
 	meta.AuthenticateStatus = inter.AuthenticatePending
 	meta.Token = ""
 	return s.dataStore.InitDevice(uuid, meta)
+}
+
+func (s *DeviceRegistryService) ProvisionDevice(scope inter.Scope, meta inter.DeviceMetadata) (string, string, error) {
+	tenantID := strings.TrimSpace(scope.TenantID)
+	if tenantID == "" {
+		tenantID = inter.DefaultTenantID
+	}
+	uuid := s.GenerateUUID(meta)
+	if _, err := s.dataStore.LoadConfig(uuid); err == nil {
+		return "", "", inter.ErrDeviceAlreadyExists
+	} else if !errors.Is(err, inter.ErrDeviceNotFound) {
+		return "", "", err
+	}
+
+	meta.AuthenticateStatus = inter.Authenticated
+	meta.Token = s.generateSecureToken()
+	if err := s.dataStore.InitDeviceInTenant(tenantID, uuid, meta); err != nil {
+		return "", "", err
+	}
+	return uuid, meta.Token, nil
 }
 
 func (s *DeviceRegistryService) Authenticate(token string) (uuid string, err error) {

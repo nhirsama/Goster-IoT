@@ -52,6 +52,16 @@ func (f *fakeRegistry) RegisterDevice(meta inter.DeviceMetadata) error {
 	return nil
 }
 
+func (f *fakeRegistry) ProvisionDevice(scope inter.Scope, meta inter.DeviceMetadata) (string, string, error) {
+	uuid := f.GenerateUUID(meta)
+	token := "token-" + uuid
+	meta.AuthenticateStatus = inter.Authenticated
+	meta.Token = token
+	f.metas[uuid] = meta
+	f.tokens[token] = uuid
+	return uuid, token, nil
+}
+
 func (f *fakeRegistry) Authenticate(token string) (string, error) {
 	f.lastAuthToken = token
 	if err := f.authErr[token]; err != nil {

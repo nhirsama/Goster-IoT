@@ -104,7 +104,8 @@ export interface paths {
         /** 按认证状态列出设备。 */
         get: operations["listDevices"];
         put?: never;
-        post?: never;
+        /** 预创建设备并分配 MQTT 连接令牌。 */
+        post: operations["createDevice"];
         delete?: never;
         options?: never;
         head?: never;
@@ -663,6 +664,45 @@ export interface components {
         DeviceDetailResponse: components["schemas"]["ApiResponseBase"] & {
             data: components["schemas"]["DeviceRecord"];
         };
+        CreateDeviceRequest: {
+            name: string;
+            hw_version?: string | null;
+            sw_version?: string | null;
+            config_version?: string | null;
+            /** @description SN 与 MAC 至少提供一个，用于生成稳定设备 UUID。 */
+            sn?: string | null;
+            /** @description SN 与 MAC 至少提供一个，用于生成稳定设备 UUID。 */
+            mac?: string | null;
+            extensions?: {
+                [key: string]: unknown;
+            };
+        };
+        ProvisionedMQTTCredentials: {
+            /** @description MQTT client_id，等于设备 UUID。 */
+            client_id: string;
+            /** @description MQTT username，等于设备 UUID。 */
+            username: string;
+            /** @description MQTT password，等于设备 token。 */
+            password: string;
+            telemetry_topic: string;
+            heartbeat_topic: string;
+            downlink_topic: string;
+            extensions?: {
+                [key: string]: unknown;
+            };
+        };
+        ProvisionedDeviceData: {
+            uuid: string;
+            tenant_id: string;
+            token: string;
+            mqtt: components["schemas"]["ProvisionedMQTTCredentials"];
+            extensions?: {
+                [key: string]: unknown;
+            };
+        };
+        ProvisionedDeviceResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["ProvisionedDeviceData"];
+        };
         ActionResult: {
             /** @example approve_device */
             action: string;
@@ -670,6 +710,8 @@ export interface components {
             target: string;
             /** @default true */
             success: boolean;
+            /** @description 审批通过时返回新生成的设备 token。 */
+            token?: string | null;
             extensions?: {
                 [key: string]: unknown;
             };
@@ -1192,6 +1234,37 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    createDevice: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description 设备已创建并返回连接凭据。 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisionedDeviceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
     getDevice: {

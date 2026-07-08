@@ -13,11 +13,17 @@ import (
 
 // DevicesHandler 在当前租户范围内分页列出设备，并支持状态过滤。
 func (api *API) DevicesHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		api.listDevices(w, r)
+	case http.MethodPost:
+		api.createDevice(w, r)
+	default:
 		api.MethodNotAllowed(w, r)
-		return
 	}
+}
 
+func (api *API) listDevices(w http.ResponseWriter, r *http.Request) {
 	status, statusPtr, statusErr := ParseDeviceStatusFilter(r.URL.Query().Get("status"))
 	if statusErr != nil {
 		api.Error(w, r, http.StatusBadRequest, 40011, "invalid status filter",
@@ -77,6 +83,64 @@ func (api *API) DevicesHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (api *API) createDevice(w http.ResponseWriter, r *http.Request) {
+	if !api.ensurePerm(w, r, inter.PermissionReadWrite) {
+		return
+	}
+
+	var payload struct {
+		Name          string `json:"name"`
+		HWVersion     string `json:"hw_version"`
+		SWVersion     string `json:"sw_version"`
+		ConfigVersion string `json:"config_version"`
+		SerialNumber  string `json:"sn"`
+		MACAddress    string `json:"mac"`
+	}
+	if err := DecodeBody(r, &payload, api.maxAPIBodyBytes()); err != nil {
+		api.Error(w, r, http.StatusBadRequest, 40028, "invalid json body",
+			&ErrorDetail{Type: "validation_error"})
+		return
+	}
+
+	meta := inter.DeviceMetadata{
+		Name:          strings.TrimSpace(payload.Name),
+		HWVersion:     strings.TrimSpace(payload.HWVersion),
+		SWVersion:     strings.TrimSpace(payload.SWVersion),
+		ConfigVersion: strings.TrimSpace(payload.ConfigVersion),
+		SerialNumber:  strings.TrimSpace(payload.SerialNumber),
+		MACAddress:    strings.TrimSpace(payload.MACAddress),
+	}
+	if meta.Name == "" {
+		api.Error(w, r, http.StatusBadRequest, 40029, "validation failed",
+			&ErrorDetail{Type: "validation_error", Field: "name"})
+		return
+	}
+	if meta.SerialNumber == "" && meta.MACAddress == "" {
+		api.Error(w, r, http.StatusBadRequest, 40030, "validation failed",
+			&ErrorDetail{Type: "validation_error", Field: "sn", Reason: "sn or mac is required"})
+		return
+	}
+
+	tenantID := api.tenantID(r)
+	uuid, token, err := api.registry.ProvisionDevice(inter.Scope{TenantID: tenantID}, meta)
+	if err != nil {
+		if errors.Is(err, inter.ErrDeviceAlreadyExists) {
+			api.Error(w, r, http.StatusConflict, 40922, "device already exists",
+				&ErrorDetail{Type: "conflict", Field: "sn"})
+			return
+		}
+		api.InternalError(w, r, 50026, err)
+		return
+	}
+
+	api.write(w, http.StatusCreated, Envelope{
+		Code:      0,
+		Message:   "ok",
+		RequestID: api.requestID(r),
+		Data:      provisionedDevicePayload(tenantID, uuid, token),
+	})
+}
+
 // DeviceByUUIDHandler 负责分发设备详情、控制动作和命令子路由。
 func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 	suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/devices/")
@@ -127,9 +191,10 @@ func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		action := parts[1]
 		var err error
+		token := ""
 		switch action {
 		case "approve":
-			err = api.registry.ApproveDevice(uuid)
+			token, err = api.registry.UpdateDeviceAuthenticateStatus(uuid, inter.Authenticated)
 		case "revoke":
 			err = api.registry.RejectDevice(uuid)
 		case "unblock":
@@ -151,11 +216,15 @@ func (api *API) DeviceByUUIDHandler(w http.ResponseWriter, r *http.Request) {
 			api.InternalError(w, r, 50022, err)
 			return
 		}
-		api.OK(w, r, map[string]interface{}{
+		data := map[string]interface{}{
 			"action":  action,
 			"target":  uuid,
 			"success": true,
-		})
+		}
+		if token != "" {
+			data["token"] = token
+		}
+		api.OK(w, r, data)
 		return
 	}
 
@@ -264,6 +333,24 @@ func (api *API) enqueueDeviceCommand(w http.ResponseWriter, r *http.Request, uui
 		"status":      inter.DeviceCommandStatusQueued,
 		"enqueued_at": time.Now().UTC(),
 	})
+}
+
+func provisionedDevicePayload(tenantID, uuid, token string) map[string]interface{} {
+	baseTopic := "goster/v1"
+	deviceTopicPrefix := baseTopic + "/" + strings.Trim(tenantID, "/") + "/" + strings.Trim(uuid, "/")
+	return map[string]interface{}{
+		"uuid":      uuid,
+		"tenant_id": tenantID,
+		"token":     token,
+		"mqtt": map[string]interface{}{
+			"client_id":       uuid,
+			"username":        uuid,
+			"password":        token,
+			"telemetry_topic": deviceTopicPrefix + "/telemetry",
+			"heartbeat_topic": deviceTopicPrefix + "/heartbeat",
+			"downlink_topic":  deviceTopicPrefix + "/downlink",
+		},
+	}
 }
 
 func (api *API) ensurePerm(w http.ResponseWriter, r *http.Request, minPerm inter.PermissionType) bool {

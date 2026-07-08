@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getApiErrorMessage } from "@/lib/api-client";
 import { components } from "@/lib/api-types";
@@ -20,15 +21,25 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bell, CheckCircle2, Clock3, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Bell, CheckCircle2, Clock3, Copy, Key, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
 
 
 type DeviceRecord = components["schemas"]["DeviceRecord"];
+type ActionResult = components["schemas"]["ActionResult"];
 
 export default function PendingDevicesPage() {
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
   const { toast, confirm: askConfirm } = useUx();
+  const [approvedCredential, setApprovedCredential] = useState<{ uuid: string; token: string } | null>(null);
 
   const { data: deviceData, isLoading, isFetching } = useQuery({
     queryKey: queryKeys.devicesByStatus("pending"),
@@ -37,9 +48,12 @@ export default function PendingDevicesPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: (uuid: string) => api.post(`/api/v1/devices/${uuid}/approve`),
-    onSuccess: () => {
+    mutationFn: (uuid: string) => api.post<ActionResult>(`/api/v1/devices/${uuid}/approve`),
+    onSuccess: (result, uuid) => {
       toast.success("设备已通过认证");
+      if (result.token) {
+        setApprovedCredential({ uuid, token: result.token });
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("pending") });
       queryClient.invalidateQueries({ queryKey: queryKeys.devicesByStatus("authenticated") });
     },
@@ -199,6 +213,51 @@ export default function PendingDevicesPage() {
           </TableBody>
         </Table>
       </DashboardPanel>
+
+      <Dialog open={!!approvedCredential} onOpenChange={(open) => !open && setApprovedCredential(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>设备令牌已分配</DialogTitle>
+            <DialogDescription>把下面的 UUID 和 token 写入设备端。MQTT 连接时 client_id/username 使用 UUID，password 使用 token。</DialogDescription>
+          </DialogHeader>
+          {approvedCredential && (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div>
+                <div className="mb-1 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
+                  <Key className="h-3.5 w-3.5" />
+                  UUID / Client ID
+                </div>
+                <code className="block break-all rounded bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-800">
+                  {approvedCredential.uuid}
+                </code>
+              </div>
+              <div>
+                <div className="mb-1 text-xs font-black uppercase tracking-widest text-slate-400">Password Token</div>
+                <code className="block break-all rounded bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-800">
+                  {approvedCredential.token}
+                </code>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApprovedCredential(null)}>
+              关闭
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!approvedCredential) return;
+                await navigator.clipboard.writeText(
+                  `client_id=${approvedCredential.uuid}\nusername=${approvedCredential.uuid}\npassword=${approvedCredential.token}`
+                );
+                toast.success("设备令牌已复制");
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              复制
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

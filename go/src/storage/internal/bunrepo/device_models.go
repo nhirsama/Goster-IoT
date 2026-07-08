@@ -25,9 +25,13 @@ type DeviceModel struct {
 }
 
 func NewDeviceModel(uuid string, meta inter.DeviceMetadata) *DeviceModel {
+	return NewDeviceModelInTenant(DefaultTenantID, uuid, meta)
+}
+
+func NewDeviceModelInTenant(tenantID string, uuid string, meta inter.DeviceMetadata) *DeviceModel {
 	return &DeviceModel{
 		UUID:          uuid,
-		TenantID:      DefaultTenantID,
+		TenantID:      NormalizeTenantID(tenantID),
 		Name:          meta.Name,
 		HWVersion:     meta.HWVersion,
 		SWVersion:     meta.SWVersion,
