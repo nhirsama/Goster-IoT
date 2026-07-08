@@ -161,17 +161,10 @@ Authorization: Bearer <PROTOCOL_INGRESS_TOKEN>
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `PROTOCOL_INGRESS_MQTT_ENABLED` | `false` | 是否启用 MQTT adapter。 |
-| `PROTOCOL_INGRESS_MQTT_MODE` | `external` | MQTT 模式：`external` 连接外部 broker；`embedded` 在 protocol-ingress 内嵌 broker。 |
-| `PROTOCOL_INGRESS_MQTT_LISTEN_ADDR` | `127.0.0.1:1883` | `embedded` 模式监听地址，容器内通常设为 `:1883`。 |
-| `PROTOCOL_INGRESS_MQTT_AUTH_MODE` | `client_password_token` | `embedded` 模式鉴权方式：`client_id` 必须是设备 UUID，MQTT password 必须是设备 token。 |
-| `PROTOCOL_INGRESS_MQTT_BROKER_URL` | `tcp://127.0.0.1:1883` | `external` 模式外部 MQTT broker 地址。 |
-| `PROTOCOL_INGRESS_MQTT_CLIENT_ID` | `protocol-ingress-mqtt` | `external` 模式下 protocol-ingress 连接外部 broker 的 client id。 |
-| `PROTOCOL_INGRESS_MQTT_USERNAME` | 空 | `external` 模式下 protocol-ingress 连接外部 broker 的用户名。 |
-| `PROTOCOL_INGRESS_MQTT_PASSWORD` | 空 | `external` 模式下 protocol-ingress 连接外部 broker 的密码。 |
-| `PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS` | `goster/v1/+/+/telemetry,goster/v1/+/+/heartbeat,goster/v1/+/+/event,goster/v1/+/+/ack` | `external` 模式订阅 topic，逗号分隔。 |
+| `PROTOCOL_INGRESS_MQTT_MODE` | `embedded` | Docker Compose 固定为 `embedded`，即 protocol-ingress 内嵌 broker。 |
+| `PROTOCOL_INGRESS_MQTT_LISTEN_ADDR` | `:1883` | Docker Compose 固定为容器内 `:1883`。 |
+| `PROTOCOL_INGRESS_MQTT_AUTH_MODE` | `client_password_token` | 鉴权方式：`client_id` 必须是设备 UUID，MQTT password 必须是设备 token。 |
 | `PROTOCOL_INGRESS_MQTT_QOS` | `1` | MQTT QoS，只能是 0、1、2。 |
-| `PROTOCOL_INGRESS_MQTT_CONNECT_TIMEOUT` | `5s` | 连接/订阅超时。 |
-| `PROTOCOL_INGRESS_MQTT_KEEP_ALIVE` | `30s` | MQTT keep alive。 |
 | `PROTOCOL_INGRESS_MQTT_MESSAGE_BUFFER` | `128` | 入站消息缓冲。 |
 | `PROTOCOL_INGRESS_MQTT_RPC_TIMEOUT` | `5s` | 调 Core RPC 超时。 |
 | `PROTOCOL_INGRESS_MQTT_BASE_TOPIC` | `goster/v1` | Goster MQTT topic 前缀。 |
