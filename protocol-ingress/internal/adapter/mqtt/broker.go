@@ -202,27 +202,23 @@ func (h *embeddedBrokerHook) OnACLCheck(cl *mqttserver.Client, topic string, wri
 func (h *embeddedBrokerHook) allowedTopic(session embeddedClientSession, topic string, write bool) bool {
 	topic = cleanTopic(topic)
 	if rest, ok := topicRest(topic, h.adapter.cfg.BaseTopic); ok {
-		if len(rest) < 3 {
+		if len(rest) < 2 {
 			return false
 		}
-		tenantID := strings.TrimSpace(rest[0])
-		uuid := strings.TrimSpace(rest[1])
-		kind := normalizeKind(rest[2])
+		uuid := strings.TrimSpace(rest[0])
+		kind := normalizeKind(rest[1])
 		if uuid == "" || uuid != session.UUID {
-			return false
-		}
-		if session.TenantID != "" && tenantID != "" && tenantID != session.TenantID {
 			return false
 		}
 		if write {
 			switch kind {
 			case "telemetry", "heartbeat", "event", "ack", "state", "log":
-				return len(rest) == 3
+				return len(rest) == 2
 			default:
 				return false
 			}
 		}
-		return kind == "downlink"
+		return kind == "downlink" && len(rest) == 2
 	}
 	if _, ok := topicRest(topic, h.adapter.cfg.Zigbee2MQTTBaseTopic); ok {
 		return write

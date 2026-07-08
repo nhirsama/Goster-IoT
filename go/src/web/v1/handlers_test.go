@@ -314,7 +314,7 @@ func TestAPICreateDeviceProvisionsMQTTCredentials(t *testing.T) {
 	if mqttData["client_id"] != uuid || mqttData["username"] != uuid || mqttData["password"] != token {
 		t.Fatalf("mqtt credentials should mirror uuid/token: %+v", mqttData)
 	}
-	if mqttData["telemetry_topic"] != "goster/v1/tenant-a/"+uuid+"/telemetry" {
+	if mqttData["telemetry_topic"] != "goster/v1/"+uuid+"/telemetry" {
 		t.Fatalf("unexpected telemetry topic: %v", mqttData["telemetry_topic"])
 	}
 

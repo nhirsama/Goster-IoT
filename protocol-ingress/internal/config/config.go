@@ -107,7 +107,7 @@ func Default() Config {
 				AuthMode:             "client_password_token",
 				BrokerURL:            "tcp://127.0.0.1:1883",
 				ClientID:             "protocol-ingress-mqtt",
-				SubscribeTopics:      []string{"goster/v1/+/+/telemetry", "goster/v1/+/+/heartbeat", "goster/v1/+/+/event", "goster/v1/+/+/ack"},
+				SubscribeTopics:      []string{"goster/v1/+/telemetry", "goster/v1/+/heartbeat", "goster/v1/+/event", "goster/v1/+/ack"},
 				QoS:                  1,
 				ConnectTimeout:       5 * time.Second,
 				KeepAlive:            30 * time.Second,
@@ -117,7 +117,7 @@ func Default() Config {
 				Zigbee2MQTTBaseTopic: "zigbee2mqtt",
 				Source:               "mqtt",
 				DownlinkEnabled:      true,
-				DownlinkTopic:        "goster/v1/{tenant}/{uuid}/downlink",
+				DownlinkTopic:        "goster/v1/{uuid}/downlink",
 				DownlinkPollInterval: 2 * time.Second,
 				DownlinkDeviceTTL:    10 * time.Minute,
 				DownlinkMaxBatch:     1,
@@ -403,7 +403,7 @@ func (c *Config) Normalize() {
 		c.Adapters.MQTT.ClientID = "protocol-ingress-mqtt"
 	}
 	if len(c.Adapters.MQTT.SubscribeTopics) == 0 {
-		c.Adapters.MQTT.SubscribeTopics = []string{"goster/v1/+/+/telemetry", "goster/v1/+/+/heartbeat", "goster/v1/+/+/event", "goster/v1/+/+/ack"}
+		c.Adapters.MQTT.SubscribeTopics = []string{"goster/v1/+/telemetry", "goster/v1/+/heartbeat", "goster/v1/+/event", "goster/v1/+/ack"}
 	}
 	if c.Adapters.MQTT.ConnectTimeout <= 0 {
 		c.Adapters.MQTT.ConnectTimeout = 5 * time.Second
@@ -427,7 +427,7 @@ func (c *Config) Normalize() {
 		c.Adapters.MQTT.Source = "mqtt"
 	}
 	if c.Adapters.MQTT.DownlinkTopic == "" {
-		c.Adapters.MQTT.DownlinkTopic = "goster/v1/{tenant}/{uuid}/downlink"
+		c.Adapters.MQTT.DownlinkTopic = "goster/v1/{uuid}/downlink"
 	}
 	if c.Adapters.MQTT.DownlinkPollInterval <= 0 {
 		c.Adapters.MQTT.DownlinkPollInterval = 2 * time.Second

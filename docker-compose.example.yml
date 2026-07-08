@@ -59,7 +59,7 @@ services:
       PROTOCOL_INGRESS_MQTT_AUTH_MODE: client_password_token
       PROTOCOL_INGRESS_MQTT_QOS: 1
       PROTOCOL_INGRESS_MQTT_BASE_TOPIC: goster/v1
-      PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC: goster/v1/{tenant}/{uuid}/downlink
+      PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC: goster/v1/{uuid}/downlink
     depends_on:
       core:
         condition: service_healthy

@@ -252,7 +252,7 @@ func TestMQTTGosterProtocolScenario(t *testing.T) {
 			"ts":          time.Now().UnixMilli(),
 		}
 
-		topic := fmt.Sprintf("goster/v1/%s/%s/telemetry", tenantID, deviceUUID)
+		topic := fmt.Sprintf("goster/v1/%s/telemetry", deviceUUID)
 		publishAndVerify(t, client, env, topic, payload, func(events []*ingressv1.CanonicalDeviceEvent) {
 			require.Len(t, events, 1)
 			event := events[0]
@@ -275,7 +275,7 @@ func TestMQTTGosterProtocolScenario(t *testing.T) {
 			"availability": "offline",
 			"ts":           time.Now().UnixMilli(),
 		}
-		topic := fmt.Sprintf("goster/v1/%s/%s/heartbeat", tenantID, deviceUUID)
+		topic := fmt.Sprintf("goster/v1/%s/heartbeat", deviceUUID)
 		publishJSON(t, client, topic, payload, 1, false)
 
 		heartbeats := env.getHeartbeats(t, 1)
@@ -294,7 +294,7 @@ func TestMQTTGosterProtocolScenario(t *testing.T) {
 			"status":       "acked",
 			"operation":    "set",
 		}
-		topic := fmt.Sprintf("goster/v1/%s/%s/ack", tenantID, deviceUUID)
+		topic := fmt.Sprintf("goster/v1/%s/ack", deviceUUID)
 		publishJSON(t, client, topic, payload, 1, false)
 
 		updates := env.getCommandUpdates(t, 1)
@@ -457,7 +457,7 @@ func TestMQTTAuthenticationRejectsInvalidToken(t *testing.T) {
 	defer client.Disconnect(250)
 
 	before := env.getIngestedEventCount(t)
-	publishJSON(t, client, "goster/v1/tenant-test-001/device-uuid-001/telemetry", map[string]interface{}{
+	publishJSON(t, client, "goster/v1/device-uuid-001/telemetry", map[string]interface{}{
 		"token":       "invalid-token",
 		"temperature": 20.5,
 	}, 1, false)
@@ -483,7 +483,7 @@ func TestMQTTDownlinkCommandScenario(t *testing.T) {
 	client := env.connectMQTTClient(t, "test-downlink-client")
 	defer client.Disconnect(250)
 
-	downlinkTopic := "goster/v1/tenant-test-001/device-uuid-001/downlink"
+	downlinkTopic := "goster/v1/device-uuid-001/downlink"
 	downlinkPayloads := make(chan []byte, 1)
 	token := client.Subscribe(downlinkTopic, 1, func(c mqtt.Client, m mqtt.Message) {
 		downlinkPayloads <- append([]byte(nil), m.Payload()...)
@@ -504,7 +504,7 @@ func TestMQTTDownlinkCommandScenario(t *testing.T) {
 		},
 	})
 
-	publishJSON(t, client, "goster/v1/tenant-test-001/device-uuid-001/telemetry", map[string]interface{}{
+	publishJSON(t, client, "goster/v1/device-uuid-001/telemetry", map[string]interface{}{
 		"token":       "token-test-001",
 		"temperature": 21.5,
 	}, 1, false)

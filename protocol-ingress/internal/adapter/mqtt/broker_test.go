@@ -124,7 +124,7 @@ func TestEmbeddedBrokerAuthenticatesWithClientIDAndPasswordToken(t *testing.T) {
 		t.Fatal("expected invalid password token to be rejected")
 	}
 
-	publishToken := client.Publish("goster/v1/tenant-a/dev-1/telemetry", 1, false, []byte(`{"temperature":21.5}`))
+	publishToken := client.Publish("goster/v1/dev-1/telemetry", 1, false, []byte(`{"temperature":21.5}`))
 	if !publishToken.WaitTimeout(2 * time.Second) {
 		t.Fatal("publish timed out")
 	}
@@ -144,14 +144,14 @@ func TestEmbeddedBrokerAuthenticatesWithClientIDAndPasswordToken(t *testing.T) {
 		t.Fatalf("expected mqtt_client_id label, got %q", got)
 	}
 
-	rejected := client.Publish("goster/v1/tenant-a/dev-2/telemetry", 1, false, []byte(`{"temperature":99}`))
+	rejected := client.Publish("goster/v1/dev-2/telemetry", 1, false, []byte(`{"temperature":99}`))
 	rejected.WaitTimeout(500 * time.Millisecond)
 	time.Sleep(200 * time.Millisecond)
 	if count := core.eventCount(); count != 1 {
 		t.Fatalf("acl should reject mismatched uuid publish, event count=%d", count)
 	}
 
-	payloadTokenMismatch := client.Publish("goster/v1/tenant-a/dev-1/telemetry", 1, false, []byte(`{"token":"token-dev-2","temperature":88}`))
+	payloadTokenMismatch := client.Publish("goster/v1/dev-1/telemetry", 1, false, []byte(`{"token":"token-dev-2","temperature":88}`))
 	payloadTokenMismatch.WaitTimeout(500 * time.Millisecond)
 	time.Sleep(200 * time.Millisecond)
 	if count := core.eventCount(); count != 1 {

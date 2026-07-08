@@ -31,7 +31,7 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 		"PROTOCOL_INGRESS_MQTT_CLIENT_ID":                      "ingress-mqtt-test",
 		"PROTOCOL_INGRESS_MQTT_USERNAME":                       "mqtt-user",
 		"PROTOCOL_INGRESS_MQTT_PASSWORD":                       "mqtt-pass",
-		"PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS":               "goster/v1/+/+/telemetry, goster/v1/+/+/ack",
+		"PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS":               "goster/v1/+/telemetry, goster/v1/+/ack",
 		"PROTOCOL_INGRESS_MQTT_QOS":                            "2",
 		"PROTOCOL_INGRESS_MQTT_CONNECT_TIMEOUT":                "4s",
 		"PROTOCOL_INGRESS_MQTT_KEEP_ALIVE":                     "45s",
@@ -41,7 +41,7 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 		"PROTOCOL_INGRESS_MQTT_ZIGBEE2MQTT_BASE_TOPIC":         "z2m",
 		"PROTOCOL_INGRESS_MQTT_SOURCE":                         "mqtt-test",
 		"PROTOCOL_INGRESS_MQTT_DOWNLINK_ENABLED":               "true",
-		"PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC":                 "goster/v2/{tenant}/{uuid}/cmd",
+		"PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC":                 "goster/v2/{uuid}/cmd",
 		"PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL":         "3s",
 		"PROTOCOL_INGRESS_MQTT_DOWNLINK_DEVICE_TTL":            "30s",
 		"PROTOCOL_INGRESS_MQTT_DOWNLINK_MAX_BATCH":             "4",
@@ -65,13 +65,13 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 	if !cfg.Adapters.MQTT.Enabled || cfg.Adapters.MQTT.Mode != "embedded" || cfg.Adapters.MQTT.ListenAddr != "127.0.0.1:18883" || cfg.Adapters.MQTT.AuthMode != "client_password_token" || cfg.Adapters.MQTT.BrokerURL != "ssl://mqtt.test:8883" || cfg.Adapters.MQTT.ClientID != "ingress-mqtt-test" || cfg.Adapters.MQTT.Username != "mqtt-user" || cfg.Adapters.MQTT.Password != "mqtt-pass" {
 		t.Fatalf("unexpected mqtt identity config: %+v", cfg.Adapters.MQTT)
 	}
-	if len(cfg.Adapters.MQTT.SubscribeTopics) != 2 || cfg.Adapters.MQTT.SubscribeTopics[0] != "goster/v1/+/+/telemetry" || cfg.Adapters.MQTT.SubscribeTopics[1] != "goster/v1/+/+/ack" {
+	if len(cfg.Adapters.MQTT.SubscribeTopics) != 2 || cfg.Adapters.MQTT.SubscribeTopics[0] != "goster/v1/+/telemetry" || cfg.Adapters.MQTT.SubscribeTopics[1] != "goster/v1/+/ack" {
 		t.Fatalf("unexpected mqtt topics: %+v", cfg.Adapters.MQTT.SubscribeTopics)
 	}
 	if cfg.Adapters.MQTT.QoS != 2 || cfg.Adapters.MQTT.ConnectTimeout != 4*time.Second || cfg.Adapters.MQTT.KeepAlive != 45*time.Second || cfg.Adapters.MQTT.MessageBuffer != 32 || cfg.Adapters.MQTT.RPCTimeout != 900*time.Millisecond || cfg.Adapters.MQTT.BaseTopic != "goster/v2" || cfg.Adapters.MQTT.Zigbee2MQTTBaseTopic != "z2m" || cfg.Adapters.MQTT.Source != "mqtt-test" {
 		t.Fatalf("unexpected mqtt config: %+v", cfg.Adapters.MQTT)
 	}
-	if !cfg.Adapters.MQTT.DownlinkEnabled || cfg.Adapters.MQTT.DownlinkTopic != "goster/v2/{tenant}/{uuid}/cmd" || cfg.Adapters.MQTT.DownlinkPollInterval != 3*time.Second || cfg.Adapters.MQTT.DownlinkDeviceTTL != 30*time.Second || cfg.Adapters.MQTT.DownlinkMaxBatch != 4 || !cfg.Adapters.MQTT.DownlinkRetained {
+	if !cfg.Adapters.MQTT.DownlinkEnabled || cfg.Adapters.MQTT.DownlinkTopic != "goster/v2/{uuid}/cmd" || cfg.Adapters.MQTT.DownlinkPollInterval != 3*time.Second || cfg.Adapters.MQTT.DownlinkDeviceTTL != 30*time.Second || cfg.Adapters.MQTT.DownlinkMaxBatch != 4 || !cfg.Adapters.MQTT.DownlinkRetained {
 		t.Fatalf("unexpected mqtt downlink config: %+v", cfg.Adapters.MQTT)
 	}
 }

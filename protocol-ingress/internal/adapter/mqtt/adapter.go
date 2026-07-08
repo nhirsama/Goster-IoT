@@ -210,6 +210,7 @@ func (a *Adapter) handleMessage(ctx context.Context, msg InboundMessage) error {
 		}
 		if tenantID != "" {
 			event.TenantID = tenantID
+			event.TenantHint = tenantID
 		}
 	}
 	a.rememberDevice(event)
@@ -231,16 +232,12 @@ func (a *Adapter) applyConnectionPrincipal(msg InboundMessage, event *adapter.Ad
 	authTenant := strings.TrimSpace(msg.AuthTenant)
 	topic := cleanTopic(msg.Topic)
 	if rest, ok := topicRest(topic, a.cfg.BaseTopic); ok {
-		if len(rest) < 3 {
-			return fmt.Errorf("mqtt topic %q 缺少 tenant/uuid/kind", topic)
+		if len(rest) < 2 {
+			return fmt.Errorf("mqtt topic %q 缺少 uuid/kind", topic)
 		}
-		topicTenant := strings.TrimSpace(rest[0])
-		topicUUID := strings.TrimSpace(rest[1])
+		topicUUID := strings.TrimSpace(rest[0])
 		if topicUUID != "" && topicUUID != authUUID {
 			return fmt.Errorf("mqtt topic uuid %q 与连接身份 uuid %q 不匹配", topicUUID, authUUID)
-		}
-		if authTenant != "" && topicTenant != "" && topicTenant != authTenant {
-			return fmt.Errorf("mqtt topic tenant %q 与连接身份 tenant %q 不匹配", topicTenant, authTenant)
 		}
 		event.UUID = authUUID
 		event.TenantID = firstNonEmpty(authTenant, event.TenantID)
@@ -596,7 +593,7 @@ func commandStatus(status string) ingressv1.CommandStatus {
 
 func renderDownlinkTopic(tmpl string, dev deviceSession, cmd adapter.AdapterCommand) string {
 	if strings.TrimSpace(tmpl) == "" {
-		tmpl = "goster/v1/{tenant}/{uuid}/downlink"
+		tmpl = "goster/v1/{uuid}/downlink"
 	}
 	uuid := firstNonEmpty(cmd.UUID, dev.UUID)
 	tenant := firstNonEmpty(cmd.TenantID, dev.TenantID, "tenant_legacy")

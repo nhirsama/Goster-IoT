@@ -12,7 +12,7 @@ func TestMapperMapsGosterTelemetryTopic(t *testing.T) {
 	cfg := config.Default().Adapters.MQTT
 	mapper := NewMapper(cfg)
 	msg := InboundMessage{
-		Topic:      "goster/v1/tenant-a/dev-1/telemetry",
+		Topic:      "goster/v1/dev-1/telemetry",
 		Payload:    []byte(`{"token":"tok-1","temperature":25.5,"humidity":60,"ts":1700000000000}`),
 		QoS:        1,
 		ReceivedAt: time.Unix(1700000001, 0).UTC(),
@@ -26,7 +26,7 @@ func TestMapperMapsGosterTelemetryTopic(t *testing.T) {
 		t.Fatalf("unexpected token: %q", out.Token)
 	}
 	event := out.Event
-	if event.Kind != "telemetry" || event.UUID != "dev-1" || event.TenantID != "tenant-a" {
+	if event.Kind != "telemetry" || event.UUID != "dev-1" || event.TenantID != "" {
 		t.Fatalf("unexpected event identity: %+v", event)
 	}
 	if len(event.Metrics) != 2 {
@@ -73,7 +73,7 @@ func TestMapperMapsZigbee2MQTTStatePayload(t *testing.T) {
 func TestMapperMapsCommandAck(t *testing.T) {
 	mapper := NewMapper(config.Default().Adapters.MQTT)
 	out, err := mapper.Map(InboundMessage{
-		Topic:      "goster/v1/tenant-a/dev-1/ack",
+		Topic:      "goster/v1/dev-1/ack",
 		Payload:    []byte(`{"command_id":42,"command_uuid":"cmd-42","status":"acked","operation":"set"}`),
 		ReceivedAt: time.Unix(1700000001, 0).UTC(),
 	})
@@ -89,8 +89,8 @@ func TestMapperMapsCommandAck(t *testing.T) {
 }
 
 func TestRenderDownlinkTopic(t *testing.T) {
-	got := renderDownlinkTopic("goster/v1/{tenant}/{uuid}/downlink", deviceSession{UUID: "dev-1", TenantID: "tenant-a"}, adapterCommand("dev-override", "tenant-b"))
-	if got != "goster/v1/tenant-b/dev-override/downlink" {
+	got := renderDownlinkTopic("goster/v1/{uuid}/downlink", deviceSession{UUID: "dev-1", TenantID: "tenant-a"}, adapterCommand("dev-override", "tenant-b"))
+	if got != "goster/v1/dev-override/downlink" {
 		t.Fatalf("unexpected topic: %s", got)
 	}
 }

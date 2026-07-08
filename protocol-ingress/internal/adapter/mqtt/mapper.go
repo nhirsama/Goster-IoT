@@ -66,12 +66,11 @@ func (m *Mapper) Map(msg InboundMessage) (MappedMessage, error) {
 }
 
 func (m *Mapper) mapGoster(rest []string, topic string, raw []byte, contentType string, payload map[string]any, msg InboundMessage, receivedAt time.Time) (MappedMessage, error) {
-	if len(rest) < 3 {
-		return MappedMessage{}, fmt.Errorf("goster mqtt topic 需要形如 %s/{tenant}/{uuid}/{kind}", cleanTopic(m.cfg.BaseTopic))
+	if len(rest) < 2 {
+		return MappedMessage{}, fmt.Errorf("goster mqtt topic 需要形如 %s/{uuid}/{kind}", cleanTopic(m.cfg.BaseTopic))
 	}
-	tenantID := strings.TrimSpace(rest[0])
-	uuid := strings.TrimSpace(rest[1])
-	kind := strings.TrimSpace(rest[2])
+	uuid := strings.TrimSpace(rest[0])
+	kind := strings.TrimSpace(rest[1])
 	if uuid == "" || kind == "" {
 		return MappedMessage{}, fmt.Errorf("goster mqtt topic 缺少 uuid 或 kind")
 	}
@@ -85,8 +84,6 @@ func (m *Mapper) mapGoster(rest []string, topic string, raw []byte, contentType 
 	event.ProtocolName = "mqtt"
 	event.ProtocolVersion = "3.1.1"
 	event.Transport = "mqtt"
-	event.TenantHint = tenantID
-	event.TenantID = tenantID
 	event.UUID = uuid
 	event.Identity = adapter.Identity{Type: "uuid", Value: uuid}
 	event.Identities = []adapter.Identity{{Type: "uuid", Value: uuid}}

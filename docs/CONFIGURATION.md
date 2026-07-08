@@ -171,7 +171,7 @@ Authorization: Bearer <PROTOCOL_INGRESS_TOKEN>
 | `PROTOCOL_INGRESS_MQTT_ZIGBEE2MQTT_BASE_TOPIC` | `zigbee2mqtt` | Zigbee2MQTT topic 前缀。 |
 | `PROTOCOL_INGRESS_MQTT_SOURCE` | `mqtt` | 写入事件 labels 的 source。 |
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_ENABLED` | `true` | 是否轮询并发布下行命令。 |
-| `PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC` | `goster/v1/{tenant}/{uuid}/downlink` | 下行发布 topic 模板。 |
+| `PROTOCOL_INGRESS_MQTT_DOWNLINK_TOPIC` | `goster/v1/{uuid}/downlink` | 下行发布 topic 模板。 |
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL` | `2s` | 下行轮询间隔。 |
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_DEVICE_TTL` | `10m` | 已记住设备的下行活跃 TTL。 |
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_MAX_BATCH` | `1` | 每设备每轮最大下行命令数。 |
@@ -187,8 +187,8 @@ password  = 设备 token
 
 连接通过后，内置 broker 会用 Core 返回的 `uuid/tenant_id` 做 ACL：
 
-- 允许 publish：`goster/v1/{tenant_id}/{uuid}/telemetry|heartbeat|event|ack|state|log`
-- 允许 subscribe：`goster/v1/{tenant_id}/{uuid}/downlink`
+- 允许 publish：`goster/v1/{uuid}/telemetry|heartbeat|event|ack|state|log`
+- 允许 subscribe：`goster/v1/{uuid}/downlink`
 
 ## 3. 本地联调最小配置
 

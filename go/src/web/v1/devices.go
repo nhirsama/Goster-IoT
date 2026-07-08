@@ -337,7 +337,7 @@ func (api *API) enqueueDeviceCommand(w http.ResponseWriter, r *http.Request, uui
 
 func provisionedDevicePayload(tenantID, uuid, token string) map[string]interface{} {
 	baseTopic := "goster/v1"
-	deviceTopicPrefix := baseTopic + "/" + strings.Trim(tenantID, "/") + "/" + strings.Trim(uuid, "/")
+	deviceTopicPrefix := baseTopic + "/" + strings.Trim(uuid, "/")
 	return map[string]interface{}{
 		"uuid":      uuid,
 		"tenant_id": tenantID,
