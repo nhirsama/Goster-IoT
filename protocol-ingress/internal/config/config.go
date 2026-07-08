@@ -50,6 +50,9 @@ type CustomTCPConfig struct {
 
 type MQTTConfig struct {
 	Enabled              bool
+	Mode                 string
+	ListenAddr           string
+	AuthMode             string
 	BrokerURL            string
 	ClientID             string
 	Username             string
@@ -99,6 +102,9 @@ func Default() Config {
 			},
 			MQTT: MQTTConfig{
 				Enabled:              false,
+				Mode:                 "external",
+				ListenAddr:           "127.0.0.1:1883",
+				AuthMode:             "client_password_token",
 				BrokerURL:            "tcp://127.0.0.1:1883",
 				ClientID:             "protocol-ingress-mqtt",
 				SubscribeTopics:      []string{"goster/v1/+/+/telemetry", "goster/v1/+/+/heartbeat", "goster/v1/+/+/event", "goster/v1/+/+/ack"},
@@ -227,6 +233,15 @@ func LoadFromEnv(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, err
 		}
 		cfg.Adapters.MQTT.Enabled = b
+	}
+	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_MQTT_MODE"); ok {
+		cfg.Adapters.MQTT.Mode = v
+	}
+	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_MQTT_LISTEN_ADDR"); ok {
+		cfg.Adapters.MQTT.ListenAddr = v
+	}
+	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_MQTT_AUTH_MODE"); ok {
+		cfg.Adapters.MQTT.AuthMode = v
 	}
 	if v, ok := lookupString(lookup, "PROTOCOL_INGRESS_MQTT_BROKER_URL"); ok {
 		cfg.Adapters.MQTT.BrokerURL = v
@@ -373,6 +388,17 @@ func (c *Config) Normalize() {
 	if c.Adapters.MQTT.BrokerURL == "" {
 		c.Adapters.MQTT.BrokerURL = "tcp://127.0.0.1:1883"
 	}
+	c.Adapters.MQTT.Mode = strings.ToLower(strings.TrimSpace(c.Adapters.MQTT.Mode))
+	if c.Adapters.MQTT.Mode == "" {
+		c.Adapters.MQTT.Mode = "external"
+	}
+	if c.Adapters.MQTT.ListenAddr == "" {
+		c.Adapters.MQTT.ListenAddr = "127.0.0.1:1883"
+	}
+	c.Adapters.MQTT.AuthMode = strings.ToLower(strings.TrimSpace(c.Adapters.MQTT.AuthMode))
+	if c.Adapters.MQTT.AuthMode == "" {
+		c.Adapters.MQTT.AuthMode = "client_password_token"
+	}
 	if c.Adapters.MQTT.ClientID == "" {
 		c.Adapters.MQTT.ClientID = "protocol-ingress-mqtt"
 	}
@@ -460,14 +486,27 @@ func (c Config) Validate() error {
 	if c.Adapters.CustomTCP.DownlinkMaxBatch <= 0 {
 		return errors.New("PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH 必须大于 0")
 	}
-	if c.Adapters.MQTT.Enabled && strings.TrimSpace(c.Adapters.MQTT.BrokerURL) == "" {
+	switch c.Adapters.MQTT.Mode {
+	case "external", "embedded":
+	default:
+		return errors.New("PROTOCOL_INGRESS_MQTT_MODE 必须是 external 或 embedded")
+	}
+	switch c.Adapters.MQTT.AuthMode {
+	case "client_password_token":
+	default:
+		return errors.New("PROTOCOL_INGRESS_MQTT_AUTH_MODE 必须是 client_password_token")
+	}
+	if c.Adapters.MQTT.Enabled && c.Adapters.MQTT.Mode == "external" && strings.TrimSpace(c.Adapters.MQTT.BrokerURL) == "" {
 		return errors.New("PROTOCOL_INGRESS_MQTT_BROKER_URL 不能为空")
 	}
-	if c.Adapters.MQTT.Enabled && strings.TrimSpace(c.Adapters.MQTT.ClientID) == "" {
+	if c.Adapters.MQTT.Enabled && c.Adapters.MQTT.Mode == "external" && strings.TrimSpace(c.Adapters.MQTT.ClientID) == "" {
 		return errors.New("PROTOCOL_INGRESS_MQTT_CLIENT_ID 不能为空")
 	}
-	if c.Adapters.MQTT.Enabled && len(c.Adapters.MQTT.SubscribeTopics) == 0 {
+	if c.Adapters.MQTT.Enabled && c.Adapters.MQTT.Mode == "external" && len(c.Adapters.MQTT.SubscribeTopics) == 0 {
 		return errors.New("PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS 不能为空")
+	}
+	if c.Adapters.MQTT.Enabled && c.Adapters.MQTT.Mode == "embedded" && strings.TrimSpace(c.Adapters.MQTT.ListenAddr) == "" {
+		return errors.New("PROTOCOL_INGRESS_MQTT_LISTEN_ADDR 不能为空")
 	}
 	if c.Adapters.MQTT.QoS > 2 {
 		return errors.New("PROTOCOL_INGRESS_MQTT_QOS 必须是 0、1 或 2")

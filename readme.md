@@ -9,6 +9,22 @@ ESP32C3 MCU 作为网关层，负责与云端上位机进行数据传输和 NTP 
 数据层、应用层、业务层均由使用 Golang 语言编写的云原生程序负责。程序暴露 8080 端口提供 http 服务，用于提供设备管理、用户管理、数据可视化的 web 界面。
 暴露 8081 端口提供 TCP 链接，通过自定义协议与网关层安全通信。
 
+## 云端快速启动
+
+根目录提供统一的 Docker Compose 和环境变量示例：
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.example.yml up -d
+```
+
+默认端口：
+
+- `8080`：Core HTTP / 管理 API
+- `8081`：Goster-WY TCP 接入
+- `1883`：MQTT embedded broker，需在 `.env` 中启用 `PROTOCOL_INGRESS_MQTT_ENABLED=true`
+- `8090`：protocol-ingress 管理健康检查，默认只绑定 `127.0.0.1`
+
 ## TODO List
 [ ] 实现精确到 API 路由级别和设备分组级别的颗粒度多租户鉴权  
 [ ] 支持云端控制指令下发  

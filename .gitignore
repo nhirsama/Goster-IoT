@@ -7,7 +7,10 @@ goster-iot.tar
 /go/docs.md
 /go/.gocache
 .env
-/go/.env
+.env.local
+/docker-compose.yml
+/docker-compose.override.yml
+/data/
 # Next.js
 frontend/node_modules/
 frontend/.next/
@@ -27,3 +30,4 @@ frontend/*.tsbuildinfo
 
 
 .claude
+/report

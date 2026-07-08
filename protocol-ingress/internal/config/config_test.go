@@ -24,6 +24,9 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 		"PROTOCOL_INGRESS_CUSTOM_TCP_REGISTER_ACK_GRACE_DELAY": "5ms",
 		"PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH":       "2",
 		"PROTOCOL_INGRESS_MQTT_ENABLED":                        "true",
+		"PROTOCOL_INGRESS_MQTT_MODE":                           "embedded",
+		"PROTOCOL_INGRESS_MQTT_LISTEN_ADDR":                    "127.0.0.1:18883",
+		"PROTOCOL_INGRESS_MQTT_AUTH_MODE":                      "client_password_token",
 		"PROTOCOL_INGRESS_MQTT_BROKER_URL":                     "ssl://mqtt.test:8883",
 		"PROTOCOL_INGRESS_MQTT_CLIENT_ID":                      "ingress-mqtt-test",
 		"PROTOCOL_INGRESS_MQTT_USERNAME":                       "mqtt-user",
@@ -59,7 +62,7 @@ func TestLoadFromEnvAppliesEnvironmentOverrides(t *testing.T) {
 	if !cfg.Adapters.CustomTCP.Enabled || cfg.Adapters.CustomTCP.ListenAddr != "127.0.0.1:19091" || cfg.Adapters.CustomTCP.ReadTimeout != 30*time.Second || cfg.Adapters.CustomTCP.IdleTimeout != 90*time.Second || cfg.Adapters.CustomTCP.RPCTimeout != 750*time.Millisecond || cfg.Adapters.CustomTCP.RegisterAckGraceDelay != 5*time.Millisecond || cfg.Adapters.CustomTCP.DownlinkMaxBatch != 2 {
 		t.Fatalf("unexpected custom tcp config: %+v", cfg.Adapters.CustomTCP)
 	}
-	if !cfg.Adapters.MQTT.Enabled || cfg.Adapters.MQTT.BrokerURL != "ssl://mqtt.test:8883" || cfg.Adapters.MQTT.ClientID != "ingress-mqtt-test" || cfg.Adapters.MQTT.Username != "mqtt-user" || cfg.Adapters.MQTT.Password != "mqtt-pass" {
+	if !cfg.Adapters.MQTT.Enabled || cfg.Adapters.MQTT.Mode != "embedded" || cfg.Adapters.MQTT.ListenAddr != "127.0.0.1:18883" || cfg.Adapters.MQTT.AuthMode != "client_password_token" || cfg.Adapters.MQTT.BrokerURL != "ssl://mqtt.test:8883" || cfg.Adapters.MQTT.ClientID != "ingress-mqtt-test" || cfg.Adapters.MQTT.Username != "mqtt-user" || cfg.Adapters.MQTT.Password != "mqtt-pass" {
 		t.Fatalf("unexpected mqtt identity config: %+v", cfg.Adapters.MQTT)
 	}
 	if len(cfg.Adapters.MQTT.SubscribeTopics) != 2 || cfg.Adapters.MQTT.SubscribeTopics[0] != "goster/v1/+/+/telemetry" || cfg.Adapters.MQTT.SubscribeTopics[1] != "goster/v1/+/+/ack" {
@@ -123,6 +126,8 @@ func TestLoadFromEnvRejectsInvalidValues(t *testing.T) {
 		{name: "rpc timeout", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT": "0s"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_RPC_TIMEOUT"},
 		{name: "bool", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED": "maybe"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_ENABLED"},
 		{name: "int", env: map[string]string{"PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH": "0"}, want: "PROTOCOL_INGRESS_CUSTOM_TCP_DOWNLINK_MAX_BATCH"},
+		{name: "mqtt mode", env: map[string]string{"PROTOCOL_INGRESS_MQTT_MODE": "sideways"}, want: "PROTOCOL_INGRESS_MQTT_MODE"},
+		{name: "mqtt auth mode", env: map[string]string{"PROTOCOL_INGRESS_MQTT_AUTH_MODE": "basic"}, want: "PROTOCOL_INGRESS_MQTT_AUTH_MODE"},
 		{name: "mqtt qos", env: map[string]string{"PROTOCOL_INGRESS_MQTT_QOS": "3"}, want: "PROTOCOL_INGRESS_MQTT_QOS"},
 		{name: "mqtt buffer", env: map[string]string{"PROTOCOL_INGRESS_MQTT_MESSAGE_BUFFER": "0"}, want: "PROTOCOL_INGRESS_MQTT_MESSAGE_BUFFER"},
 		{name: "mqtt downlink poll", env: map[string]string{"PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL": "0s"}, want: "PROTOCOL_INGRESS_MQTT_DOWNLINK_POLL_INTERVAL"},

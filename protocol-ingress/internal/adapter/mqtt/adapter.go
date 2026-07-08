@@ -96,7 +96,13 @@ func (a *Adapter) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if strings.EqualFold(a.cfg.Mode, "embedded") {
+		return a.startEmbeddedBroker(ctx)
+	}
+	return a.startExternalClient(ctx)
+}
 
+func (a *Adapter) startExternalClient(ctx context.Context) error {
 	msgCh := make(chan InboundMessage, a.cfg.MessageBuffer)
 	opts := paho.NewClientOptions().
 		AddBroker(a.cfg.BrokerURL).
@@ -158,7 +164,7 @@ func (a *Adapter) Start(ctx context.Context) error {
 	}
 	defer client.Disconnect(250)
 	if a.cfg.DownlinkEnabled {
-		go a.runDownlinkLoop(ctx, client)
+		go a.runDownlinkLoop(ctx, pahoDownlinkPublisher{client: client, timeout: a.cfg.RPCTimeout})
 	}
 
 	a.logger.Info("mqtt adapter 已启动", "broker", a.cfg.BrokerURL, "client_id", a.cfg.ClientID)
@@ -180,10 +186,19 @@ func (a *Adapter) handleMessage(ctx context.Context, msg InboundMessage) error {
 		return err
 	}
 	event := mapped.Event
+	if err := a.applyConnectionPrincipal(msg, &event); err != nil {
+		return err
+	}
 	if mapped.Token != "" {
 		uuid, tenantID, err := a.authenticate(ctx, mapped.Token, event)
 		if err != nil {
 			return err
+		}
+		if msg.AuthUUID != "" && uuid != "" && uuid != msg.AuthUUID {
+			return fmt.Errorf("mqtt payload token uuid %q 与连接身份 uuid %q 不匹配", uuid, msg.AuthUUID)
+		}
+		if msg.AuthTenant != "" && tenantID != "" && tenantID != msg.AuthTenant {
+			return fmt.Errorf("mqtt payload token tenant %q 与连接身份 tenant %q 不匹配", tenantID, msg.AuthTenant)
 		}
 		if uuid != "" {
 			event.UUID = uuid
@@ -206,6 +221,53 @@ func (a *Adapter) handleMessage(ctx context.Context, msg InboundMessage) error {
 	default:
 		return a.ingestEvent(ctx, event)
 	}
+}
+
+func (a *Adapter) applyConnectionPrincipal(msg InboundMessage, event *adapter.AdapterEvent) error {
+	if event == nil || strings.TrimSpace(msg.AuthUUID) == "" {
+		return nil
+	}
+	authUUID := strings.TrimSpace(msg.AuthUUID)
+	authTenant := strings.TrimSpace(msg.AuthTenant)
+	topic := cleanTopic(msg.Topic)
+	if rest, ok := topicRest(topic, a.cfg.BaseTopic); ok {
+		if len(rest) < 3 {
+			return fmt.Errorf("mqtt topic %q 缺少 tenant/uuid/kind", topic)
+		}
+		topicTenant := strings.TrimSpace(rest[0])
+		topicUUID := strings.TrimSpace(rest[1])
+		if topicUUID != "" && topicUUID != authUUID {
+			return fmt.Errorf("mqtt topic uuid %q 与连接身份 uuid %q 不匹配", topicUUID, authUUID)
+		}
+		if authTenant != "" && topicTenant != "" && topicTenant != authTenant {
+			return fmt.Errorf("mqtt topic tenant %q 与连接身份 tenant %q 不匹配", topicTenant, authTenant)
+		}
+		event.UUID = authUUID
+		event.TenantID = firstNonEmpty(authTenant, event.TenantID)
+		event.TenantHint = firstNonEmpty(authTenant, event.TenantHint)
+		event.Identity = adapter.Identity{Type: "uuid", Value: authUUID}
+		event.Identities = appendIdentityIfMissing(event.Identities, adapter.Identity{Type: "uuid", Value: authUUID})
+		if msg.ClientID != "" {
+			event.Identities = appendIdentityIfMissing(event.Identities, adapter.Identity{Type: "mqtt_client_id", Value: msg.ClientID})
+		}
+		if event.Device == nil {
+			event.Device = &adapter.DeviceDescriptor{}
+		}
+		event.Device.UUID = authUUID
+		if event.Device.Labels == nil {
+			event.Device.Labels = map[string]string{}
+		}
+		event.Device.Labels["mqtt_client_id"] = msg.ClientID
+		return nil
+	}
+	if authTenant != "" {
+		event.TenantID = firstNonEmpty(event.TenantID, authTenant)
+		event.TenantHint = firstNonEmpty(event.TenantHint, authTenant)
+	}
+	if msg.ClientID != "" {
+		event.Identities = appendIdentityIfMissing(event.Identities, adapter.Identity{Type: "mqtt_client_id", Value: msg.ClientID})
+	}
+	return nil
 }
 
 func (a *Adapter) authenticate(ctx context.Context, token string, event adapter.AdapterEvent) (string, string, error) {
@@ -309,7 +371,28 @@ func (a *Adapter) rememberDevice(event adapter.AdapterEvent) {
 	}
 }
 
-func (a *Adapter) runDownlinkLoop(ctx context.Context, client paho.Client) {
+type downlinkPublisher interface {
+	Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error
+}
+
+type pahoDownlinkPublisher struct {
+	client  paho.Client
+	timeout time.Duration
+}
+
+func (p pahoDownlinkPublisher) Publish(_ context.Context, topic string, qos byte, retained bool, payload []byte) error {
+	token := p.client.Publish(topic, qos, retained, payload)
+	timeout := p.timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	if !token.WaitTimeout(timeout) {
+		return fmt.Errorf("mqtt publish 超时: topic=%s", topic)
+	}
+	return token.Error()
+}
+
+func (a *Adapter) runDownlinkLoop(ctx context.Context, publisher downlinkPublisher) {
 	interval := a.cfg.DownlinkPollInterval
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -322,7 +405,7 @@ func (a *Adapter) runDownlinkLoop(ctx context.Context, client paho.Client) {
 			return
 		case <-ticker.C:
 			for _, dev := range a.deviceSnapshot() {
-				if err := a.pullAndPublishDownlinks(ctx, client, dev); err != nil {
+				if err := a.pullAndPublishDownlinks(ctx, publisher, dev); err != nil {
 					a.logger.Warn("mqtt 下行轮询失败", "uuid", dev.UUID, "error", err)
 				}
 			}
@@ -349,7 +432,7 @@ func (a *Adapter) deviceSnapshot() []deviceSession {
 	return out
 }
 
-func (a *Adapter) pullAndPublishDownlinks(ctx context.Context, client paho.Client, dev deviceSession) error {
+func (a *Adapter) pullAndPublishDownlinks(ctx context.Context, publisher downlinkPublisher, dev deviceSession) error {
 	if dev.UUID == "" {
 		return nil
 	}
@@ -370,7 +453,7 @@ func (a *Adapter) pullAndPublishDownlinks(ctx context.Context, client paho.Clien
 			a.logger.Warn("mqtt 下行命令归一化失败", "uuid", dev.UUID, "command_id", rawCmd.GetCommandId(), "error", err)
 			continue
 		}
-		if err := a.publishDownlink(ctx, client, dev, cmd); err != nil {
+		if err := a.publishDownlink(ctx, publisher, dev, cmd); err != nil {
 			a.markCommandFailed(ctx, dev, cmd, err)
 			continue
 		}
@@ -379,16 +462,15 @@ func (a *Adapter) pullAndPublishDownlinks(ctx context.Context, client paho.Clien
 	return nil
 }
 
-func (a *Adapter) publishDownlink(ctx context.Context, client paho.Client, dev deviceSession, cmd adapter.AdapterCommand) error {
+func (a *Adapter) publishDownlink(ctx context.Context, publisher downlinkPublisher, dev deviceSession, cmd adapter.AdapterCommand) error {
 	topic := renderDownlinkTopic(a.cfg.DownlinkTopic, dev, cmd)
 	if topic == "" {
 		return errors.New("mqtt 下行 topic 为空")
 	}
-	token := client.Publish(topic, a.cfg.QoS, a.cfg.DownlinkRetained, cmd.Payload)
-	if !token.WaitTimeout(a.cfg.RPCTimeout) {
-		return fmt.Errorf("mqtt publish 超时: topic=%s command_id=%d", topic, cmd.CommandID)
+	if publisher == nil {
+		return errors.New("mqtt 下行 publisher 未配置")
 	}
-	if err := token.Error(); err != nil {
+	if err := publisher.Publish(ctx, topic, a.cfg.QoS, a.cfg.DownlinkRetained, cmd.Payload); err != nil {
 		return err
 	}
 	a.logger.Info("mqtt 下行命令已发布", "topic", topic, "uuid", dev.UUID, "command_id", cmd.CommandID)
@@ -556,4 +638,18 @@ func identities(items []adapter.Identity) []*ingressv1.DeviceIdentity {
 		}
 	}
 	return out
+}
+
+func appendIdentityIfMissing(items []adapter.Identity, item adapter.Identity) []adapter.Identity {
+	item.Type = strings.TrimSpace(item.Type)
+	item.Value = strings.TrimSpace(item.Value)
+	if item.Type == "" || item.Value == "" {
+		return items
+	}
+	for _, existing := range items {
+		if strings.EqualFold(strings.TrimSpace(existing.Type), item.Type) && strings.TrimSpace(existing.Value) == item.Value {
+			return items
+		}
+	}
+	return append(items, item)
 }

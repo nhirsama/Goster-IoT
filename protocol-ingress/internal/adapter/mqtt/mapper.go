@@ -21,6 +21,12 @@ type InboundMessage struct {
 	Retained   bool
 	Duplicate  bool
 	ReceivedAt time.Time
+	ClientID   string
+	Username   string
+	AuthUUID   string
+	AuthTenant string
+	RemoteAddr string
+	LocalAddr  string
 }
 
 type MappedMessage struct {
@@ -191,13 +197,15 @@ func baseEvent(source, topic string, raw []byte, contentType string, msg Inbound
 	if source == "" {
 		source = "mqtt"
 	}
-	return adapter.AdapterEvent{
+	event := adapter.AdapterEvent{
 		AdapterName:     "mqtt",
 		ProtocolName:    "mqtt",
 		ProtocolVersion: "3.1.1",
 		Transport:       "mqtt",
 		ReceivedAt:      receivedAt,
 		OccurredAt:      receivedAt,
+		RemoteAddr:      msg.RemoteAddr,
+		LocalAddr:       msg.LocalAddr,
 		Raw:             raw,
 		RawContentType:  contentType,
 		Labels: map[string]string{
@@ -223,6 +231,24 @@ func baseEvent(source, topic string, raw []byte, contentType string, msg Inbound
 			},
 		},
 	}
+	if msg.ClientID != "" {
+		event.Labels["mqtt_client_id"] = msg.ClientID
+		event.Attributes["mqtt_client_id"] = msg.ClientID
+		event.Frame.Headers["client_id"] = msg.ClientID
+	}
+	if msg.Username != "" {
+		event.Labels["mqtt_username"] = msg.Username
+		event.Attributes["mqtt_username"] = msg.Username
+	}
+	if msg.AuthUUID != "" {
+		event.Labels["mqtt_auth_uuid"] = msg.AuthUUID
+		event.Attributes["mqtt_auth_uuid"] = msg.AuthUUID
+	}
+	if msg.AuthTenant != "" {
+		event.Labels["mqtt_auth_tenant"] = msg.AuthTenant
+		event.Attributes["mqtt_auth_tenant"] = msg.AuthTenant
+	}
+	return event
 }
 
 func flatMetrics(payload map[string]any, observedAt time.Time) []adapter.MetricPoint {

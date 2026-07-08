@@ -6,6 +6,30 @@
 - protocol-ingress 配置入口：`protocol-ingress/internal/config/config.go`，只从环境变量读取并校验。
 - duration 字段使用 Go duration 格式，例如 `300ms`、`5s`、`10m`。
 
+## 0. 根目录 Docker Compose
+
+根目录的 `.env.example` 和 `docker-compose.example.yml` 是当前推荐的容器部署入口；旧的 `go/.env.example`、`go/docker-compose.example.yml` 已不再使用。
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.example.yml up -d
+```
+
+默认会启动：
+
+| 服务 | 容器内端口 | 宿主机默认绑定 | 说明 |
+|---|---:|---|---|
+| `core` | `8080` | `0.0.0.0:8080` | 管理 API / Core RPC。 |
+| `protocol-ingress` | `8081` | `0.0.0.0:8081` | Goster-WY TCP 接入。 |
+| `protocol-ingress` | `1883` | `0.0.0.0:1883` | MQTT embedded broker，需设置 `PROTOCOL_INGRESS_MQTT_ENABLED=true` 才启用。 |
+| `protocol-ingress` | `8090` | `127.0.0.1:8090` | ingress 管理健康检查。 |
+
+SQLite 数据默认落在仓库根目录：
+
+```text
+./data/core/data.db
+```
+
 ## 1. Core 配置
 
 Core 入口：`go/my.go` -> `go/cli/cli.go`。默认 HTTP 监听 `:8080`。
@@ -15,7 +39,7 @@ Core 入口：`go/my.go` -> `go/cli/cli.go`。默认 HTTP 监听 `:8080`。
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `DB_DRIVER` | `sqlite` | `sqlite`、`postgres` 或 `postgresql`；归一化后 postgres 使用 `postgres`。 |
-| `DB_PATH` | `./data.db` | SQLite 文件路径。 |
+| `DB_PATH` | `./data.db` | SQLite 文件路径；Docker Compose 示例中设置为容器内 `/data/data.db`。 |
 | `DB_DSN` | 空 | PostgreSQL DSN。 |
 | `DB_SCHEMA_MODE` | SQLite: `bootstrap`；Postgres: `managed` | 只接受 `bootstrap` 或 `managed`。 |
 
@@ -137,11 +161,14 @@ Authorization: Bearer <PROTOCOL_INGRESS_TOKEN>
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `PROTOCOL_INGRESS_MQTT_ENABLED` | `false` | 是否启用 MQTT adapter。 |
-| `PROTOCOL_INGRESS_MQTT_BROKER_URL` | `tcp://127.0.0.1:1883` | MQTT broker 地址。 |
-| `PROTOCOL_INGRESS_MQTT_CLIENT_ID` | `protocol-ingress-mqtt` | MQTT client id。 |
-| `PROTOCOL_INGRESS_MQTT_USERNAME` | 空 | MQTT 用户名。 |
-| `PROTOCOL_INGRESS_MQTT_PASSWORD` | 空 | MQTT 密码。 |
-| `PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS` | `goster/v1/+/+/telemetry,goster/v1/+/+/heartbeat,goster/v1/+/+/event,goster/v1/+/+/ack` | 订阅 topic，逗号分隔。 |
+| `PROTOCOL_INGRESS_MQTT_MODE` | `external` | MQTT 模式：`external` 连接外部 broker；`embedded` 在 protocol-ingress 内嵌 broker。 |
+| `PROTOCOL_INGRESS_MQTT_LISTEN_ADDR` | `127.0.0.1:1883` | `embedded` 模式监听地址，容器内通常设为 `:1883`。 |
+| `PROTOCOL_INGRESS_MQTT_AUTH_MODE` | `client_password_token` | `embedded` 模式鉴权方式：`client_id` 必须是设备 UUID，MQTT password 必须是设备 token。 |
+| `PROTOCOL_INGRESS_MQTT_BROKER_URL` | `tcp://127.0.0.1:1883` | `external` 模式外部 MQTT broker 地址。 |
+| `PROTOCOL_INGRESS_MQTT_CLIENT_ID` | `protocol-ingress-mqtt` | `external` 模式下 protocol-ingress 连接外部 broker 的 client id。 |
+| `PROTOCOL_INGRESS_MQTT_USERNAME` | 空 | `external` 模式下 protocol-ingress 连接外部 broker 的用户名。 |
+| `PROTOCOL_INGRESS_MQTT_PASSWORD` | 空 | `external` 模式下 protocol-ingress 连接外部 broker 的密码。 |
+| `PROTOCOL_INGRESS_MQTT_SUBSCRIBE_TOPICS` | `goster/v1/+/+/telemetry,goster/v1/+/+/heartbeat,goster/v1/+/+/event,goster/v1/+/+/ack` | `external` 模式订阅 topic，逗号分隔。 |
 | `PROTOCOL_INGRESS_MQTT_QOS` | `1` | MQTT QoS，只能是 0、1、2。 |
 | `PROTOCOL_INGRESS_MQTT_CONNECT_TIMEOUT` | `5s` | 连接/订阅超时。 |
 | `PROTOCOL_INGRESS_MQTT_KEEP_ALIVE` | `30s` | MQTT keep alive。 |
@@ -156,6 +183,19 @@ Authorization: Bearer <PROTOCOL_INGRESS_TOKEN>
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_DEVICE_TTL` | `10m` | 已记住设备的下行活跃 TTL。 |
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_MAX_BATCH` | `1` | 每设备每轮最大下行命令数。 |
 | `PROTOCOL_INGRESS_MQTT_DOWNLINK_RETAINED` | `false` | 下行消息 retained 标志。 |
+
+`embedded` 模式下，设备连接参数建议如下：
+
+```text
+client_id = 设备 UUID
+username  = 设备 UUID 或任意非空值（部分 MQTT 3.1.1 客户端要求 password 存在时 username 也存在）
+password  = 设备 token
+```
+
+连接通过后，内置 broker 会用 Core 返回的 `uuid/tenant_id` 做 ACL：
+
+- 允许 publish：`goster/v1/{tenant_id}/{uuid}/telemetry|heartbeat|event|ack|state|log`
+- 允许 subscribe：`goster/v1/{tenant_id}/{uuid}/downlink`
 
 ## 3. 本地联调最小配置
 

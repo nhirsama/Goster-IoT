@@ -13,6 +13,8 @@
 | `frontend/` | Web 前端 | Next.js / React 项目，类型可由 OpenAPI 生成。 |
 | `docs/` | 精简项目文档 | 保留协议、配置、结构、嵌入式联调边界说明。 |
 | `.github/workflows/` | GitHub Actions | 当前包含 Docker 发布工作流。 |
+| `.env.example` | 根目录环境变量示例 | Docker Compose 推荐从此复制为 `.env`。 |
+| `docker-compose.example.yml` | 根目录容器编排示例 | 启动 Core 与 protocol-ingress，数据默认写入 `./data/core`。 |
 
 嵌入式固件已迁出至独立仓库 `Goster-Iot-Firmware`，本仓库不再包含 STM32/ESP32 固件源码和固件构建配置。
 

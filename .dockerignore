@@ -3,6 +3,13 @@
 .vscode
 **/.DS_Store
 
+# Local secrets and runtime state must never enter image build contexts.
+.env
+.env.*
+!.env.example
+data
+report
+
 # Frontend build/dependency artifacts are large and not needed by Go images.
 frontend/node_modules
 frontend/.next
