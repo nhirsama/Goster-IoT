@@ -261,6 +261,8 @@ func flatMetrics(payload map[string]any, observedAt time.Time) []adapter.MetricP
 		{[]string{"temperature"}, "temperature", "°C", 1},
 		{[]string{"humidity"}, "humidity", "%", 2},
 		{[]string{"illuminance", "illuminance_lux", "lux"}, "illuminance", "lx", 4},
+		{[]string{"access_signal_a", "door_signal_a", "signal_a"}, "access_signal_a", "", 8},
+		{[]string{"access_signal_b", "door_signal_b", "signal_b"}, "access_signal_b", "", 16},
 		{[]string{"battery"}, "battery", "%", 0},
 		{[]string{"linkquality", "link_quality", "lqi"}, "linkquality", "lqi", 0},
 		{[]string{"voltage"}, "voltage", "V", 0},

@@ -25,6 +25,8 @@ tags:
   - name: Auth
   - name: Device
   - name: Metrics
+  - name: AccessControl
+    description: 门禁模块状态
   - name: User
   - name: Tenant
     description: 多租户管理
@@ -363,6 +365,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MetricsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/access-control/{uuid}:
+    get:
+      tags: [AccessControl]
+      operationId: getAccessControlState
+      summary: 查询设备门禁模块状态。
+      description: |
+        读取设备最近一次门禁输入信号：
+        - legacy metric type `8` 表示 `signal_a`
+        - legacy metric type `16` 表示 `signal_b`
+        - 当 `signal_a == 1 && signal_b == 1` 时，判定为开门。
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/DeviceUUID'
+      responses:
+        '200':
+          description: 门禁模块状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessControlStateResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1099,9 +1128,9 @@ components:
 
     MetricType:
       type: integer
-      enum: [1, 2, 4]
-      description: 1=温度, 2=湿度, 4=光照
-      x-enumNames: [Temperature, Humidity, Lux]
+      enum: [1, 2, 4, 8, 16]
+      description: 1=温度, 2=湿度, 4=光照, 8=门禁输入信号A, 16=门禁输入信号B
+      x-enumNames: [Temperature, Humidity, Lux, AccessSignalA, AccessSignalB]
 
     CaptchaConfig:
       type: object
@@ -1554,6 +1583,50 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/MetricsData'
+
+    AccessControlState:
+      type: object
+      required: [uuid, signal_a, signal_b, open, evaluated_at_ms, status_text]
+      properties:
+        uuid:
+          type: string
+        signal_a:
+          type: integer
+          enum: [0, 1]
+          nullable: true
+          description: 门禁输入信号 A，最近指标值 >= 1 归一化为 1，否则为 0。
+        signal_b:
+          type: integer
+          enum: [0, 1]
+          nullable: true
+          description: 门禁输入信号 B，最近指标值 >= 1 归一化为 1，否则为 0。
+        open:
+          type: boolean
+          nullable: true
+          description: 当 signal_a 与 signal_b 都为 1 时为 true；缺少任一信号时为 null。
+        evaluated_at_ms:
+          type: integer
+          format: int64
+          nullable: true
+          description: 用于计算的最近信号时间戳（毫秒）。
+        status_text:
+          type: string
+          enum: [open, closed, unknown]
+        rule:
+          type: string
+          description: 当前门禁判定规则。
+        extensions:
+          type: object
+          additionalProperties: true
+
+    AccessControlStateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AccessControlState'
 
     User:
       type: object

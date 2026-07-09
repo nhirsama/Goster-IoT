@@ -232,6 +232,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access-control/{uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询设备门禁模块状态。
+         * @description 读取设备最近一次门禁输入信号：
+         *     - legacy metric type `8` 表示 `signal_a`
+         *     - legacy metric type `16` 表示 `signal_b`
+         *     - 当 `signal_a == 1 && signal_b == 1` 时，判定为开门。
+         */
+        get: operations["getAccessControlState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -553,10 +576,10 @@ export interface components {
          */
         DeviceRuntimeStatus: 0 | 1 | 2;
         /**
-         * @description 1=温度, 2=湿度, 4=光照
+         * @description 1=温度, 2=湿度, 4=光照, 8=门禁输入信号A, 16=门禁输入信号B
          * @enum {integer}
          */
-        MetricType: 1 | 2 | 4;
+        MetricType: 1 | 2 | 4 | 8 | 16;
         CaptchaConfig: {
             /** @enum {string} */
             provider: "none" | "turnstile";
@@ -796,6 +819,36 @@ export interface components {
         };
         MetricsResponse: components["schemas"]["ApiResponseBase"] & {
             data: components["schemas"]["MetricsData"];
+        };
+        AccessControlState: {
+            uuid: string;
+            /**
+             * @description 门禁输入信号 A，最近指标值 >= 1 归一化为 1，否则为 0。
+             * @enum {integer|null}
+             */
+            signal_a: 0 | 1 | null;
+            /**
+             * @description 门禁输入信号 B，最近指标值 >= 1 归一化为 1，否则为 0。
+             * @enum {integer|null}
+             */
+            signal_b: 0 | 1 | null;
+            /** @description 当 signal_a 与 signal_b 都为 1 时为 true；缺少任一信号时为 null。 */
+            open: boolean | null;
+            /**
+             * Format: int64
+             * @description 用于计算的最近信号时间戳（毫秒）。
+             */
+            evaluated_at_ms: number | null;
+            /** @enum {string} */
+            status_text: "open" | "closed" | "unknown";
+            /** @description 当前门禁判定规则。 */
+            rule?: string;
+            extensions?: {
+                [key: string]: unknown;
+            };
+        };
+        AccessControlStateResponse: components["schemas"]["ApiResponseBase"] & {
+            data: components["schemas"]["AccessControlState"];
         };
         User: {
             username: string;
@@ -1494,6 +1547,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetricsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAccessControlState: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 当前请求租户上下文。未传时后端回退为 `tenant_legacy`。 */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                uuid: components["parameters"]["DeviceUUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 门禁模块状态。 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessControlStateResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

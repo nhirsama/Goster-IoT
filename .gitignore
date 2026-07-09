@@ -36,3 +36,4 @@ frontend/*.tsbuildinfo
 /.venv
 *.py
 /pyproject.toml
+/scripts

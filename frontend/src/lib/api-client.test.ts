@@ -186,4 +186,28 @@ describe('API Client', () => {
 
     await expect(api.get('/api/v1/auth/me' as keyof paths)).rejects.toThrow('backend unavailable')
   })
+
+  it('should unwrap nullable access-control state responses', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({
+        code: 0,
+        message: 'ok',
+        data: { uuid: 'door-1', open: null, status_text: 'unknown' }
+      })
+    } as Response)
+
+    const data = await api.get<{ uuid: string; open: boolean | null; status_text: string }>(
+      '/api/v1/access-control/door-1'
+    )
+
+    expect(data).toEqual({ uuid: 'door-1', open: null, status_text: 'unknown' })
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('http://localhost:8080/api/v1/access-control/door-1')
+
+    const options = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(options.method).toBe('GET')
+    expect(options.body).toBeUndefined()
+  })
+
 })

@@ -93,6 +93,10 @@ func legacyMetricName(dataType uint8) (name string, unit string, ok bool) {
 		return "humidity", "%", true
 	case 4:
 		return "illuminance", "lx", true
+	case 8:
+		return "access_signal_a", "", true
+	case 16:
+		return "access_signal_b", "", true
 	default:
 		return "", "", false
 	}

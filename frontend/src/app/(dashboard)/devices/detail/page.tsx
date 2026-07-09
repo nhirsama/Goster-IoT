@@ -38,12 +38,15 @@ import {
   ShieldAlert,
   Wifi,
   Activity,
+  DoorClosed,
+  DoorOpen,
   SendHorizontal,
   Braces,
   Eraser,
   Wand2,
   AlertCircle,
   ChevronLeft,
+  RefreshCw,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -59,6 +62,21 @@ type MetricsData = components["schemas"]["MetricsData"];
 type MetricPoint = components["schemas"]["MetricPoint"];
 type MetricRange = (typeof metricRangeOptions)[number]["value"];
 type DownlinkCommand = "config_push" | "ota_data" | "action_exec" | "screen_wy";
+type AccessSignal = 0 | 1 | null;
+type AccessControlState = {
+  uuid: string;
+  signal_a: AccessSignal;
+  signal_b: AccessSignal;
+  open: boolean | null;
+  evaluated_at_ms: number | null;
+  status_text: string | null;
+};
+type DoorState = "open" | "closed" | "unknown";
+type DownlinkQuickTemplate = {
+  label: string;
+  hint: string;
+  template: string;
+};
 type EnqueueCommandResponse = {
   command_id: number;
   uuid: string;
@@ -68,12 +86,30 @@ type EnqueueCommandResponse = {
   enqueued_at?: string | null;
 };
 
-const downlinkCommandOptions: { value: DownlinkCommand; label: string; hint: string; template: string }[] = [
+const downlinkCommandOptions: {
+  value: DownlinkCommand;
+  label: string;
+  hint: string;
+  template: string;
+  quickTemplates?: DownlinkQuickTemplate[];
+}[] = [
   {
     value: "action_exec",
     label: "远程动作 (ACTION_EXEC)",
     hint: "适合重启、切换模式、触发一次性动作。",
     template: '{\n  "op": "reboot",\n  "delay_ms": 1000\n}',
+    quickTemplates: [
+      {
+        label: "门禁校准",
+        hint: "access_control_calibrate",
+        template: '{\n  "op": "access_control_calibrate",\n  "duration_ms": 3000,\n  "reason": "manual_admin"\n}',
+      },
+      {
+        label: "远程开门",
+        hint: "door_unlock",
+        template: '{\n  "op": "door_unlock",\n  "duration_ms": 3000,\n  "reason": "manual_admin"\n}',
+      },
+    ],
   },
   {
     value: "config_push",
@@ -95,6 +131,39 @@ const downlinkCommandOptions: { value: DownlinkCommand; label: string; hint: str
   },
 ];
 
+const accessDoorMeta = {
+  open: {
+    label: "开门",
+    description: "signal_a 与 signal_b 均为 1",
+    icon: DoorOpen,
+    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    panelClass: "border-emerald-200 bg-emerald-50/80 text-emerald-800",
+  },
+  closed: {
+    label: "关门",
+    description: "至少一个输入信号为 0",
+    icon: DoorClosed,
+    badgeClass: "border-slate-200 bg-slate-100 text-slate-700",
+    panelClass: "border-slate-200 bg-slate-50 text-slate-700",
+  },
+  unknown: {
+    label: "未知",
+    description: "输入信号缺失或尚未评估",
+    icon: AlertCircle,
+    badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+    panelClass: "border-amber-200 bg-amber-50/80 text-amber-800",
+  },
+} satisfies Record<
+  DoorState,
+  {
+    label: string;
+    description: string;
+    icon: typeof DoorOpen;
+    badgeClass: string;
+    panelClass: string;
+  }
+>;
+
 function parsePayloadText(raw: string): { ok: true; value: unknown; pretty: string } | { ok: false; message: string } {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -109,6 +178,54 @@ function parsePayloadText(raw: string): { ok: true; value: unknown; pretty: stri
       message: error instanceof Error ? error.message : "payload 必须是合法 JSON",
     };
   }
+}
+
+function getAccessSignalMeta(signal?: AccessSignal) {
+  if (signal === 1) {
+    return {
+      value: "1",
+      label: "高电平",
+      dotClass: "bg-emerald-500",
+      panelClass: "border-emerald-200 bg-emerald-50/80 text-emerald-800",
+    };
+  }
+  if (signal === 0) {
+    return {
+      value: "0",
+      label: "低电平",
+      dotClass: "bg-slate-400",
+      panelClass: "border-slate-200 bg-slate-50 text-slate-700",
+    };
+  }
+  return {
+    value: "--",
+    label: "未知",
+    dotClass: "bg-amber-500",
+    panelClass: "border-amber-200 bg-amber-50/80 text-amber-800",
+  };
+}
+
+function getAccessDoorState(accessControl?: AccessControlState): DoorState {
+  if (accessControl?.signal_a !== 0 && accessControl?.signal_a !== 1) {
+    return "unknown";
+  }
+  if (accessControl.signal_b !== 0 && accessControl.signal_b !== 1) {
+    return "unknown";
+  }
+  return accessControl.signal_a === 1 && accessControl.signal_b === 1 ? "open" : "closed";
+}
+
+function formatAccessEvaluatedAt(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return "未知";
+  }
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatAccessOpen(open?: boolean | null): string {
+  if (open === true) return "true / 开";
+  if (open === false) return "false / 关";
+  return "null / 未知";
 }
 
 export default function DeviceMetricsPage() {
@@ -128,6 +245,7 @@ function DeviceMetricsPageContent() {
   const { toast, confirm: askConfirm } = useUx();
   const [range, setRange] = useState<MetricRange>("1h");
   const [copied, setCopied] = useState(false);
+  const [accessAutoRefresh, setAccessAutoRefresh] = useState(false);
   const [command, setCommand] = useState<DownlinkCommand>("action_exec");
   const [payloadText, setPayloadText] = useState(downlinkCommandOptions[0].template);
   const [lastEnqueuedCommand, setLastEnqueuedCommand] = useState<EnqueueCommandResponse | null>(null);
@@ -145,6 +263,22 @@ function DeviceMetricsPageContent() {
     queryFn: () => api.get(`/api/v1/metrics/${uuid}`, { range }),
     enabled: !!uuid && isAuthenticated,
     refetchInterval: 30000,
+  });
+
+  // 获取门禁模块状态
+  const {
+    data: accessControl,
+    isLoading: accessControlLoading,
+    isFetching: accessControlFetching,
+    isError: accessControlIsError,
+    error: accessControlError,
+    refetch: refetchAccessControl,
+    dataUpdatedAt: accessControlUpdatedAt,
+  } = useQuery<AccessControlState>({
+    queryKey: queryKeys.accessControl(uuid),
+    queryFn: () => api.get<AccessControlState>(`/api/v1/access-control/${uuid}`),
+    enabled: !!uuid && isAuthenticated,
+    refetchInterval: accessAutoRefresh ? 5000 : false,
   });
 
   // 操作 Mutations
@@ -263,6 +397,14 @@ function DeviceMetricsPageContent() {
 
   const deviceOnline = device.runtime?.status === 1;
   const deviceDelayed = device.runtime?.status === 2;
+  const accessSignalAMeta = getAccessSignalMeta(accessControl?.signal_a);
+  const accessSignalBMeta = getAccessSignalMeta(accessControl?.signal_b);
+  const accessDoorState = getAccessDoorState(accessControl);
+  const accessDoorStatus = accessDoorMeta[accessDoorState];
+  const AccessDoorIcon = accessDoorStatus.icon;
+  const accessControlStatusText =
+    accessControl?.status_text?.trim() ||
+    (accessControlIsError ? getApiErrorMessage(accessControlError, "门禁模块状态暂不可用") : accessDoorStatus.description);
 
   return (
     <div className="space-y-6 fade-in animate-in slide-in-from-bottom-2">
@@ -431,6 +573,120 @@ function DeviceMetricsPageContent() {
         </CardContent>
       </Card>
 
+      {/* Access Control Card */}
+      <Card className="border-none shadow-sm bg-white">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+                <AccessDoorIcon className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle className="text-base font-bold text-slate-900">门禁模块</CardTitle>
+                  <Badge variant="outline" className={accessDoorStatus.badgeClass}>
+                    {accessDoorStatus.label}
+                  </Badge>
+                  {accessAutoRefresh ? (
+                    <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                      5s 自动刷新
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  按 signal_a / signal_b 判定：两个信号均为 1 时开门，否则关门；未知信号显示未知。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={accessControlFetching}
+                onClick={() => refetchAccessControl()}
+              >
+                <RefreshCw className={`h-4 w-4 ${accessControlFetching ? "animate-spin" : ""}`} />
+                {accessControlFetching ? "刷新中" : "刷新"}
+              </Button>
+              <Button
+                variant={accessAutoRefresh ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setAccessAutoRefresh((value) => !value)}
+              >
+                自动刷新：{accessAutoRefresh ? "开" : "关"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {accessControlLoading && !accessControl ? (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              正在读取门禁模块状态...
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              { title: "输入信号 A", meta: accessSignalAMeta },
+              { title: "输入信号 B", meta: accessSignalBMeta },
+            ].map((item) => (
+              <div key={item.title} className={`rounded-xl border p-4 ${item.meta.panelClass}`}>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-70">{item.title}</p>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-2xl font-black font-mono">{item.meta.value}</span>
+                  <span className="inline-flex items-center gap-2 text-sm font-bold">
+                    <span className={`h-2.5 w-2.5 rounded-full ${item.meta.dotClass}`} />
+                    {item.meta.label}
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            <div className={`rounded-xl border p-4 ${accessDoorStatus.panelClass}`}>
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-70">门状态</p>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-2xl font-black">{accessDoorStatus.label}</span>
+                <AccessDoorIcon className="h-7 w-7" />
+              </div>
+              <p className="mt-2 text-xs font-semibold opacity-75">{accessDoorStatus.description}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-3">
+            <div>
+              <p className="font-black uppercase tracking-wider text-slate-400">评估时间</p>
+              <p className="mt-1 font-semibold">{formatAccessEvaluatedAt(accessControl?.evaluated_at_ms)}</p>
+            </div>
+            <div>
+              <p className="font-black uppercase tracking-wider text-slate-400">后端 open</p>
+              <p className="mt-1 font-mono font-semibold">{formatAccessOpen(accessControl?.open)}</p>
+            </div>
+            <div>
+              <p className="font-black uppercase tracking-wider text-slate-400">前端更新时间</p>
+              <p className="mt-1 font-semibold">
+                {accessControlUpdatedAt
+                  ? new Date(accessControlUpdatedAt).toLocaleTimeString("zh-CN", { hour12: false })
+                  : "尚未刷新"}
+              </p>
+            </div>
+          </div>
+
+          <div
+            className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${
+              accessControlIsError
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : "border-blue-100 bg-blue-50/70 text-blue-700"
+            }`}
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{accessControlStatusText}</span>
+          </div>
+        </CardContent>
+      </Card>
+
       {permission >= 2 && (
         <Card className="border-none shadow-sm bg-white">
           <CardHeader className="pb-3">
@@ -483,6 +739,32 @@ function DeviceMetricsPageContent() {
                 />
               </label>
             </div>
+
+            {selectedCommandOption.quickTemplates?.length ? (
+              <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black text-blue-700 uppercase tracking-widest">门禁动作模板</p>
+                    <p className="mt-0.5 text-xs text-blue-600">快速填充 ACTION_EXEC payload，可继续编辑后入队。</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedCommandOption.quickTemplates.map((template) => (
+                    <Button
+                      key={template.hint}
+                      variant="outline"
+                      size="sm"
+                      className="border-blue-200 bg-white text-blue-700 hover:bg-blue-50"
+                      title={template.hint}
+                      onClick={() => setPayloadText(template.template)}
+                    >
+                      <Wand2 className="h-4 w-4" />
+                      {template.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {!parsedPayload.ok ? (
               <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">

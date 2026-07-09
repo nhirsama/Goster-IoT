@@ -127,6 +127,7 @@ func (api *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/v1/devices/", protectedWithCSRF(api.DeviceByUUIDHandler, inter.PermissionReadOnly))
 
 	mux.Handle("/api/v1/metrics/", protected(api.MetricsHandler, inter.PermissionReadOnly))
+	mux.Handle("/api/v1/access-control/", protected(api.AccessControlHandler, inter.PermissionReadOnly))
 
 	mux.Handle("/api/v1/users", protected(api.UsersHandler, inter.PermissionAdmin))
 	mux.Handle("/api/v1/users/", protectedWithCSRF(api.UserPermissionHandler, inter.PermissionAdmin))

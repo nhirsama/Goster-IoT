@@ -7,6 +7,7 @@ export const queryKeys = {
   invitations: ["invitations"] as const,
   users: ["users"] as const,
   device: (uuid: string) => ["device", uuid] as const,
+  accessControl: (uuid: string) => ["access-control", uuid] as const,
   devicesByStatus: (status: DeviceListStatus) => ["devices", status] as const,
   metrics: (uuid: string, range: string) => ["metrics", uuid, range] as const,
 };

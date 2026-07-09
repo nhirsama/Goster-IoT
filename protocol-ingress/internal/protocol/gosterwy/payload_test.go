@@ -60,6 +60,58 @@ func TestParseMetricsPayload(t *testing.T) {
 	}
 }
 
+func TestParseMetricsPayloadSupportsAccessControlLegacyTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		dataType uint8
+		value    float32
+	}{
+		{name: "input_type_8", dataType: 8, value: 1},
+		{name: "input_type_16", dataType: 16, value: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			points, err := ParseMetricsPayload(buildMetricsPayload(2000, 250, tc.dataType, tc.value))
+			if err != nil {
+				t.Fatalf("ParseMetricsPayload type %d failed: %v", tc.dataType, err)
+			}
+			if len(points) != 1 {
+				t.Fatalf("expected one point, got %+v", points)
+			}
+			point := points[0]
+			if point.LegacyMetricType != uint32(tc.dataType) {
+				t.Fatalf("legacy metric type mismatch: got=%d want=%d", point.LegacyMetricType, tc.dataType)
+			}
+			if point.Name == "" {
+				t.Fatalf("access-control metric type %d should have a stable metric name", tc.dataType)
+			}
+			if point.ObservedAt.UnixMilli() != 2000 {
+				t.Fatalf("unexpected observed time: %s", point.ObservedAt)
+			}
+			if point.Value.Number == nil || *point.Value.Number != float64(tc.value) {
+				t.Fatalf("unexpected numeric value: %+v", point.Value.Number)
+			}
+		})
+	}
+}
+
+func TestParseMetricsPayloadAccessControlSignals(t *testing.T) {
+	signalA, err := ParseMetricsPayload(buildMetricsPayload(1000, 500, 8, 1))
+	if err != nil {
+		t.Fatalf("ParseMetricsPayload access signal A failed: %v", err)
+	}
+	if len(signalA) != 1 || signalA[0].Name != "access_signal_a" || signalA[0].LegacyMetricType != 8 {
+		t.Fatalf("unexpected access signal A points: %+v", signalA)
+	}
+
+	signalB, err := ParseMetricsPayload(buildMetricsPayload(1200, 500, 16, 0))
+	if err != nil {
+		t.Fatalf("ParseMetricsPayload access signal B failed: %v", err)
+	}
+	if len(signalB) != 1 || signalB[0].Name != "access_signal_b" || signalB[0].LegacyMetricType != 16 {
+		t.Fatalf("unexpected access signal B points: %+v", signalB)
+	}
+}
+
 func TestParseLogPayload(t *testing.T) {
 	record, err := ParseLogPayload(buildLogPayload(2000, 2, "battery low"))
 	if err != nil {
